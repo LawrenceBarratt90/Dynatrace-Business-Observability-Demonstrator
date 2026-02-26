@@ -549,19 +549,37 @@ else
       echo -e "  ${CYAN}The Dynatrace app will route API calls through EdgeConnect to reach this server.${NC}"
     fi
 
-    # Generate edgeConnect.yaml with host_patterns
+    # Build host_mappings to rewrite public/private IPs to localhost
+    # On EC2, the public IP is NAT'd by VPC — not directly reachable from the instance.
+    # EdgeConnect must map incoming requests for the public IP to 127.0.0.1
+    HOST_MAPPINGS=""
+    if [[ -n "$EC_PUBLIC_IP" && "$EC_PUBLIC_IP" != *"Not Found"* ]]; then
+      HOST_MAPPINGS="  - from: \"${EC_PUBLIC_IP}\""$'\n'"    to: \"127.0.0.1\""
+    fi
+    if [[ -n "$EC_PRIVATE_IP" && "$EC_PRIVATE_IP" != "$EC_PUBLIC_IP" ]]; then
+      if [[ -n "$HOST_MAPPINGS" ]]; then
+        HOST_MAPPINGS="${HOST_MAPPINGS}"$'\n'"  - from: \"${EC_PRIVATE_IP}\""$'\n'"    to: \"127.0.0.1\""
+      else
+        HOST_MAPPINGS="  - from: \"${EC_PRIVATE_IP}\""$'\n'"    to: \"127.0.0.1\""
+      fi
+    fi
+
+    # Generate edgeConnect.yaml with host_patterns and host_mappings
     cat > edgeconnect/edgeConnect.yaml << ECEOF
 name: ${EC_NAME}
 api_endpoint_host: ${EC_API_HOST}
 host_patterns:
 ${HOST_PATTERNS:-  - "localhost"}
+host_mappings:
+${HOST_MAPPINGS:-  - from: "localhost"
+    to: "127.0.0.1"}
 oauth:
   client_id: ${EC_CLIENT_ID}
   client_secret: ${EC_CLIENT_SECRET}
   resource: ${EC_RESOURCE}
   endpoint: ${SSO_ENDPOINT}
 ECEOF
-    ok "Created edgeconnect/edgeConnect.yaml (with host patterns)"
+    ok "Created edgeconnect/edgeConnect.yaml (with host patterns + mappings)"
 
     # Install Docker if needed
     if ! command -v docker &>/dev/null; then
