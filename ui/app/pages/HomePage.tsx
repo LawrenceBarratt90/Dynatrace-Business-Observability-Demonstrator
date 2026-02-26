@@ -657,10 +657,33 @@ export const HomePage = () => {
     }
 
     setApiSettingsState({ host: settingsForm.apiHost, port: settingsForm.apiPort, protocol: settingsForm.apiProtocol });
+
+    // Auto-register host pattern with EdgeConnect so the serverless proxy can reach the server
+    const newHost = settingsForm.apiHost.trim();
+    if (newHost && newHost !== 'localhost' && newHost !== '127.0.0.1') {
+      try {
+        const ecRes = await functions.call('proxy-api', {
+          data: {
+            action: 'ec-update-patterns',
+            apiHost: '', apiPort: '', apiProtocol: '',
+            body: { hostPatterns: [newHost] },
+          },
+        });
+        const ecResult = await ecRes.json() as any;
+        if (ecResult.success && ecResult.data?.added?.length > 0) {
+          setSettingsStatus(prev => `${prev}\n🔌 Auto-registered ${newHost} as EdgeConnect host pattern`);
+        }
+        // Silently succeed if pattern already existed
+      } catch {
+        // Non-fatal — EdgeConnect may not exist yet or user hasn't set it up
+        console.warn('[BizObs] Could not auto-register EdgeConnect host pattern (non-fatal)');
+      }
+    }
+
     setIsSavingSettings(false);
     // Re-detect builtin settings after saving config (force since settings changed)
     detectBuiltinSettings(true);
-    setTimeout(() => setShowSettingsModal(false), 600);
+    setTimeout(() => setShowSettingsModal(false), 800);
   };
 
   const testConnectionFromModal = async () => {

@@ -128,6 +128,27 @@ export const SettingsPage = () => {
       settingsObjects.refetch();
       settingsEffective.refetch();
       setStatusMessage('✅ Settings saved to Dynatrace tenant!');
+
+      // Auto-register host pattern with EdgeConnect
+      const host = settings.apiHost.trim();
+      if (host && host !== 'localhost' && host !== '127.0.0.1') {
+        try {
+          const ecRes = await functions.call('proxy-api', {
+            data: {
+              action: 'ec-update-patterns',
+              apiHost: '', apiPort: '', apiProtocol: '',
+              body: { hostPatterns: [host] },
+            },
+          });
+          const ecResult = await ecRes.json() as any;
+          if (ecResult.success && ecResult.data?.added?.length > 0) {
+            setStatusMessage(prev => `${prev}\n🔌 Auto-registered ${host} as EdgeConnect host pattern`);
+          }
+        } catch {
+          // Non-fatal
+        }
+      }
+
       setTimeout(() => navigate('/'), 800);
     } catch (error: any) {
       console.error('Failed to save to app settings:', error);

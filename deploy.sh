@@ -504,16 +504,64 @@ else
     # Use provided name or default
     EC_NAME="${EC_NAME:-bizobs-forge}"
 
+    # Auto-detect server IPs for EdgeConnect host patterns
+    # The platform needs to know which hosts to route through this EdgeConnect
+    EC_PUBLIC_IP=""
+    EC_PRIVATE_IP=""
+
+    # Try AWS EC2 metadata service (IMDSv1 + IMDSv2)
+    EC2_TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" \
+      -H "X-aws-ec2-metadata-token-ttl-seconds: 5" --connect-timeout 2 2>/dev/null || true)
+    if [[ -n "$EC2_TOKEN" ]]; then
+      EC_PUBLIC_IP=$(curl -s -H "X-aws-ec2-metadata-token: $EC2_TOKEN" \
+        http://169.254.169.254/latest/meta-data/public-ipv4 --connect-timeout 2 2>/dev/null || true)
+      EC_PRIVATE_IP=$(curl -s -H "X-aws-ec2-metadata-token: $EC2_TOKEN" \
+        http://169.254.169.254/latest/meta-data/local-ipv4 --connect-timeout 2 2>/dev/null || true)
+    fi
+    # Fallback for IMDSv1 or non-EC2 environments
+    if [[ -z "$EC_PUBLIC_IP" ]]; then
+      EC_PUBLIC_IP=$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4 --connect-timeout 2 2>/dev/null || true)
+    fi
+    if [[ -z "$EC_PRIVATE_IP" ]]; then
+      EC_PRIVATE_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || true)
+    fi
+
+    # Build host_patterns list
+    HOST_PATTERNS=""
+    if [[ -n "$EC_PUBLIC_IP" && "$EC_PUBLIC_IP" != *"Not Found"* ]]; then
+      HOST_PATTERNS="  - \"${EC_PUBLIC_IP}\""
+      echo -e "  Detected public IP:  ${CYAN}${EC_PUBLIC_IP}${NC}"
+    fi
+    if [[ -n "$EC_PRIVATE_IP" && "$EC_PRIVATE_IP" != "$EC_PUBLIC_IP" ]]; then
+      if [[ -n "$HOST_PATTERNS" ]]; then
+        HOST_PATTERNS="${HOST_PATTERNS}"$'\n'"  - \"${EC_PRIVATE_IP}\""
+      else
+        HOST_PATTERNS="  - \"${EC_PRIVATE_IP}\""
+      fi
+      echo -e "  Detected private IP: ${CYAN}${EC_PRIVATE_IP}${NC}"
+    fi
+
+    if [[ -z "$HOST_PATTERNS" ]]; then
+      warn "Could not auto-detect server IP. You'll need to add host_patterns manually."
+      warn "Edit edgeconnect/edgeConnect.yaml and add your server IP under host_patterns:"
+    else
+      echo -e "  ${GREEN}These IPs will be registered as EdgeConnect host patterns.${NC}"
+      echo -e "  ${CYAN}The Dynatrace app will route API calls through EdgeConnect to reach this server.${NC}"
+    fi
+
+    # Generate edgeConnect.yaml with host_patterns
     cat > edgeconnect/edgeConnect.yaml << ECEOF
 name: ${EC_NAME}
 api_endpoint_host: ${EC_API_HOST}
+host_patterns:
+${HOST_PATTERNS:-  - "localhost"}
 oauth:
   client_id: ${EC_CLIENT_ID}
   client_secret: ${EC_CLIENT_SECRET}
   resource: ${EC_RESOURCE}
   endpoint: ${SSO_ENDPOINT}
 ECEOF
-    ok "Created edgeconnect/edgeConnect.yaml"
+    ok "Created edgeconnect/edgeConnect.yaml (with host patterns)"
 
     # Install Docker if needed
     if ! command -v docker &>/dev/null; then

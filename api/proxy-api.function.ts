@@ -8,7 +8,7 @@ import { settingsObjectsClient } from '@dynatrace-sdk/client-classic-environment
 import { queryExecutionClient } from '@dynatrace-sdk/client-query';
 
 interface ProxyPayload {
-  action: 'simulate-journey' | 'test-connection' | 'get-services' | 'stop-all-services' | 'stop-company-services' | 'get-dormant-services' | 'clear-dormant-services' | 'clear-company-dormant' | 'chaos-get-active' | 'chaos-get-recipes' | 'chaos-inject' | 'chaos-revert' | 'chaos-revert-all' | 'chaos-get-targeted' | 'chaos-remove-target' | 'chaos-smart' | 'ec-create' | 'detect-builtin-settings' | 'deploy-builtin-settings' | 'debug-builtin-schema' | 'generate-dashboard' | 'generate-dashboard-async' | 'get-dashboard-status' | 'deploy-dashboard' | 'deploy-business-flow';
+  action: 'simulate-journey' | 'test-connection' | 'get-services' | 'stop-all-services' | 'stop-company-services' | 'get-dormant-services' | 'clear-dormant-services' | 'clear-company-dormant' | 'chaos-get-active' | 'chaos-get-recipes' | 'chaos-inject' | 'chaos-revert' | 'chaos-revert-all' | 'chaos-get-targeted' | 'chaos-remove-target' | 'chaos-smart' | 'ec-create' | 'ec-update-patterns' | 'detect-builtin-settings' | 'deploy-builtin-settings' | 'debug-builtin-schema' | 'generate-dashboard' | 'generate-dashboard-async' | 'get-dashboard-status' | 'deploy-dashboard' | 'deploy-business-flow';
   apiHost: string;
   apiPort: string;
   apiProtocol: string;
@@ -229,6 +229,46 @@ export default async function (payload: ProxyPayload) {
           error: `SDK EdgeConnect create failed: ${detail}${scopeInfo}`,
           debug: { rawError: JSON.stringify(errBody, null, 2) },
         };
+      }
+    }
+
+    // ── Update EdgeConnect host patterns (auto-register server IP for routing) ──
+
+    if (action === 'ec-update-patterns') {
+      const { hostPatterns } = body as { hostPatterns: string[] };
+      if (!hostPatterns || hostPatterns.length === 0) {
+        return { success: false, error: 'hostPatterns array is required' };
+      }
+      try {
+        // List existing EdgeConnects to find one to update
+        const listResult = await edgeConnectClient.listEdgeConnects({ addFields: 'metadata' });
+        const ecs = listResult.edgeConnects || [];
+        if (ecs.length === 0) {
+          return { success: false, error: 'No EdgeConnects found. Create one first.' };
+        }
+        // Prefer the first online EdgeConnect, or just take the first one
+        const onlineEc = ecs.find((ec: any) => (ec.metadata?.instances || []).length > 0) || ecs[0];
+        const ecId = onlineEc.id;
+        const ecName = onlineEc.name;
+        const existingPatterns: string[] = onlineEc.hostPatterns || [];
+
+        // Merge new patterns with existing (deduplicate)
+        const merged = [...new Set([...existingPatterns, ...hostPatterns])];
+
+        // Update the EdgeConnect with merged host patterns
+        await edgeConnectClient.updateEdgeConnect({
+          edgeConnectId: ecId,
+          body: { name: ecName, hostPatterns: merged },
+        });
+
+        return {
+          success: true,
+          data: { ecId, ecName, hostPatterns: merged, added: hostPatterns.filter(p => !existingPatterns.includes(p)) },
+        };
+      } catch (sdkErr: any) {
+        const errBody = sdkErr?.body || sdkErr;
+        const detail = errBody?.error?.message || sdkErr?.message || 'Unknown SDK error';
+        return { success: false, error: `Failed to update EdgeConnect patterns: ${detail}` };
       }
     }
 
