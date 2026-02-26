@@ -25,42 +25,85 @@ export default async function (payload: ProxyPayload) {
 
   try {
     if (action === 'test-connection') {
-      try {
-        const healthRes = await fetch(`${baseUrl}/api/health`, {
-          method: 'GET',
-          signal: AbortSignal.timeout(8000),
-        });
-        const healthData = await healthRes.json() as Record<string, unknown>;
-        // The server reports the caller's IP — this is the actual IP that reached the server
-        const callerIp = (healthData.callerIp as string) || null;
-        return {
-          success: true,
-          status: healthRes.status,
-          message: `Server is running on ${apiHost}:${apiPort} (health: ${healthRes.status})`,
-          callerIp,
-        };
-      } catch {
+      // Helper: attempt to reach the server
+      const tryHealth = async (): Promise<{ ok: true; status: number; message: string; callerIp: string | null } | { ok: false }> => {
         try {
-          const fallbackRes = await fetch(`${baseUrl}/api/journey-simulation/simulate-journey`, {
+          const healthRes = await fetch(`${baseUrl}/api/health`, {
             method: 'GET',
             signal: AbortSignal.timeout(8000),
           });
+          const healthData = await healthRes.json() as Record<string, unknown>;
+          const callerIp = (healthData.callerIp as string) || null;
+          return { ok: true, status: healthRes.status, message: `Server is running on ${apiHost}:${apiPort} (health: ${healthRes.status})`, callerIp };
+        } catch {
+          try {
+            const fallbackRes = await fetch(`${baseUrl}/api/journey-simulation/simulate-journey`, {
+              method: 'GET',
+              signal: AbortSignal.timeout(8000),
+            });
+            return { ok: true, status: fallbackRes.status, message: `Server reachable on ${apiHost}:${apiPort} (status ${fallbackRes.status})`, callerIp: null };
+          } catch {
+            return { ok: false };
+          }
+        }
+      };
+
+      // First attempt
+      const first = await tryHealth();
+      if (first.ok) {
+        return { success: true, status: first.status, message: first.message, callerIp: first.callerIp };
+      }
+
+      // Connection failed — auto-register host pattern with EdgeConnect and retry
+      let ecAutoRegistered = false;
+      if (apiHost && apiHost !== 'localhost' && apiHost !== '127.0.0.1') {
+        try {
+          const listResult = await edgeConnectClient.listEdgeConnects({ addFields: 'metadata' });
+          const ecs = listResult.edgeConnects || [];
+          if (ecs.length > 0) {
+            // Prefer online EdgeConnect, fallback to first
+            const targetEc = ecs.find((ec: any) => (ec.metadata?.instances || []).length > 0) || ecs[0];
+            const existing: string[] = targetEc.hostPatterns || [];
+            if (!existing.includes(apiHost)) {
+              await edgeConnectClient.updateEdgeConnect({
+                edgeConnectId: targetEc.id!,
+                body: { name: targetEc.name!, hostPatterns: [...existing, apiHost] },
+              });
+              // Wait for routing to propagate
+              await new Promise(resolve => setTimeout(resolve, 3000));
+              ecAutoRegistered = true;
+            }
+          }
+        } catch (ecErr: any) {
+          console.error('[proxy-api] EdgeConnect auto-register failed:', ecErr.message);
+        }
+      }
+
+      // Retry after EdgeConnect registration
+      if (ecAutoRegistered) {
+        const retry = await tryHealth();
+        if (retry.ok) {
           return {
             success: true,
-            status: fallbackRes.status,
-            message: `Server reachable on ${apiHost}:${apiPort} (status ${fallbackRes.status})`,
-            callerIp: null,
-          };
-        } catch {
-          // Both endpoints unreachable — likely a firewall issue
-          return {
-            success: false,
-            error: `Cannot reach ${apiHost}:${apiPort}`,
-            callerIp: null,
-            details: `Could not reach ${baseUrl}. Ensure port ${apiPort} is open for inbound TCP in your firewall/security group. If using AWS, set Source to 0.0.0.0/0 temporarily, then run Test again — once connected, the exact source IP will be shown so you can restrict the rule.`,
+            status: retry.status,
+            message: `${retry.message} (auto-registered EdgeConnect host pattern)`,
+            callerIp: retry.callerIp,
+            ecAutoRegistered: true,
           };
         }
       }
+
+      // Both attempts failed
+      const ecHint = ecAutoRegistered
+        ? 'EdgeConnect host pattern was auto-registered but routing may need a moment. Try again in 10-15 seconds.'
+        : 'Ensure an EdgeConnect is created and running. The host IP must be registered as a host pattern on the EdgeConnect in Dynatrace.';
+      return {
+        success: false,
+        error: `Cannot reach ${apiHost}:${apiPort}`,
+        callerIp: null,
+        ecAutoRegistered,
+        details: `Could not reach ${baseUrl} through EdgeConnect. ${ecHint}`,
+      };
     }
 
     if (action === 'get-services') {
