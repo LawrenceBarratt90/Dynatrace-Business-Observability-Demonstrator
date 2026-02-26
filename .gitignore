@@ -94,3 +94,4 @@ ai-agent-knowledge-base-main*/
 .dt-app/.tokens.json
 .dt-app/tokens.json
 .chaos-state.json
+edgeconnect/edgeConnect.yaml
