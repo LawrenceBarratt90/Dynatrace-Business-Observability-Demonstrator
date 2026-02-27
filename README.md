@@ -15,7 +15,7 @@ A full-stack business observability platform that dynamically creates microservi
 | **Dynamic Microservices** | Spawns real Node.js child processes per journey step — each with its own Express server, Dynatrace OneAgent identity, and health endpoint |
 | **7 Industry Companies** | Banking, Insurance, Manufacturing, Retail, Smyths, Telecommunications, Travel & Hospitality — each with unique journey definitions |
 | **Auto-Load System** | Generates 30–60 journeys/minute per active company with zero manual interaction |
-| **AI Agent Hub** | 4 AI agents — Gremlin (chaos), Fix-It (remediation), Librarian (memory), Dashboard (deployment) |
+| **AI Agent Hub** | 4 AI agents — Nemesis (chaos), Fix-It (remediation), Librarian (memory), Dashboard (deployment) |
 | **Per-Service Chaos Injection** | Target individual services with configurable error rates without affecting the rest of the fleet |
 | **Chaos State Persistence** | All feature flag overrides survive server restarts via `.chaos-state.json` |
 | **Port Persistence** | Services get the same port across restarts via `.port-allocations.json` |
@@ -79,7 +79,7 @@ Or configure Dynatrace credentials from the UI via the ⚙️ **Settings** modal
 ├─────────────────────────────────────────────────────────────────┤
 │  Main Server (port 8080) — Express.js + Socket.IO               │
 │  ├── 18 API route modules (75+ endpoints)                       │
-│  ├── AI Agent APIs (Gremlin, Fix-It, Librarian, Dashboard)      │
+│  ├── AI Agent APIs (Nemesis, Fix-It, Librarian, Dashboard)      │
 │  ├── Feature Flag Manager (per-service isolation)               │
 │  ├── Auto-Load Watcher (30-60 journeys/min per company)         │
 │  └── Dynatrace Event Ingestion + DT API Proxy                  │
@@ -99,7 +99,7 @@ Or configure Dynatrace credentials from the UI via the ⚙️ **Settings** modal
 
 The Agent Hub (Step 4 in the UI) provides four specialized AI agents powered by an LLM backend (Ollama).
 
-### 👹 Gremlin — Chaos Agent
+### 👹 Nemesis — Chaos Agent
 Controlled chaos injection with LLM-powered recipe selection.
 
 - **7 chaos recipes**: `enable_errors`, `increase_error_rate`, `slow_responses`, `disable_circuit_breaker`, `disable_cache`, `target_company`, `custom_flag`
@@ -222,7 +222,7 @@ Deploys: OneAgent features, capture rules, service naming, OpenPipeline pipeline
 | **Step 1: Customer Details** | Company name, domain, industry type input |
 | **Step 2: Generate Prompts** | AI/Copilot prompt generation for journey creation |
 | **Step 3: Generate Data** | Journey simulation controls, data generation, LoadRunner integration |
-| 🤖 **Step 4: AI Agent Hub** | Gremlin / Fix-It / Librarian / Dashboard agent controls |
+| 🤖 **Step 4: AI Agent Hub** | Nemesis / Fix-It / Librarian / Dashboard agent controls |
 
 ### Additional UI Elements
 - **Saved Prompts Sidebar** (left panel): Save/load/duplicate/delete/export/import journey configs. 24 pre-built + user-saved configs.
@@ -254,7 +254,7 @@ Deploys: OneAgent features, capture rules, service naming, OpenPipeline pipeline
 ├── .env.template                # Environment variable template
 │
 ├── agents/                      # TypeScript AI agent source
-│   ├── gremlin/                 # Chaos injection agent
+│   ├── nemesis/                 # Chaos injection agent
 │   ├── fixit/                   # Auto-remediation agent
 │   └── librarian/               # Operational memory agent
 ├── dist/                        # Compiled TypeScript output
@@ -317,7 +317,7 @@ Deploys: OneAgent features, capture rules, service naming, OpenPipeline pipeline
 | `/api/steps` | Step management |
 | `/api/flow` | Flow visualization |
 | `/api/config` | Copilot prompt generation |
-| `/api/gremlin` | Gremlin chaos agent API |
+| `/api/nemesis` | Nemesis chaos agent API |
 | `/api/fixit` | Fix-It remediation agent API |
 | `/api/librarian` | Librarian memory agent API |
 | `/api/ai-dashboard` | AI dashboard generation |
@@ -358,7 +358,7 @@ npm run configure:monaco        # Deploy DT config via Monaco CLI
 3. **Step 2**: Generate AI/Copilot prompts for journey definition
 4. **Step 3**: Run journey simulation — services spin up dynamically, auto-load begins
 5. **Step 4**: Open the AI Agent Hub:
-   - Use **Gremlin** to inject chaos into a specific service
+   - Use **Nemesis** to inject chaos into a specific service
    - Watch **Dynatrace** detect the problem
    - Let **Fix-It** autonomously diagnose and remediate
    - Review the full incident timeline in **Librarian**
