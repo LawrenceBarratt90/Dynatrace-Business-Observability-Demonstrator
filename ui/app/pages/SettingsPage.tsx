@@ -10,7 +10,7 @@ import Colors from '@dynatrace/strato-design-tokens/colors';
 import { useSettingsV2, useSettingsObjectsV2, useUpdateSettingsV2, useCreateSettingsV2 } from '@dynatrace-sdk/react-hooks';
 import { functions } from '@dynatrace-sdk/app-utils';
 
-const SCHEMA_ID = 'app:my.bizobs.generator:api-config';
+const SCHEMA_ID = 'app:my.bizobs.generator.test:api-config';
 
 // localStorage fallback key (for when app-settings is unavailable)
 const LOCAL_STORAGE_KEY = 'bizobs_api_settings';

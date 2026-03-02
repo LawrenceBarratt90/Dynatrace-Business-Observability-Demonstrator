@@ -1,6 +1,6 @@
 {
   "dynatrace": "1",
-  "schemaId": "app:my.bizobs.generator:api-config",
+  "schemaId": "app:my.bizobs.generator.test:api-config",
   "displayName": "BizObs Generator API Configuration",
   "version": "1.1",
   "multiObject": false,
