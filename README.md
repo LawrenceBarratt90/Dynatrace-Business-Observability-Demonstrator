@@ -52,6 +52,29 @@ You need **exactly 2 credentials**:
 
 ---
 
+### Quick Start (2 commands)
+
+```bash
+git clone https://github.com/lawrobar90/Dynatrace-Business-Observability-Forge.git
+cd Dynatrace-Business-Observability-Forge
+cp setup.conf.example setup.conf
+```
+
+Edit **`setup.conf`** with your 4 values (tenant ID, API token, OAuth client ID + secret), then:
+
+```bash
+./setup.sh
+```
+
+That's it. The script handles everything: npm install, EdgeConnect, app deploy, build, and server start.
+
+> After setup completes, open **Dynatrace → Apps → Business Observability Forge**, go to **Settings → Config**, enter your **private IP** (`hostname -I | awk '{print $1}'`), then work through the **Get Started** checklist.
+
+---
+
+<details>
+<summary><strong>Manual Setup (step-by-step)</strong></summary>
+
 ### Phase 1 — Pull
 
 ```bash
@@ -78,7 +101,8 @@ export DT_APP_OAUTH_CLIENT_ID="dt0s10.XXXXX"          # ← your client ID
 export DT_APP_OAUTH_CLIENT_SECRET="dt0s10.XXXXX.YYYYY" # ← your client secret
 npx dt-app deploy
 
-# 4. Start the Engine server
+# 4. Build agents & start the Engine server
+npm run build:agents
 npm start
 #    Or for background with auto-restart:
 #    nohup npm start > server.log 2>&1 &
@@ -95,6 +119,8 @@ npm start
 7. Go to **Home** → pick a template → click **Run**
 
 > **AWS users:** Always use the **private IP** (e.g. `172.31.x.x`), not the Elastic/public IP. AWS does not support NAT hairpin.
+
+</details>
 
 For the full detailed guide, see [TECHNICAL-GUIDE.md](TECHNICAL-GUIDE.md).
 

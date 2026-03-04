@@ -1,0 +1,21 @@
+# ============================================================
+#  Business Observability Forge — Setup Configuration
+# ============================================================
+#  Fill in ALL 4 values below, then run:  ./setup.sh
+# ============================================================
+
+# Your Dynatrace tenant ID (e.g. abc12345)
+# Find it in your tenant URL: https://<THIS_PART>.sprint.dynatracelabs.com
+TENANT_ID="YOUR_TENANT_ID"
+
+# Credential A: API Token (dt0c01.*)
+# Create at: DT tenant → Settings → Access Tokens
+# Scopes needed: events.ingest, metrics.ingest, openTelemetryTrace.ingest, entities.read
+API_TOKEN="dt0c01.XXXX..."
+
+# Credential B: OAuth Client (dt0s10.*)
+# Create at: DT tenant → Settings → General → External Requests → Add EdgeConnect
+# Then add scopes in Account Management → IAM → OAuth clients:
+#   app-engine:apps:install, app-engine:apps:run
+OAUTH_CLIENT_ID="dt0s10.XXXX"
+OAUTH_CLIENT_SECRET="dt0s10.XXXX.YYYY..."

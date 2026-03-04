@@ -2,6 +2,8 @@
 
 > A hands-on guide for engineers, SEs, and developers who want to get the platform running and understand what's under the hood.
 
+> **Want the fast path?** Edit `setup.conf` with your 4 values then run `./setup.sh` — it does everything below automatically. This guide explains what the script does and how to do it manually.
+
 ---
 
 ## What Is This?
