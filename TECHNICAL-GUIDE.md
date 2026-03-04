@@ -88,21 +88,23 @@ Before you start, make sure you have **all of these** ready:
 Follow these steps **in order**. Each step depends on the one before it.
 
 ```
-Step 1: Clone & Install            ← Get the code
-Step 2: Create DT Credentials      ← API Token (for Engine) + OAuth Client (for EdgeConnect)
+Step 1: Clone & Install            ← Get the code (single unified repo)
+Step 2: Create DT Credentials      ← A: API Token  +  B: OAuth Client  (C: Deploy SSO is automatic)
 Step 3: Deploy EdgeConnect          ← So the Forge UI can reach your server
-Step 4: Deploy the AppEngine UI     ← Install the Forge app in Dynatrace
+Step 4: Deploy the AppEngine UI     ← Install the Forge app in Dynatrace (SSO login = Credential C)
 Step 5: Start the Engine Server     ← The server that does the work
 Step 6: Configure from Forge UI     ← Wire everything together
 ```
 
 ---
 
-### Step 1: Clone & Install the Engine
+### Step 1: Clone & Install
+
+This is a **single unified repo** — it contains both the Engine (server) and the Forge UI (AppEngine app).
 
 ```bash
-git clone https://github.com/lawrobar90/Dynatrace-AI-Business-Observability-Engine.git
-cd Dynatrace-AI-Business-Observability-Engine
+git clone https://github.com/lawrobar90/Dynatrace-Business-Observability-Forge.git
+cd Dynatrace-Business-Observability-Forge
 npm install
 ```
 
@@ -112,16 +114,20 @@ npm install
 
 ### Step 2: Create Dynatrace Credentials
 
-You need **exactly 2 credentials** — they're different types and created in different places:
+You need **2 credentials you create manually**, plus a 3rd that's handled automatically:
 
 | # | Credential | Type | Where To Create | What Uses It |
 |---|-----------|------|----------------|--------------|
 | A | **API Token** | `dt0c01.*` | Dynatrace tenant → Settings → Access Tokens | The **Engine server** uses this to send events/metrics to Dynatrace |
 | B | **OAuth Client** | `dt0s10.*` | Account Management → OAuth Clients | The **EdgeConnect binary** uses this to establish its tunnel |
+| C | **Deploy Token** | `dt0s08.*` (SSO) | **Automatic** — `dt-app deploy` opens a browser login | `dt-app deploy` uses this to push the app to AppEngine |
 
-> **Why can't I use just one?** They're completely separate credential systems. API Tokens are tenant-level keys for REST APIs. OAuth Clients are account-level credentials for platform services like EdgeConnect. They can't be combined.
+> **Why 3 credentials?**
+> - **A (API Token)** — tenant-level REST API key. Created in your DT tenant's Settings.
+> - **B (OAuth Client)** — account-level credential for platform services. Created in Account Management.
+> - **C (Deploy Token)** — you don't create this manually. When you run `npx dt-app deploy`, it opens a browser for you to log in with SSO. The token is cached in `.dt-app/.tokens.json` and automatically refreshed on subsequent deploys.
 >
-> The **Forge UI** (AppEngine app) doesn't need any manual credentials — its permissions are declared in `app.config.json` and granted automatically when you deploy.
+> The **Forge UI** (AppEngine app) doesn't need any manual credentials at runtime — its permissions are declared in `app.config.json` and granted automatically when you deploy.
 
 ---
 
@@ -238,28 +244,29 @@ If you see OAuth errors, double-check your `client_id`, `client_secret`, and `re
 
 ### Step 4: Deploy the AppEngine UI (Forge)
 
-This deploys the Forge UI as a Dynatrace App.
+This deploys the Forge UI as a Dynatrace App. Run this **from the same repo you cloned in Step 1** — it's a unified repo containing both the Engine and the Forge UI.
 
 ```bash
-# You need the Forge repo (separate from the Engine repo)
-git clone https://github.com/lawrobar90/Dynatrace-Business-Observability-Forge.git
-cd Dynatrace-Business-Observability-Forge
-npm install
+# From the project root (Dynatrace-Business-Observability-Forge/)
 npx dt-app deploy
 ```
 
-The deploy command will ask you to authenticate with your Dynatrace tenant (SSO browser flow).
+**What happens:**
+1. First time: it opens a **browser window** for Dynatrace SSO login (Credential C from Step 2)
+2. You log in → the token is cached in `.dt-app/.tokens.json`
+3. Subsequent deploys reuse the cached token (auto-refreshes until it expires)
+4. If the token expires, it'll prompt you to log in again
 
 **Verify:** Go to your Dynatrace tenant → **Apps** → you should see **Business Observability Forge** in the list. Click it to open.
 
-> **Common mistake:** Running `npx dt-app deploy` from the Engine repo instead of the Forge repo. The Engine is the server. The Forge is the UI. You deploy the **Forge**.
+> **Common mistake:** Running `npx dt-app deploy` without logging in when prompted. If you're on a headless server (SSH), copy the URL it prints and open it in your local browser, then paste the callback URL back.
 
 ---
 
 ### Step 5: Start the Engine Server
 
 ```bash
-cd Dynatrace-AI-Business-Observability-Engine
+# From the project root (same directory)
 npm start
 ```
 
@@ -529,7 +536,7 @@ Welcome Tab → Step 1: Company Details → Step 2: Generate Prompts → Step 3:
 | **Forge UI shows "Connection failed"** | Server IP not configured or EdgeConnect not tunneling | Settings → Config tab → set private IP + Test. Settings → EdgeConnect tab → verify green |
 | **Chaos injection sends 200+ events** | `entitySelector` too broad (old bug) | Fixed in v2.9.10+ — now scoped to target service name |
 | **AI agents don't respond** | Ollama not running or model not pulled | `ollama pull llama3.2` and `curl http://localhost:11434/api/tags` to verify |
-| **`npx dt-app deploy` fails** | Wrong directory, or SSO token expired | Make sure you're in the **Forge** repo (not Engine). Re-authenticate if prompted |
+| **`npx dt-app deploy` fails** | SSO token expired or npm not installed | Re-authenticate when prompted (browser SSO login). Check `.dt-app/.tokens.json` exists after login. Run `npm install` first if you haven't |
 | **Settings won't save (400 error)** | Sprint environment app-settings API limitation | App falls back to localStorage automatically — safe to ignore |
 | **`api_endpoint_host` rejected** | Using tenant URL instead of AppEngine URL | Use `YOUR_TENANT.sprint.apps.dynatracelabs.com` (with `.apps.`), not `YOUR_TENANT.sprint.dynatracelabs.com` |
 
