@@ -7,7 +7,7 @@ import { Button } from '@dynatrace/strato-components/buttons';
 import { TextInput } from '@dynatrace/strato-components-preview/forms';
 import { TitleBar } from '@dynatrace/strato-components-preview/layouts';
 import Colors from '@dynatrace/strato-design-tokens/colors';
-import { useSettingsV2, useSettingsObjectsV2, useUpdateSettingsV2, useCreateSettingsV2 } from '@dynatrace-sdk/react-hooks';
+import { useSettings, useSettingsObjects, useUpdateSettings, useCreateSettings } from '@dynatrace-sdk/react-hooks';
 import { functions } from '@dynatrace-sdk/app-utils';
 
 const SCHEMA_ID = 'app:my.bizobs.generator.test:api-config';
@@ -38,13 +38,13 @@ export const SettingsPage = () => {
   const [statusMessage, setStatusMessage] = useState('');
 
   // ── Settings SDK hooks ──────────────────────────────────
-  const settingsEffective = useSettingsV2({ schemaId: SCHEMA_ID, addFields: 'value' });
-  const settingsObjects = useSettingsObjectsV2(
+  const settingsEffective = useSettings({ schemaId: SCHEMA_ID, addFields: 'value' });
+  const settingsObjects = useSettingsObjects(
     { schemaId: SCHEMA_ID, addFields: 'value,objectId,version' },
     { autoFetch: true, autoFetchOnUpdate: true },
   );
-  const updateSettings = useUpdateSettingsV2();
-  const createSettings = useCreateSettingsV2();
+  const updateSettings = useUpdateSettings();
+  const createSettings = useCreateSettings();
 
   // Sync settings from SDK hooks → local state
   const settingsLoadedRef = useRef(false);
