@@ -150,7 +150,8 @@ if [ "$NEED_PROMPT" = true ]; then
   echo -e "  ${CYAN}─── 6/6: AppEngine Deploy OAuth ───${NC}"
   echo -e "  ${YELLOW}This deploys the Forge UI to your Dynatrace Apps.${NC}"
   echo -e "  ${YELLOW}Can be the SAME client as EdgeConnect (if you added deploy scopes to it)${NC}"
-  echo -e "  ${YELLOW}OR a different OAuth client with these scopes:${NC}"
+  echo -e "  ${YELLOW}OR a different OAuth client. Accepts dt0s10 (env-level) or dt0s02 (account-level).${NC}"
+  echo -e "  ${YELLOW}Required scopes:${NC}"
   echo -e "  ${YELLOW}  • app-engine:apps:install${NC}"
   echo -e "  ${YELLOW}  • app-engine:apps:run${NC}"
   echo -e "  ${YELLOW}Press Enter to use the same EdgeConnect client, or paste a different one.${NC}"
@@ -168,24 +169,33 @@ fi
 if [[ ! "$API_TOKEN" == dt0c01.* ]]; then
   fail "API Token must start with 'dt0c01.' — you entered '${API_TOKEN:0:10}...'. Delete setup.conf and re-run ./setup.sh"
 fi
-for oauth_var in EC_OAUTH_CLIENT_ID DEPLOY_OAUTH_CLIENT_ID; do
-  val="${!oauth_var}"
-  if [[ ! "$val" == dt0s10.* ]]; then
-    echo -e "  ${RED}✗ $oauth_var must start with 'dt0s10.' (environment-level)${NC}"
-    echo -e "  ${YELLOW}  You entered '${val:0:12}...' which looks like an account-level token (dt0s02).${NC}"
-    echo -e "  ${YELLOW}  EdgeConnect client: Dynatrace → Settings → General → External Requests → Add EdgeConnect${NC}"
-    echo -e "  ${YELLOW}  Delete setup.conf and re-run ./setup.sh${NC}"
-    exit 1
-  fi
-done
-for oauth_var in EC_OAUTH_CLIENT_SECRET DEPLOY_OAUTH_CLIENT_SECRET; do
-  val="${!oauth_var}"
-  if [[ ! "$val" == dt0s10.* ]]; then
-    echo -e "  ${RED}✗ $oauth_var must start with 'dt0s10.' (environment-level)${NC}"
-    echo -e "  ${YELLOW}  Delete setup.conf and re-run ./setup.sh${NC}"
-    exit 1
-  fi
-done
+
+# EdgeConnect OAuth MUST be dt0s10 (environment-level)
+if [[ ! "$EC_OAUTH_CLIENT_ID" == dt0s10.* ]]; then
+  echo -e "  ${RED}✗ EdgeConnect OAuth Client ID must start with 'dt0s10.' (environment-level)${NC}"
+  echo -e "  ${YELLOW}  You entered '${EC_OAUTH_CLIENT_ID:0:12}...' — that's account-level (dt0s02), won't work for EdgeConnect.${NC}"
+  echo -e "  ${YELLOW}  Create it in: Dynatrace → Settings → General → External Requests → Add EdgeConnect${NC}"
+  echo -e "  ${YELLOW}  Delete setup.conf and re-run ./setup.sh${NC}"
+  exit 1
+fi
+if [[ ! "$EC_OAUTH_CLIENT_SECRET" == dt0s10.* ]]; then
+  echo -e "  ${RED}✗ EdgeConnect OAuth Client Secret must start with 'dt0s10.' (environment-level)${NC}"
+  echo -e "  ${YELLOW}  Delete setup.conf and re-run ./setup.sh${NC}"
+  exit 1
+fi
+
+# Deploy OAuth can be dt0s10 (environment-level) OR dt0s02 (account-level)
+if [[ ! "$DEPLOY_OAUTH_CLIENT_ID" == dt0s10.* ]] && [[ ! "$DEPLOY_OAUTH_CLIENT_ID" == dt0s02.* ]]; then
+  echo -e "  ${RED}✗ Deploy OAuth Client ID must start with 'dt0s10.' or 'dt0s02.'${NC}"
+  echo -e "  ${YELLOW}  You entered '${DEPLOY_OAUTH_CLIENT_ID:0:12}...'${NC}"
+  echo -e "  ${YELLOW}  Delete setup.conf and re-run ./setup.sh${NC}"
+  exit 1
+fi
+if [[ ! "$DEPLOY_OAUTH_CLIENT_SECRET" == dt0s10.* ]] && [[ ! "$DEPLOY_OAUTH_CLIENT_SECRET" == dt0s02.* ]]; then
+  echo -e "  ${RED}✗ Deploy OAuth Client Secret must start with 'dt0s10.' or 'dt0s02.'${NC}"
+  echo -e "  ${YELLOW}  Delete setup.conf and re-run ./setup.sh${NC}"
+  exit 1
+fi
 
 # Save valid credentials for future runs
 if [ "$NEED_PROMPT" = true ]; then
