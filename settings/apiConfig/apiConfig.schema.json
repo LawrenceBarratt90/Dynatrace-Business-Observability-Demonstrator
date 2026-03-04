@@ -2,7 +2,7 @@
   "dynatrace": "1",
   "schemaId": "app:my.bizobs.generator.test:api-config",
   "displayName": "BizObs Generator API Configuration",
-  "version": "1.3",
+  "version": "1.4",
   "multiObject": false,
   "maxObjects": 1,
   "allowedScopes": ["app"],
@@ -46,6 +46,22 @@
       "type": "text",
       "default": "{}",
       "maxLength": 4096,
+      "nullable": true
+    },
+    "adminUserId": {
+      "displayName": "Admin User ID (deprecated)",
+      "description": "Deprecated — kept for schema compatibility",
+      "type": "text",
+      "default": "",
+      "maxLength": 255,
+      "nullable": true
+    },
+    "adminUserName": {
+      "displayName": "Admin User Name (deprecated)",
+      "description": "Deprecated — kept for schema compatibility",
+      "type": "text",
+      "default": "",
+      "maxLength": 255,
       "nullable": true
     }
   },
