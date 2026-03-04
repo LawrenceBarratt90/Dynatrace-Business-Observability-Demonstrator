@@ -1,0 +1,68 @@
+# Business Observability Forge .gitignore
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-error.log*
+package-lock.json
+
+# TypeScript compiled output
+dist/
+
+# Environment and secrets
+.env
+.env.local
+.env.production
+.dt-credentials.json
+
+# Logs, PIDs, and runtime files
+*.log
+logs/
+server.pid
+nohup.out
+
+# Runtime state (generated at runtime, not source)
+.chaos-state.json
+.port-allocations.json
+
+# Ollama / AI models (downloaded at deploy time)
+*.gguf
+*.bin
+models/
+
+# Dynatrace AppEngine tokens (NEVER commit)
+.dt-app/.tokens.json
+.dt-app/tokens.json
+.dt-app/build/
+.dt-app/logs/
+
+# Dynatrace OneAgent installer
+Dynatrace-OneAgent-Linux-*.sh
+*oneagent*
+
+# Dynamic service runners (spawned at runtime)
+services/.dynamic-runners/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.iml
+
+# OS files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# Build outputs
+build/
+out/
+
+# Backups and temp
+*-backup/
+*.backup*
+*.bak*
+.tmp-*/
+temp/
+tmp/
