@@ -16,6 +16,7 @@ import type { IntentPayload } from '@dynatrace-sdk/navigation';
 import { generateCsuitePrompt, generateJourneyPrompt, PROMPT_DESCRIPTIONS } from '../constants/promptTemplates';
 import { INITIAL_TEMPLATES, InitialTemplate } from '../constants/initialTemplates';
 import { FORGE_LOGO } from '../constants/forgeLogo';
+import { useAdminAuth } from '../hooks/useAdminAuth';
 
 const LOCAL_STORAGE_KEY = 'bizobs_api_settings';
 
@@ -83,11 +84,14 @@ interface PromptTemplate {
   originalConfig?: any; // Full config for pre-loaded templates
   createdAt: string;
   isPreloaded?: boolean;
+  createdByUserId?: string;
+  createdByUserName?: string;
 }
 
 const TEMPLATES_STORAGE_KEY = 'bizobs_prompt_templates';
 
 export const HomePage = () => {
+  const { currentUser, isAdmin, canModify } = useAdminAuth();
   const [activeTab, setActiveTab] = useState('welcome');
   const [companyName, setCompanyName] = useState('');
   const [domain, setDomain] = useState('');
@@ -235,6 +239,7 @@ export const HomePage = () => {
   const [toastType, setToastType] = useState<'success' | 'error' | 'warning' | 'info'>('info');
   const [toastVisible, setToastVisible] = useState(false);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   // Confirm dialog state (replaces native confirm())
   const [confirmDialog, setConfirmDialog] = useState<{ message: string; onConfirm: () => void } | null>(null);
@@ -530,6 +535,7 @@ export const HomePage = () => {
   useEffect(() => { loadEdgeConnects(); }, []);
 
   const deleteEdgeConnect = async (ecId: string, ecName: string) => {
+    if (!isAdmin) { showToast('🔒 Only the app admin can delete EdgeConnect configurations.', 'warning'); return; }
     if (!confirm(`Delete EdgeConnect "${ecName}"? This cannot be undone.`)) return;
     setIsDeletingEC(ecId);
     setEcStatus(`🗑️ Deleting ${ecName}...`);
@@ -744,6 +750,7 @@ export const HomePage = () => {
   };
 
   const stopAllServices = async () => {
+    if (!isAdmin) { showToast('🔒 Only the app admin can stop all services.', 'warning'); return; }
     setConfirmDialog({
       message: '⚠️ Stop ALL running services? This will kill every child service on the server.',
       onConfirm: () => doStopAllServices()
@@ -767,6 +774,7 @@ export const HomePage = () => {
   };
 
   const stopCompanyServices = async (company: string) => {
+    if (!isAdmin) { showToast('🔒 Only the app admin can stop services.', 'warning'); return; }
     setIsStoppingServices(true);
     setStoppingCompany(company);
     setServicesStatus(`🛑 Stopping services for ${company}...`);
@@ -804,6 +812,7 @@ export const HomePage = () => {
   };
 
   const clearAllDormantServices = async () => {
+    if (!isAdmin) { showToast('🔒 Only the app admin can clear dormant services.', 'warning'); return; }
     setIsClearingDormant(true);
     try {
       await functions.call('proxy-api', {
@@ -819,6 +828,7 @@ export const HomePage = () => {
   };
 
   const clearCompanyDormantServices = async (company: string) => {
+    if (!isAdmin) { showToast('🔒 Only the app admin can clear dormant services.', 'warning'); return; }
     setClearingDormantCompany(company);
     try {
       await functions.call('proxy-api', {
@@ -920,6 +930,7 @@ export const HomePage = () => {
   };
 
   const injectChaos = async () => {
+    if (!isAdmin) { setChaosStatus('🔒 Only the app admin can inject chaos.'); return; }
     if (injectTargetMode === 'service' && !injectForm.target) { setChaosStatus('⚠️ Select a target service'); return; }
     if (injectTargetMode === 'journey' && !injectForm.company) { setChaosStatus('⚠️ Select a journey (company)'); return; }
     setIsInjectingChaos(true);
@@ -944,6 +955,7 @@ export const HomePage = () => {
   };
 
   const revertFault = async (faultId: string) => {
+    if (!isAdmin) { setChaosStatus('🔒 Only the app admin can revert faults.'); return; }
     setIsRevertingChaos(true);
     setChaosStatus('🔄 Reverting fault...');
     try {
@@ -962,6 +974,7 @@ export const HomePage = () => {
   };
 
   const revertAllFaults = async () => {
+    if (!isAdmin) { setChaosStatus('🔒 Only the app admin can revert faults.'); return; }
     setIsRevertingChaos(true);
     setChaosStatus('🔄 Reverting all faults...');
     try {
@@ -980,6 +993,7 @@ export const HomePage = () => {
   };
 
   const removeTargetedService = async (serviceName: string) => {
+    if (!isAdmin) { setChaosStatus('🔒 Only the app admin can remove targeted service overrides.'); return; }
     try {
       const result = await chaosProxy('chaos-remove-target', { serviceName });
       if (result.success) {
@@ -1127,6 +1141,7 @@ export const HomePage = () => {
   };
 
   const runSmartChaos = async () => {
+    if (!isAdmin) { setChaosStatus('🔒 Only the app admin can run smart chaos.'); return; }
     if (!smartChaosGoal.trim()) { setChaosStatus('⚠️ Enter a chaos goal'); return; }
     setIsSmartChaosRunning(true);
     setChaosStatus('🤖 Nemesis AI analysing and injecting chaos...');
@@ -1291,7 +1306,9 @@ export const HomePage = () => {
       journeyPrompt: prompt2,
       response: copilotResponse, // Save the JSON response
       createdAt: new Date().toISOString(),
-      isPreloaded: false // User-created template
+      isPreloaded: false, // User-created template
+      createdByUserId: currentUser.id,
+      createdByUserName: currentUser.name || currentUser.email,
     };
 
     const updated = [...savedTemplates, newTemplate];
@@ -1328,6 +1345,11 @@ export const HomePage = () => {
   };
 
   const deleteTemplate = (templateId: string) => {
+    const template = savedTemplates.find(t => t.id === templateId);
+    if (template && !canModify(template.createdByUserId)) {
+      showToast(`🔒 Only the creator (${template.createdByUserName || 'unknown'}) or the admin can delete this template.`, 'warning');
+      return;
+    }
     setConfirmDialog({
       message: 'Are you sure you want to delete this template?',
       onConfirm: () => {
@@ -1396,6 +1418,9 @@ export const HomePage = () => {
       }
     };
     reader.readAsText(file);
+
+    // Reset the input so the same file can be re-imported
+    event.target.value = '';
   };
 
   // Separate pre-loaded and user-created templates
@@ -1471,10 +1496,8 @@ export const HomePage = () => {
           💾 Save to My Templates
         </Button>
         <Flex gap={6}>
-          <label style={{ flex: 1 }}>
-            <Button style={{ width: '100%', fontSize: 11, padding: '6px' }}>📥 Import</Button>
-            <input type="file" accept=".json" onChange={importTemplates} style={{ display: 'none' }} />
-          </label>
+          <Button onClick={() => fileInputRef.current?.click()} style={{ flex: 1, fontSize: 11, padding: '6px' }}>📥 Import</Button>
+          <input ref={fileInputRef} type="file" accept=".json" onChange={importTemplates} style={{ display: 'none' }} />
           <Button onClick={exportAllTemplates} disabled={savedTemplates.length === 0} style={{ flex: 1, fontSize: 11, padding: '6px' }}>📤 Export</Button>
         </Flex>
       </div>
@@ -1649,7 +1672,7 @@ export const HomePage = () => {
                         >
                           📤 Export
                         </Button>
-                        {!template.isPreloaded && (
+                        {!template.isPreloaded && canModify(template.createdByUserId) && (
                           <Button 
                             onClick={(e) => {
                               e.stopPropagation();
@@ -1834,15 +1857,17 @@ export const HomePage = () => {
                               >
                                 📤 Export
                               </Button>
-                              <Button 
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  deleteTemplate(template.id);
-                                }}
-                                style={{ fontSize: 11, padding: '6px' }}
-                              >
-                                🗑️
-                              </Button>
+                              {canModify(template.createdByUserId) && (
+                                <Button 
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    deleteTemplate(template.id);
+                                  }}
+                                  style={{ fontSize: 11, padding: '6px' }}
+                                >
+                                  🗑️
+                                </Button>
+                              )}
                             </Flex>
                           </div>
                         ))}
