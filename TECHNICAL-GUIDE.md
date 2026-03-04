@@ -91,12 +91,12 @@ Follow these steps **in order**. Each step depends on the one before it.
 
 ```
 Step 1: Clone & Install            ← Get the code (single unified repo)
-Step 2: Create DT Credentials      ← A: API Token  +  B: OAuth Client  (C: Deploy SSO is automatic)
-Step 3: Deploy EdgeConnect          ← So the Forge UI can reach your server
-Step 4: Deploy the AppEngine UI     ← Install the Forge app in Dynatrace (SSO login = Credential C)
-Step 5: Start the Engine Server     ← The server that does the work
-Step 6: Configure from Forge UI     ← Wire everything together
+Step 2: Create DT Credentials      ← A: API Token  +  B: OAuth Client (2 things to create in DT)
+Step 3–5: ./setup.sh               ← Handles EdgeConnect, app deploy, build, and server start
+Step 6: Configure from Forge UI    ← Wire everything together (private IP + Get Started checklist)
 ```
+
+> **Shortest path:** Do Steps 1–2, then just run `./setup.sh` — it asks for your 4 values and does Steps 3–5 automatically.
 
 ---
 
@@ -138,28 +138,9 @@ You need **exactly 2 credentials** — an API Token and an OAuth Client:
    - `metrics.ingest`
    - `openTelemetryTrace.ingest`
    - `entities.read`
-5. Click **Generate** → **copy the token immediately** (you can't see it again)
+5. Click **Generate** → **copy the token** (you can't see it again)
 
-**Save it on your host** — create `.dt-credentials.json` in the Engine project root:
-
-```json
-{
-  "environmentUrl": "https://YOUR_TENANT.sprint.dynatracelabs.com",
-  "apiToken": "dt0c01.XXXX...",
-  "otelToken": "dt0c01.YYYY..."
-}
-```
-
-Or set environment variables instead:
-
-```bash
-export DT_ENVIRONMENT="https://YOUR_TENANT.sprint.dynatracelabs.com"
-export DT_PLATFORM_TOKEN="dt0c01.XXXX..."
-```
-
-**Verify:** `cat .dt-credentials.json` shows your tenant URL and token (not placeholder text).
-
-> **Common mistake:** Copying the tenant URL with a trailing `/` — don't include it. Use `https://abc12345.sprint.dynatracelabs.com` not `https://abc12345.sprint.dynatracelabs.com/`.
+> **You don't need to save this to a file.** `setup.sh` will ask for this token and create `.dt-credentials.json` automatically.
 
 ---
 
@@ -190,124 +171,53 @@ This **single client** handles both the EdgeConnect tunnel and deploying the app
 
 > **Why one client?** The External Requests page creates the client with `app-engine:edge-connects:connect` for EdgeConnect. By adding the deploy scopes to the same client, you use **one set of credentials for everything** — no SSO browser dance, no headless-server workarounds.
 
-**Save the client ID and secret.** You'll use them for both EdgeConnect (Step 3) and deploying the app (Step 4).
+> **You don't need to save these to any file.** `setup.sh` will ask for the client ID and secret, then automatically generates the EdgeConnect YAML and sets the deploy env vars.
 
 ---
 
-### Step 3: Deploy EdgeConnect
+### Steps 3–5: Deploy Everything
 
-EdgeConnect is a lightweight binary (runs in Docker) that creates a **secure tunnel** from Dynatrace to your server. Without it, the Forge UI has no way to reach the Engine.
+> **Using `setup.sh`?** It handles all of this automatically. The steps below are only needed if you're doing a manual setup.
 
-**3a. Get the config file:**
+<details>
+<summary><strong>Manual Steps 3–5 (click to expand)</strong></summary>
 
-You have two options:
+#### Step 3: Deploy EdgeConnect
 
-**Option 1 (easiest):** Use the YAML you downloaded from Dynatrace in Step 2B:
-```bash
-# Copy the downloaded YAML into the project
-cp ~/Downloads/edgeConnect.yaml edgeconnect/edgeConnect.yaml
-```
-
-**Option 2:** Edit `edgeconnect/edgeConnect.yaml` manually with the values from Step 2B:
-
-```yaml
-name: bizobs-generator
-api_endpoint_host: YOUR_TENANT.sprint.apps.dynatracelabs.com
-oauth:
-  client_id: dt0s10.XXXXX          # ← from Credential B above
-  client_secret: dt0s10.XXXXX.YYYYY...  # ← from Credential B above
-  resource: urn:dtenvironment:YOUR_TENANT_ID  # ← e.g. urn:dtenvironment:abc12345
-  endpoint: https://sso-sprint.dynatracelabs.com/sso/oauth2/token
-```
-
-> **Watch the `api_endpoint_host`!** It uses `.apps.dynatracelabs.com` (with `.apps.`), not just `.dynatracelabs.com`. This is the AppEngine URL, not your regular tenant URL.
-
-**3b. Start EdgeConnect:**
+EdgeConnect creates a **secure tunnel** from Dynatrace to your server.
 
 ```bash
-cd edgeconnect
-./run-edgeconnect.sh
-cd ..   # ← important: go back to the project root for the next steps
+# Edit the EdgeConnect YAML with your OAuth values from Credential B
+vi edgeconnect/edgeConnect.yaml
+
+# Start EdgeConnect
+cd edgeconnect && ./run-edgeconnect.sh && cd ..
 ```
 
-This runs a Docker container with `--network host` so it shares your server's network.
+Verify: `docker logs edgeconnect-bizobs 2>&1 | tail -5` → should show `Connection established`.
 
-**3c. Verify EdgeConnect is connected:**
+#### Step 4: Deploy the AppEngine UI
 
 ```bash
-docker logs edgeconnect-bizobs 2>&1 | tail -5
-```
-
-You should see:
-```
-Connection established.
-Connection verified.
-```
-
-If you see OAuth errors, double-check your `client_id`, `client_secret`, and `resource` values.
-
-> **Critical — use the PRIVATE IP, not the public IP:**
->
-> When the Forge UI in Dynatrace sends a request to your server, the traffic flows:
-> ```
-> Forge UI → Dynatrace Platform → EdgeConnect tunnel → EdgeConnect on your host → localhost:8080
-> ```
-> EdgeConnect receives the request **on the same machine** as your server and connects locally. If you tell it to route to the **public/Elastic IP** (e.g. `35.95.28.64`), it will fail because **AWS does not support NAT hairpin** — an EC2 instance cannot reach its own public IP from inside itself.
->
-> **Always use the private IP** (e.g. `172.31.x.x`). Find it with: `hostname -I | awk '{print $1}'`
-
----
-
-### Step 4: Deploy the AppEngine UI (Forge)
-
-This deploys the Forge UI as a Dynatrace App. Run this **from the same repo you cloned in Step 1** — it's a unified repo containing both the Engine and the Forge UI.
-
-We use the **same OAuth client** from Credential B (Step 2) — set as environment variables so `dt-app deploy` authenticates automatically. **No browser needed, works on headless servers.**
-
-```bash
-# From the project root (Dynatrace-Business-Observability-Forge/) — NOT from edgeconnect/
-pwd   # should show .../Dynatrace-Business-Observability-Forge
-
-# Set the OAuth credentials from Credential B (same client used for EdgeConnect)
-export DT_APP_OAUTH_CLIENT_ID="dt0s10.XXXXX"           # ← your client ID from Step 2B
-export DT_APP_OAUTH_CLIENT_SECRET="dt0s10.XXXXX.YYYYY"  # ← your client secret from Step 2B
-
-# Deploy
+export DT_APP_OAUTH_CLIENT_ID="dt0s10.XXXXX"
+export DT_APP_OAUTH_CLIENT_SECRET="dt0s10.XXXXX.YYYYY"
 npx dt-app deploy
 ```
 
-That's it. The CLI detects the env vars and uses the **client_credentials** flow — no browser popup, no SSO dance.
+Verify: Dynatrace → Apps → **Business Observability Forge** appears.
 
-> **"Validating manifest" error?** You're probably in the wrong directory. Run `cd ..` to get back to the project root. `dt-app deploy` needs `app.config.json` which is in the root, not in `edgeconnect/`.
-
-> **Deploy fails with "insufficient scopes"?** Your OAuth client is missing the `app-engine:apps:install` scope. Go back to Step 2B and add it in **Account Management → Identity & Access Management → OAuth clients**.
-
-**What happens:**
-1. `dt-app` reads `DT_APP_OAUTH_CLIENT_ID` and `DT_APP_OAUTH_CLIENT_SECRET`
-2. It authenticates using **OAuth client_credentials** grant (fully automated, no browser)
-3. It bundles the app, uploads it, and installs it on your Dynatrace environment
-4. The token is cached in `.dt-app/.tokens.json` for subsequent deploys
-
-> **Tip:** To avoid setting env vars every time, add them to your shell profile:
-> ```bash
-> echo 'export DT_APP_OAUTH_CLIENT_ID="dt0s10.XXXXX"' >> ~/.bashrc
-> echo 'export DT_APP_OAUTH_CLIENT_SECRET="dt0s10.XXXXX.YYYYY"' >> ~/.bashrc
-> source ~/.bashrc
-> ```
-
-**Verify:** Go to your Dynatrace tenant → **Apps** → you should see **Business Observability Forge** in the list. Click it to open.
-
----
-
-### Step 5: Start the Engine Server
+#### Step 5: Start the Engine Server
 
 ```bash
-# From the project root (same directory)
 npm run build:agents   # compile TypeScript agents → dist/
 npm start
 ```
 
-> **"Cannot find module dist/routes/gremlin.js"?** You skipped the build step. The `dist/` folder is not in git — it must be compiled locally. Run `npm run build:agents` first.
+Verify: `curl http://localhost:8080/api/health` returns `{"status":"ok",...}`
+
+> **"Cannot find module dist/routes/gremlin.js"?** Run `npm run build:agents` first.
+
+</details>
 
 **Verify:**
 ```bash
