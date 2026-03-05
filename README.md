@@ -4,7 +4,9 @@
   <img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=https://github.com/lawrobar90/Dynatrace-Business-Observability-Forge" alt="QR code linking to the Business Observability Forge repository on GitHub" />
 </p>
 
-A full-stack business observability platform that dynamically creates microservices, simulates multi-step customer journeys across industries, and integrates deeply with Dynatrace — featuring AI-powered chaos injection, automated remediation, and operational memory.
+Model any customer’s real business journey — their exact checkout flow, claims process, or patient care pathway — and turn it into a live, fully instrumented simulation inside Dynatrace. Describe the journey in plain language (or use AI to research it), and the Forge generates real microservices, realistic traffic, business events with revenue metadata, and executive dashboards — all wired into Dynatrace OneAgent, BizEvents, and Dynatrace Intelligence.
+
+**24 pre-built industry templates** across 8 verticals get you started in one click — but the real power is generating bespoke journeys tailored to any customer’s actual operations.
 
 **This is a unified repo** — it contains both the **Engine** (Node.js server) and the **Forge UI** (Dynatrace AppEngine app).
 
@@ -14,16 +16,15 @@ A full-stack business observability platform that dynamically creates microservi
 
 | Feature | Description |
 |---------|-------------|
+| **Custom Journey Generation** | Describe any customer’s real business flow in plain language — or use AI (Copilot, Gemini, etc.) to research it — and the Forge generates the full journey config: steps, substeps, services, and business metadata. No coding required. |
+| **24 Pre-Built Templates** | One-click industry templates across Banking, Insurance, Manufacturing, Retail, Telecommunications, Healthcare, Financial Services, Travel & Hospitality — great for getting started fast or running a quick demo |
 | **Dynamic Microservices** | Spawns real Node.js child processes per journey step — each with its own Express server, Dynatrace OneAgent identity, and health endpoint |
-| **7 Industry Companies** | Banking, Insurance, Manufacturing, Retail, Smyths, Telecommunications, Travel & Hospitality — each with unique journey definitions |
 | **Auto-Load System** | Generates 30–60 journeys/minute per active company with zero manual interaction |
 | **AI Agent Hub** | 4 AI agents — Nemesis (chaos), Fix-It (remediation), Librarian (memory), Dashboard (deployment) |
 | **Per-Service Chaos Injection** | Target individual services with configurable error rates without affecting the rest of the fleet |
-| **Chaos State Persistence** | All feature flag overrides survive server restarts via `.chaos-state.json` |
-| **Port Persistence** | Services get the same port across restarts via `.port-allocations.json` |
-| **Dynatrace Integration** | OneAgent metadata propagation, event ingestion (CUSTOM_DEPLOYMENT), OAuth SSO, dashboard deployment, DT API proxy |
+| **Dynatrace-Native** | OneAgent metadata propagation, event ingestion (CUSTOM_DEPLOYMENT), OAuth SSO, dashboard deployment, DT API proxy, EdgeConnect tunneling |
 | **Monaco Config-as-Code** | Automated Dynatrace configuration deployment (capture rules, service naming, OpenPipeline, OneAgent features) |
-| **Saved Config Library** | 24 pre-built industry journeys + user-saved configs with export/import |
+| **Persistence** | Chaos state, port allocations, credentials, and saved configs all survive server restarts |
 
 ---
 
@@ -56,6 +57,8 @@ The script walks you through 6 guided prompts (environment type, tenant ID, API 
 5. Starts the Engine server
 
 **After setup:** Open **Dynatrace → Apps → Business Observability Forge** → Settings → Config → enter your private IP → Save → Test → Get Started checklist.
+
+**Then:** Pick a pre-built template to see it in action immediately — or describe a customer’s real journey and generate a bespoke simulation tailored to their business.
 
 ---
 
@@ -407,16 +410,21 @@ npm run configure:monaco        # Deploy DT config via Monaco CLI
 
 ## Demo Walkthrough
 
-1. **Start the server** → services auto-create as journeys are defined
-2. **Step 1**: Enter company details (or pick from 24 pre-built industry journeys)
-3. **Step 2**: Generate AI/Copilot prompts for journey definition
-4. **Step 3**: Run journey simulation — services spin up dynamically, auto-load begins
-5. **Step 4**: Open the AI Agent Hub:
-   - Use **Nemesis** to inject chaos into a specific service
-   - Watch **Dynatrace** detect the problem
-   - Let **Fix-It** autonomously diagnose and remediate
-   - Review the full incident timeline in **Librarian**
-   - Deploy a **Dashboard** to visualize the journey
+### Quick Start (pre-built template)
+1. Open the Forge UI → **Home** → pick a template from the **Template Library** (e.g. Healthcare — Patient Care Journey)
+2. Click **Run** → services spin up, auto-load generates traffic, Dynatrace lights up
+3. Open the **AI Agent Hub** → inject chaos with **Nemesis** → watch **Dynatrace Intelligence** detect it → let **Fix-It** auto-remediate
+
+The 24 templates are a fast on-ramp — use them for demos, POCs, or to learn how the platform works.
+
+### Custom Journey (the real power)
+1. **Describe any customer’s journey** — e.g. “A patient registers, gets triaged, sees a consultant, receives treatment, and is discharged”
+2. **Or use AI to research it** — ask Copilot/Gemini about a customer’s real business flow, paste the output into the Forge
+3. The Forge generates the full config: services, substeps, business metadata (revenue, KPIs, churn risk)
+4. **Run it** → real microservices, real traffic, real Dynatrace telemetry — tailored to *that* customer’s operations
+5. **Demo it** → chaos injection → Dynatrace Intelligence detection → AI remediation → revenue impact dashboard
+
+This is what makes the Forge different: it’s not a canned demo. It’s *their* business, running live in Dynatrace.
 
 ---
 
