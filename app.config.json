@@ -4,7 +4,7 @@
   "app": {
     "id": "my.bizobs.generator.master",
     "name": "Business Observability Forge",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "description": "AI-powered Business Observability — generate and observe journeys",
     "scopes": [
       {
@@ -62,6 +62,10 @@
       {
         "name": "openpipeline:configurations:write",
         "comment": "Write OpenPipeline configurations to deploy BizObs pipeline processors and routing rules"
+      },
+      {
+        "name": "automation:workflows:read",
+        "comment": "Read automation workflows for detecting the BizObs Fix-It Agent workflow"
       }
     ],
     "settings": {

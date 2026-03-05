@@ -4,12 +4,13 @@
  */
 
 import { edgeConnectClient } from '@dynatrace-sdk/client-app-engine-edge-connect';
+import { workflowsClient } from '@dynatrace-sdk/client-automation';
 import { settingsObjectsClient } from '@dynatrace-sdk/client-classic-environment-v2';
 import { documentsClient, environmentSharesClient } from '@dynatrace-sdk/client-document';
 import { queryExecutionClient } from '@dynatrace-sdk/client-query';
 
 interface ProxyPayload {
-  action: 'simulate-journey' | 'test-connection' | 'get-services' | 'stop-all-services' | 'stop-company-services' | 'get-dormant-services' | 'clear-dormant-services' | 'clear-company-dormant' | 'chaos-get-active' | 'chaos-get-recipes' | 'chaos-inject' | 'chaos-revert' | 'chaos-revert-all' | 'chaos-get-targeted' | 'chaos-remove-target' | 'chaos-smart' | 'ec-create' | 'ec-update-patterns' | 'detect-builtin-settings' | 'deploy-builtin-settings' | 'debug-builtin-schema' | 'generate-dashboard' | 'generate-dashboard-async' | 'get-dashboard-status' | 'deploy-dashboard' | 'deploy-ai-dashboard' | 'deploy-business-flow';
+  action: 'simulate-journey' | 'test-connection' | 'get-services' | 'stop-all-services' | 'stop-company-services' | 'get-dormant-services' | 'clear-dormant-services' | 'clear-company-dormant' | 'chaos-get-active' | 'chaos-get-recipes' | 'chaos-inject' | 'chaos-revert' | 'chaos-revert-all' | 'chaos-get-targeted' | 'chaos-remove-target' | 'chaos-smart' | 'ec-create' | 'ec-update-patterns' | 'detect-builtin-settings' | 'deploy-builtin-settings' | 'deploy-workflow' | 'debug-builtin-schema' | 'generate-dashboard' | 'generate-dashboard-async' | 'get-dashboard-status' | 'deploy-dashboard' | 'deploy-ai-dashboard' | 'deploy-business-flow';
   apiHost: string;
   apiPort: string;
   apiProtocol: string;
@@ -442,6 +443,19 @@ export default async function (payload: ProxyPayload) {
         console.log(`[detect] No apiHost/apiPort — skipping ping`);
         detected['outbound-connections'] = false;
         detected['test-connection'] = false;
+      }
+
+      // 8. Automation Workflow — search for "BizObs Fix-It Agent" workflow
+      try {
+        const wfList = await workflowsClient.getWorkflows({
+          search: 'BizObs Fix-It Agent',
+        });
+        detected['automation-workflow'] = (wfList.results || []).some(
+          (wf: any) => wf.title?.includes('BizObs Fix-It Agent')
+        );
+      } catch (e: any) {
+        console.log(`[detect] Workflow detection error: ${e.message}`);
+        detected['automation-workflow'] = false;
       }
 
       return { success: true, data: detected };
@@ -896,6 +910,13 @@ export default async function (payload: ProxyPayload) {
               });
               results['feature-flags'] = { success: true };
             }
+          } else if (configKey === 'automation-workflow') {
+            // Workflow requires automation:workflows:write scope which is restricted
+            // to Dynatrace-provided apps. Return the template for manual import.
+            results['automation-workflow'] = {
+              success: false,
+              error: 'Workflow must be imported manually — use the Import button in Get Started',
+            };
           } else {
             results[configKey] = { success: false, error: `Unknown config key: ${configKey}. OpenPipeline configs must be configured manually.` };
           }
@@ -911,6 +932,75 @@ export default async function (payload: ProxyPayload) {
       }
 
       return { success: true, data: results };
+    }
+
+    // ── Get Automation Workflow Template (BizObs Fix-It Agent) ──
+    // Returns the workflow JSON template with the current server URL injected.
+    // The user imports this into Dynatrace Workflows manually (write scope is restricted).
+    if (action === 'deploy-workflow') {
+      const workflowTemplate = {
+        title: 'BizObs Fix-It Agent \u2014 Autonomous Remediation',
+        description: 'Davis problem \u2192 gather DQL context \u2192 query Davis root cause \u2192 call Fix-It Agent \u2192 verify remediation \u2192 send BizEvent summary',
+        isPrivate: false,
+        schemaVersion: 3,
+        type: 'STANDARD',
+        trigger: {
+          eventTrigger: {
+            isActive: true,
+            filterQuery: 'event.kind == "DAVIS_PROBLEM" AND event.status == "ACTIVE" AND (event.status_transition == "CREATED" OR event.status_transition == "UPDATED" OR event.status_transition == "REOPENED") AND (event.category == "AVAILABILITY" OR event.category == "ERROR" OR event.category == "SLOWDOWN" OR event.category == "RESOURCE_CONTENTION" OR event.category == "CUSTOM_ALERT")',
+            uniqueExpression: '{{ event()["event.id"] }}-{{ "open" if event()["event.status"] == "ACTIVE" else "resolved" }}-{{ event()["dt.davis.last_reopen_timestamp"] }}',
+            triggerConfiguration: {
+              type: 'davis-problem',
+              value: {
+                categories: { error: true, custom: true, resource: true, slowdown: true, availability: true },
+                entityTags: {},
+                customFilter: '',
+                analysisReady: false,
+                onProblemClose: false,
+                entityTagsMatch: null,
+              },
+            },
+          },
+        },
+        tasks: {
+          analyze_data_1: {
+            name: 'analyze_data_1',
+            action: 'dynatrace.davis.copilot.workflow.actions:davis-copilot',
+            input: {
+              config: 'dynatrace',
+              prompt: 'Analyze this Davis problem and provide: (1) what happened, (2) root cause analysis, (3) business impact, (4) remediation steps.\n\nProblem: {{ event()["display_id"] }} \u2014 {{ event()["event.name"] }}\nCategory: {{ event()["event.category"] }}\nStatus: {{ event()["event.status"] }}\nAffected Service: {{ event()["dt.entity.service"] }}\nRelated Process Group: {{ event()["dt.entity.process_group"] }}\nImpact Level: {{ event()["dt.davis.impact_level"] }}\n\nDescription:\n{{ event()["event.description"] }}',
+              autoTrim: true,
+              instruction: 'Be specific about the affected service name and entity ID. Include the problem ID in your response. Focus on actionable remediation steps.',
+              supplementary: `Entity tags: {{ event()["entity_tags"] }}\nAffected entity IDs: {{ event()["affected_entity_ids"] }}\nEvent start: {{ event()["event.start"] }}\nDavis event IDs: {{ event()["dt.davis.event_ids"] }}\nThis is a BizObs journey service running on an EC2 instance. The service is part of an insurance purchase journey. If the failure rate is elevated, the remediation is to disable the error injection feature flag via the API endpoint POST /api/feature_flag with errors_per_transaction set to 0.`,
+            },
+            position: { x: 0, y: 1 },
+            description: 'Prompt the Dynatrace Intelligence generative AI',
+            predecessors: [],
+          },
+          http_request_1: {
+            name: 'http_request_1',
+            action: 'dynatrace.automations:http-function',
+            input: {
+              url: `${baseUrl}/api/feature_flag`,
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              payload: '{\n  "targetService": "{% set tags = event()[\'entity_tags\'] %}{% for tag in tags %}{% if \'DT_APPLICATION_NAME:\' in tag %}{{ tag | replace(\'[Environment]DT_APPLICATION_NAME:\', \'\') }}{% endif %}{% endfor %}",\n  "flags": {\n    "errors_per_transaction": 0,\n    "errors_per_visit": 0,\n    "errors_per_minute": 0\n  }\n}',
+              failOnResponseCodes: '400-599',
+            },
+            position: { x: 0, y: 2 },
+            conditions: { states: { analyze_data_1: 'OK' } },
+            description: 'Issue an HTTP request to any API.',
+            predecessors: ['analyze_data_1'],
+          },
+        },
+        input: {},
+        hourlyExecutionLimit: 1000,
+      };
+
+      return {
+        success: true,
+        data: { workflowTemplate },
+      };
     }
 
     // ── Async Dashboard generation (jobs/polling model) ──

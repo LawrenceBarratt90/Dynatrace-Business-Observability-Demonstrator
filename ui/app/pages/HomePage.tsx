@@ -292,6 +292,7 @@ export const HomePage = () => {
     { key: 'openpipeline-routing', label: 'OpenPipeline Routing Configured', section: 'config' },
     { key: 'biz-events', label: 'Business Event Capture Rule', section: 'config' },
     { key: 'feature-flags', label: 'OneAgent Feature Flag Enabled', section: 'config' },
+    { key: 'automation-workflow', label: 'Fix-It Agent Workflow Deployed', section: 'config' },
   ];
 
   // Auto-detected checklist state (merged with manual checks)
@@ -307,6 +308,7 @@ export const HomePage = () => {
     'openpipeline-routing': builtinSettingsDetected['openpipeline-routing'] || false,
     'biz-events': builtinSettingsDetected['biz-events'] || false,
     'feature-flags': builtinSettingsDetected['feature-flags'] || false,
+    'automation-workflow': builtinSettingsDetected['automation-workflow'] || false,
   };
   const isStepComplete = (key: string) => autoDetected[key] || checklist[key];
   const completedCount = checklistSteps.filter(s => isStepComplete(s.key)).length;
@@ -4372,6 +4374,43 @@ export const HomePage = () => {
                       <button onClick={(e) => { e.stopPropagation(); deployBuiltinConfigs(['openpipeline-routing']); }} disabled={isDeployingConfigs} style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid rgba(0,161,201,0.4)', background: 'rgba(0,161,201,0.08)', cursor: 'pointer', fontSize: 11, fontWeight: 600, color: '#00a1c9' }}>🚀 Deploy</button>
                     ) : (
                       <a href={`${TENANT_URL}/ui/apps/dynatrace.settings/settings/openpipeline-bizevents/routing?page=1&pageSize=50`} target="_blank" rel="noopener noreferrer" style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid rgba(65,105,225,0.3)', background: 'rgba(65,105,225,0.06)', fontSize: 11, fontWeight: 600, color: '#4169e1', textDecoration: 'none' }}>Open →</a>
+                    )}
+                  </Flex>
+                </div>
+
+                {/* Step: Automation Workflow */}
+                <div onClick={() => toggleCheck('automation-workflow')} style={{ padding: '12px 14px', borderRadius: 10, border: `1px solid ${isStepComplete('automation-workflow') ? 'rgba(0,180,0,0.3)' : Colors.Border.Neutral.Default}`, background: isStepComplete('automation-workflow') ? 'rgba(0,180,0,0.04)' : 'transparent', cursor: 'pointer', marginBottom: 8, transition: 'all 0.2s' }}>
+                  <Flex alignItems="center" gap={12}>
+                    <div style={{ width: 24, height: 24, borderRadius: 6, border: `2px solid ${isStepComplete('automation-workflow') ? '#2e7d32' : Colors.Border.Neutral.Default}`, background: isStepComplete('automation-workflow') ? '#2e7d32' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'all 0.2s' }}>
+                      {isStepComplete('automation-workflow') && <span style={{ color: 'white', fontSize: 14, fontWeight: 700 }}>✓</span>}
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <Strong style={{ fontSize: 13, textDecoration: isStepComplete('automation-workflow') ? 'line-through' : 'none', opacity: isStepComplete('automation-workflow') ? 0.6 : 1 }}>Fix-It Agent Workflow Deployed</Strong>
+                      <div style={{ fontSize: 11, opacity: 0.6, marginTop: 2 }}>Davis problem → Dynatrace Intelligence analysis → autonomous remediation via HTTP</div>
+                      {isStepComplete('automation-workflow') && <div style={{ fontSize: 10, marginTop: 3, color: '#2e7d32' }}>✅ Detected — <a href={`${TENANT_URL}/ui/apps/dynatrace.automations`} target="_blank" rel="noopener noreferrer" style={{ color: '#4169e1', fontSize: 10 }}>View in Workflows →</a></div>}
+                      {!isStepComplete('automation-workflow') && <div style={{ fontSize: 10, marginTop: 3, opacity: 0.5 }}>Copy the workflow JSON → import in Dynatrace Workflows</div>}
+                    </div>
+                    {!isStepComplete('automation-workflow') ? (
+                      <Flex gap={4}>
+                        <button onClick={async (e) => {
+                          e.stopPropagation();
+                          try {
+                            const res = await functions.call('proxy-api', {
+                              data: { action: 'deploy-workflow', apiHost: apiSettings.host, apiPort: apiSettings.port, apiProtocol: apiSettings.protocol || 'http' },
+                            });
+                            const result = await res.json() as any;
+                            if (result.success && result.data?.workflowTemplate) {
+                              await navigator.clipboard.writeText(JSON.stringify(result.data.workflowTemplate, null, 2));
+                              showToast('Workflow JSON copied to clipboard — paste into Workflows → Upload', 'success', 5000);
+                            } else {
+                              showToast('Failed to generate workflow template', 'error');
+                            }
+                          } catch (err: any) { showToast(err.message, 'error'); }
+                        }} style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid rgba(0,161,201,0.4)', background: 'rgba(0,161,201,0.08)', cursor: 'pointer', fontSize: 11, fontWeight: 600, color: '#00a1c9' }}>📋 Copy JSON</button>
+                        <a href={`${TENANT_URL}/ui/apps/dynatrace.automations`} target="_blank" rel="noopener noreferrer" style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid rgba(65,105,225,0.3)', background: 'rgba(65,105,225,0.06)', fontSize: 11, fontWeight: 600, color: '#4169e1', textDecoration: 'none' }}>Open →</a>
+                      </Flex>
+                    ) : (
+                      <a href={`${TENANT_URL}/ui/apps/dynatrace.automations`} target="_blank" rel="noopener noreferrer" style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid rgba(65,105,225,0.3)', background: 'rgba(65,105,225,0.06)', fontSize: 11, fontWeight: 600, color: '#4169e1', textDecoration: 'none' }}>Open →</a>
                     )}
                   </Flex>
                 </div>
