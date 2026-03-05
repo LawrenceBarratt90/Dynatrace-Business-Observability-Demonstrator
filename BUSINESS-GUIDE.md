@@ -247,7 +247,7 @@ A: Absolutely — and this is the real power. You're not limited to the 24 built
 A: Yes. Three ways: (1) Use AI-assisted generation — describe the journey and let the Forge build it. (2) Create manually through the UI with full control over steps, substeps, and business metadata. (3) Import a JSON journey definition for repeatable, shareable configurations.
 
 **Q: Does this require Dynatrace?**
-A: The engine can run standalone, but the full value — business events, Davis AI correlation, executive dashboards, EdgeConnect tunnel — requires a Dynatrace tenant.
+A: Yes — the Forge was built for Dynatrace. It leverages OneAgent instrumentation, Davis AI correlation, BizEvents, EdgeConnect tunneling, and AppEngine to deliver the full business observability experience. It's not a generic tool adapted to Dynatrace — it's a Dynatrace-native platform from the ground up.
 
 **Q: How long does the demo take to set up?**
 A: About 30 minutes for first-time setup. After that, launching a demo is one click from the Template Library — or a few minutes to generate a custom journey for a specific customer.
