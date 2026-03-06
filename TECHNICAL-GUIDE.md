@@ -287,6 +287,7 @@ This is a checklist that auto-detects your setup and lets you deploy Dynatrace c
 
 Work through from top to bottom. Each green checkmark means that step is configured correctly.
 ![For Ui - Settings](Screenshots/getting-started-checklist.png)
+
 **Once all steps are green, you're ready.** Go to the **Home** tab, pick a template from the Template Library, and click **Run** to launch your first journey simulation.
 
 ---
