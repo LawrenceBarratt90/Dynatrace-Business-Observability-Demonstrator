@@ -254,7 +254,7 @@ Open the Forge app in Dynatrace (**Apps → Business Observability Forge**).
 
 Click **Save**, then click **Test**.
 
-> 📸 **Screenshot: Forge UI Settings → Config Tab** — *The Settings page Config tab showing: Protocol dropdown set to "HTTP", Host/IP field with a private IP like "172.31.37.182", Port field with "8080", and the Save + Test buttons. Ideally show a green "Connection successful" toast after testing.*
+![For Ui - Settings](Screenshots/forge_ui-settings.png)
 
 > **If the test fails:**
 > - Make sure the Engine server is running (Step 5)
@@ -286,7 +286,7 @@ This is a checklist that auto-detects your setup and lets you deploy Dynatrace c
 | **OneAgent Feature Flags** | Enables required OneAgent feature flags | Click **Deploy** |
 
 Work through from top to bottom. Each green checkmark means that step is configured correctly.
-> 📸 **Screenshot: Get Started Checklist** — *The Settings → Get Started tab showing all 10 checklist items with green checkmarks. Highlight the one-click "Deploy" buttons next to OpenPipeline Pipeline, Routing, Capture Rule, and Feature Flags steps. This is the "everything is ready" state.*
+![For Ui - Settings](Screenshots/getting-started-checklist.png)
 **Once all steps are green, you're ready.** Go to the **Home** tab, pick a template from the Template Library, and click **Run** to launch your first journey simulation.
 
 ---
@@ -337,7 +337,8 @@ Work through from top to bottom. Each green checkmark means that step is configu
 
 Each template includes: company name, domain, industry type, journey steps with substeps, business metadata (revenue, category, KPIs), and customer profiles.
 
-> 📸 **Screenshot: Template Library Detail** — *The Home page with the Template Library sidebar open on the left, showing template cards grouped by industry. In the main panel, a selected template (e.g. Healthcare — Patient Care Journey) with its journey steps listed: PatientRegistration → TriageAndAssessment → ClinicalConsultation → Treatment → DischargeAndFollowUp.*
+![For Ui - Settings](Screenshots/template-library.png)
+
 
 ### Per-Service Chaos Injection
 
