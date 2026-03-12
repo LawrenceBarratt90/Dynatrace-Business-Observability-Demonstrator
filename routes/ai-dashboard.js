@@ -160,13 +160,14 @@ async function logGenAISpan(spanAttributes) {
 async function loadPromptTemplates() {
   if (promptTemplates) return promptTemplates;
   try {
-    const [systemContext, dqlExamples, dashboardTemplate, userPromptTemplate] = await Promise.all([
+    const [systemContext, dqlExamples, dashboardTemplate, userPromptTemplate, salesResearchContext] = await Promise.all([
       fs.readFile(path.join(PROMPTS_PATH, 'system-context.txt'), 'utf-8'),
       fs.readFile(path.join(PROMPTS_PATH, 'dql-examples.txt'), 'utf-8'),
       fs.readFile(path.join(PROMPTS_PATH, 'dashboard-template.json'), 'utf-8'),
-      fs.readFile(path.join(PROMPTS_PATH, 'user-prompt-template.txt'), 'utf-8')
+      fs.readFile(path.join(PROMPTS_PATH, 'user-prompt-template.txt'), 'utf-8'),
+      fs.readFile(path.join(PROMPTS_PATH, 'sales-research-context.txt'), 'utf-8').catch(() => '')
     ]);
-    promptTemplates = { systemContext, dqlExamples, dashboardTemplate, userPromptTemplate };
+    promptTemplates = { systemContext, dqlExamples, dashboardTemplate, userPromptTemplate, salesResearchContext };
     return promptTemplates;
   } catch (error) {
     console.error('[AI Dashboard] Failed to load prompt templates:', error.message);
@@ -1647,12 +1648,23 @@ async function generateFullDashboardWithAI(journeyData, skills) {
   if (detected.hasSatisfaction) dataSignalsArray.push('satisfaction/NPS');
   if (detected.hasRetention) dataSignalsArray.push('retention cohorts');
 
-  const generationPrompt = `You are an expert Dynatrace dashboard architect. Generate a COMPLETELY BESPOKE dashboard JSON for this customer journey.
+  const generationPrompt = `You are an expert Dynatrace dashboard architect and sales intelligence analyst. Generate a COMPLETELY BESPOKE dashboard JSON for this customer journey.
 
 DOMAIN: ${industry}
 JOURNEY: ${journeyType}
 COMPANY: ${company}
 STEPS: ${stepsText}
+
+ACCOUNT OBJECTIVES ALIGNMENT:
+When designing tiles and sections, align with these Dynatrace value themes tailored for ${company}:
+1. Innovation and Experience: Focus on digital experience quality, customer journey completion, and interaction success rates
+2. Cost and Operational Efficiency: Include AI-driven automation metrics, MTTR reduction, and tool consolidation indicators
+3. Resilience and Risk: Show incident frequency, compliance status, root cause analysis speed, and security posture
+
+VALUE-DRIVEN TILES:
+- Include tiles that map to executive-level KPIs (revenue impact, customer satisfaction, operational cost)
+- Add business outcome tiles alongside technical metrics
+- Show the connection between infrastructure health and business results
 
 DATA AVAILABLE:
 ${detectedFieldsList.length > 0 ? detectedFieldsList.join('\n') : 'Basic: company, journeyType, stepName, serviceName, timestamp'}

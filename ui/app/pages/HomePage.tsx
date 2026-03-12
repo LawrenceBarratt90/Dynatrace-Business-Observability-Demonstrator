@@ -198,6 +198,11 @@ export const HomePage = () => {
   // Dashboard generation state
   const [dashboardUrl, setDashboardUrl] = useState<string | null>(null);
   const [isGeneratingDashboard, setIsGeneratingDashboard] = useState(false);
+
+  // Generate Visuals modal sub-tab state
+  const [visualsSubTab, setVisualsSubTab] = useState<'dashboard' | 'pdf'>('dashboard');
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+  const [pdfStatus, setPdfStatus] = useState('');
   const [dashboardStatus, setDashboardStatus] = useState('');
   const [generatedDashboardJson, setGeneratedDashboardJson] = useState<any>(null);
 
@@ -341,6 +346,7 @@ export const HomePage = () => {
         setSavedTemplates(initialTemplates);
         localStorage.setItem(TEMPLATES_STORAGE_KEY, JSON.stringify(initialTemplates));
         console.log(`✅ Loaded ${initialTemplates.length} initial templates`);
+        console.log('[BizObs] App version: v1.3.8');
       }
     } catch (error) {
       console.error('Error loading templates:', error);
@@ -425,8 +431,9 @@ export const HomePage = () => {
     console.log('[BizObs] Running detect with host:', apiSettings.host, 'force:', force);
     setIsDetecting(true);
     try {
-      const res = await functions.call('proxy-api', { data: { action: 'detect-builtin-settings', apiHost: apiSettings.host, apiPort: apiSettings.port, apiProtocol: apiSettings.protocol, body: { hostIp: apiSettings.host } } });
-      const result = await res.json() as { success: boolean; data?: Record<string, boolean> };
+      const result = await callProxyWithRetry(
+        { action: 'detect-builtin-settings', apiHost: apiSettings.host, apiPort: apiSettings.port, apiProtocol: apiSettings.protocol, body: { hostIp: apiSettings.host } }
+      ) as { success: boolean; data?: Record<string, boolean> };
       console.log('[BizObs] Detect result:', result);
       if (result.success && result.data) {
         setBuiltinSettingsDetected(result.data);
@@ -471,10 +478,10 @@ export const HomePage = () => {
     setIsDeployingConfigs(true);
     setDeployConfigsStatus('⏳ Deploying configurations...');
     try {
-      const res = await functions.call('proxy-api', {
-        data: { action: 'deploy-builtin-settings', body: { configs: configKeys } },
-      });
-      const result = await res.json() as { success: boolean; data?: Record<string, { success: boolean; error?: string }> };
+      const result = await callProxyWithRetry(
+        { action: 'deploy-builtin-settings', body: { configs: configKeys } },
+        5, 2000, setDeployConfigsStatus
+      ) as { success: boolean; data?: Record<string, { success: boolean; error?: string }> };
       if (result.success && result.data) {
         const succeeded = Object.entries(result.data).filter(([, v]) => v.success).map(([k]) => k);
         const failed = Object.entries(result.data).filter(([, v]) => !v.success).map(([k, v]) => `${k}: ${v.error}`);
@@ -537,14 +544,11 @@ export const HomePage = () => {
     setIsCreatingEC(true);
     setEcStatus('⏳ Creating EdgeConnect & generating credentials...');
     try {
-      const proxyRes = await functions.call('proxy-api', {
-        data: {
+      const result = await callProxyWithRetry({
           action: 'ec-create',
           apiHost: '', apiPort: '', apiProtocol: '',
           body: { ecName: name, hostPatterns: [host] },
-        },
-      });
-      const result = await proxyRes.json() as any;
+      }) as any;
       if (!result.success) {
         const rawErr = result.debug?.rawError || '';
         if (rawErr.includes('already exist') || rawErr.includes('constraintViolations')) {
@@ -646,14 +650,11 @@ export const HomePage = () => {
     const newHost = settingsForm.apiHost.trim();
     if (newHost && newHost !== 'localhost' && newHost !== '127.0.0.1') {
       try {
-        const ecRes = await functions.call('proxy-api', {
-          data: {
+        const ecResult = await callProxyWithRetry({
             action: 'ec-update-patterns',
             apiHost: '', apiPort: '', apiProtocol: '',
             body: { hostPatterns: [newHost] },
-          },
-        });
-        const ecResult = await ecRes.json() as any;
+        }) as any;
         if (ecResult.success && ecResult.data?.added?.length > 0) {
           setSettingsStatus(prev => `${prev}\n🔌 Auto-registered ${newHost} as EdgeConnect host pattern`);
         }
@@ -674,10 +675,10 @@ export const HomePage = () => {
     setIsTestingConnection(true);
     setSettingsStatus('🔄 Testing connection...');
     try {
-      const proxyResponse = await functions.call('proxy-api', {
-        data: { action: 'test-connection', apiHost: settingsForm.apiHost, apiPort: settingsForm.apiPort, apiProtocol: settingsForm.apiProtocol },
-      });
-      const result = await proxyResponse.json() as any;
+      const result = await callProxyWithRetry(
+        { action: 'test-connection', apiHost: settingsForm.apiHost, apiPort: settingsForm.apiPort, apiProtocol: settingsForm.apiProtocol },
+        5, 2000, setSettingsStatus
+      ) as any;
       // Capture caller IP reported by the BizObs server (the actual source IP that reached it)
       if (result.callerIp) setDetectedCallerIp(result.callerIp);
       if (result.success) {
@@ -707,10 +708,9 @@ export const HomePage = () => {
   const loadRunningServices = async () => {
     setIsLoadingServices(true);
     try {
-      const proxyResponse = await functions.call('proxy-api', {
-        data: { action: 'get-services', apiHost: apiSettings.host, apiPort: apiSettings.port, apiProtocol: apiSettings.protocol },
-      });
-      const result = await proxyResponse.json() as any;
+      const result = await callProxyWithRetry(
+        { action: 'get-services', apiHost: apiSettings.host, apiPort: apiSettings.port, apiProtocol: apiSettings.protocol }
+      ) as any;
       if (result.success && result.data?.childServices) {
         setRunningServices(result.data.childServices);
         setServicesStatus(result.data.childServices.length > 0
@@ -738,10 +738,10 @@ export const HomePage = () => {
     setIsStoppingServices(true);
     setServicesStatus('🛑 Stopping all services...');
     try {
-      const proxyResponse = await functions.call('proxy-api', {
-        data: { action: 'stop-all-services', apiHost: apiSettings.host, apiPort: apiSettings.port, apiProtocol: apiSettings.protocol },
-      });
-      const result = await proxyResponse.json() as any;
+      const result = await callProxyWithRetry(
+        { action: 'stop-all-services', apiHost: apiSettings.host, apiPort: apiSettings.port, apiProtocol: apiSettings.protocol },
+        5, 2000, setServicesStatus
+      ) as any;
       setServicesStatus(result.success ? '✅ All services stopped!' : `❌ ${result.data?.error || 'Failed'}`);
       await Promise.all([loadRunningServices(), loadDormantServices()]);
     } catch (error: any) {
@@ -755,10 +755,10 @@ export const HomePage = () => {
     setStoppingCompany(company);
     setServicesStatus(`🛑 Stopping services for ${company}...`);
     try {
-      const proxyResponse = await functions.call('proxy-api', {
-        data: { action: 'stop-company-services', apiHost: apiSettings.host, apiPort: apiSettings.port, apiProtocol: apiSettings.protocol, body: { companyName: company } },
-      });
-      const result = await proxyResponse.json() as any;
+      const result = await callProxyWithRetry(
+        { action: 'stop-company-services', apiHost: apiSettings.host, apiPort: apiSettings.port, apiProtocol: apiSettings.protocol, body: { companyName: company } },
+        5, 2000, setServicesStatus
+      ) as any;
       setServicesStatus(result.success ? `✅ Stopped ${result.data?.stoppedServices?.length || 0} service(s) for ${company}` : `❌ ${result.data?.error || 'Failed'}`);
       await Promise.all([loadRunningServices(), loadDormantServices()]);
     } catch (error: any) {
@@ -772,10 +772,9 @@ export const HomePage = () => {
   const loadDormantServices = async () => {
     setIsLoadingDormant(true);
     try {
-      const proxyResponse = await functions.call('proxy-api', {
-        data: { action: 'get-dormant-services', apiHost: apiSettings.host, apiPort: apiSettings.port, apiProtocol: apiSettings.protocol },
-      });
-      const result = await proxyResponse.json() as any;
+      const result = await callProxyWithRetry(
+        { action: 'get-dormant-services', apiHost: apiSettings.host, apiPort: apiSettings.port, apiProtocol: apiSettings.protocol }
+      ) as any;
       if (result.success && result.data?.dormantServices) {
         setDormantServices(result.data.dormantServices);
       } else {
@@ -790,9 +789,9 @@ export const HomePage = () => {
   const clearAllDormantServices = async () => {
     setIsClearingDormant(true);
     try {
-      await functions.call('proxy-api', {
-        data: { action: 'clear-dormant-services', apiHost: apiSettings.host, apiPort: apiSettings.port, apiProtocol: apiSettings.protocol },
-      });
+      await callProxyWithRetry(
+        { action: 'clear-dormant-services', apiHost: apiSettings.host, apiPort: apiSettings.port, apiProtocol: apiSettings.protocol }
+      );
       setServicesStatus('🧹 Dormant services cleared');
       await loadDormantServices();
     } catch (error: any) {
@@ -805,9 +804,9 @@ export const HomePage = () => {
   const clearCompanyDormantServices = async (company: string) => {
     setClearingDormantCompany(company);
     try {
-      await functions.call('proxy-api', {
-        data: { action: 'clear-company-dormant', apiHost: apiSettings.host, apiPort: apiSettings.port, apiProtocol: apiSettings.protocol, body: { companyName: company } },
-      });
+      await callProxyWithRetry(
+        { action: 'clear-company-dormant', apiHost: apiSettings.host, apiPort: apiSettings.port, apiProtocol: apiSettings.protocol, body: { companyName: company } }
+      );
       setServicesStatus(`🧹 Dormant services cleared for ${company}`);
       await loadDormantServices();
     } catch (error: any) {
@@ -827,10 +826,9 @@ export const HomePage = () => {
   const loadJourneysData = async () => {
     setIsLoadingJourneys(true);
     try {
-      const proxyResponse = await functions.call('proxy-api', {
-        data: { action: 'get-services', apiHost: apiSettings.host, apiPort: apiSettings.port, apiProtocol: apiSettings.protocol },
-      });
-      const result = await proxyResponse.json() as any;
+      const result = await callProxyWithRetry(
+        { action: 'get-services', apiHost: apiSettings.host, apiPort: apiSettings.port, apiProtocol: apiSettings.protocol }
+      ) as any;
       if (result.success && result.data?.childServices) {
         setJourneysData(result.data.childServices);
         const count = result.data.childServices.length;
@@ -873,10 +871,9 @@ export const HomePage = () => {
     URL.revokeObjectURL(url);
   };
   const chaosProxy = async (action: string, body?: any) => {
-    const res = await functions.call('proxy-api', {
-      data: { action, apiHost: apiSettings.host, apiPort: apiSettings.port, apiProtocol: apiSettings.protocol, body },
-    });
-    return await res.json() as any;
+    return await callProxyWithRetry(
+      { action, apiHost: apiSettings.host, apiPort: apiSettings.port, apiProtocol: apiSettings.protocol, body }
+    ) as any;
   };
 
   const openChaosModal = async () => {
@@ -987,45 +984,68 @@ export const HomePage = () => {
     setDashboardCompanyName('');
     setDashboardJourneyType('');
     setDashboardGenerationStatus('');
+    setPdfStatus('');
+    setVisualsSubTab('dashboard');
     setIsLoadingDashboardData(true);
+
     try {
-      // Load available companies and journeys from services
-      const proxyResponse = await functions.call('proxy-api', {
-        data: { action: 'get-services', apiHost: apiSettings.host, apiPort: apiSettings.port, apiProtocol: apiSettings.protocol },
-      });
-      const result = await proxyResponse.json() as any;
+      const result = await callProxyWithRetry(
+        { action: 'get-services', apiHost: apiSettings.host, apiPort: apiSettings.port, apiProtocol: apiSettings.protocol }
+      ) as any;
       if (result.success && result.data?.childServices) {
         const services = result.data.childServices as RunningService[];
         const companies = Array.from(new Set(services.map(s => s.companyName).filter(Boolean))) as string[];
         const journeys = Array.from(new Set(services.map(s => s.journeyType).filter(Boolean))) as string[];
         setAvailableCompanies(companies.sort());
         setAvailableJourneys(journeys.sort());
+        setRunningServices(services);
       } else {
         setAvailableCompanies([]);
         setAvailableJourneys([]);
       }
     } catch (error: any) {
-      console.warn('Failed to load services for dashboard generation:', error);
+      console.warn('[Generate Visuals] Failed to load services:', error.message);
       setAvailableCompanies([]);
       setAvailableJourneys([]);
     }
     setIsLoadingDashboardData(false);
   };
 
+  // Retry helper for EdgeConnect calls — retries with exponential backoff to survive reconnection gaps and timeouts.
+  const callProxyWithRetry = async (payload: any, attempts = 5, initialDelayMs = 2000, statusSetter?: (msg: string) => void) => {
+    let lastErr: any;
+    for (let i = 1; i <= attempts; i++) {
+      try {
+        const res = await functions.call('proxy-api', { data: payload });
+        return await res.json();
+      } catch (err: any) {
+        lastErr = err;
+        const isRetryable = err.message?.includes('Connection error') || err.message?.includes('EdgeConnect') || err.message?.includes('timed out') || err.message?.includes('Signal');
+        console.warn(`[Proxy retry] Attempt ${i}/${attempts} failed:`, err.message);
+        if (i < attempts && isRetryable) {
+          const delay = initialDelayMs * Math.pow(1.5, i - 1); // 2s, 3s, 4.5s, 6.75s
+          if (statusSetter) statusSetter(`⏳ Retrying — attempt ${i}/${attempts - 1}...`);
+          await new Promise(r => setTimeout(r, delay));
+        } else if (!isRetryable) {
+          throw err; // Non-retryable errors should not retry
+        }
+      }
+    }
+    throw lastErr;
+  };
+
   // Shared helper — generates dashboard JSON from backend and auto-downloads it.
   // Called both manually (Generate Dashboard button) and automatically after a new journey is created.
   const autoDownloadDashboard = async (company: string, journeyType: string) => {
     try {
-      const proxyRes = await functions.call('proxy-api', {
-        data: {
+      setDashboardStatus('⏳ Generating dashboard...');
+      const generateData = await callProxyWithRetry({
           action: 'generate-dashboard',
           apiHost: apiSettings.host,
           apiPort: apiSettings.port,
           apiProtocol: apiSettings.protocol,
           body: { journeyData: { company, journeyType, tenantUrl: TENANT_URL } }
-        }
-      });
-      const generateData = await proxyRes.json();
+      }, 5, 2000, setDashboardStatus) as any;
       let dashboard = null;
       if (generateData.success && generateData.dashboard) {
         dashboard = generateData.dashboard;
@@ -1058,16 +1078,13 @@ export const HomePage = () => {
   // Auto-deploy a tailored Business Flow to Dynatrace whenever a journey is created.
   const autoDeployBusinessFlow = async (company: string, journeyType: string, steps: Array<{stepName?: string; name?: string; hasError?: boolean}>) => {
     try {
-      const proxyRes = await functions.call('proxy-api', {
-        data: {
+      const result = await callProxyWithRetry({
           action: 'deploy-business-flow',
           apiHost: apiSettings.host,
           apiPort: apiSettings.port,
           apiProtocol: apiSettings.protocol,
           body: { companyName: company, journeyType, steps }
-        }
-      });
-      const result = await proxyRes.json() as any;
+      }) as any;
       if (result.success && result.data?.ok) {
         showToast(`🔄 Business Flow "${company} - ${journeyType}" deployed to Dynatrace!`, 'success', 6000);
       } else {
@@ -1190,17 +1207,13 @@ export const HomePage = () => {
       setGenerationStatus(`🚀 Creating services on ${apiSettings.host}:${apiSettings.port}...`);
       
       // Call via serverless proxy function (bypasses CSP)
-      const proxyResponse = await functions.call('proxy-api', {
-        data: {
+      const result = await callProxyWithRetry({
           action: 'simulate-journey',
           apiHost: apiSettings.host,
           apiPort: apiSettings.port,
           apiProtocol: apiSettings.protocol,
           body: parsedResponse,
-        },
-      });
-
-      const result = await proxyResponse.json() as any;
+      }, 5, 2000, setGenerationStatus) as any;
 
       if (!result.success) {
         throw new Error(result.error || `API call failed (status ${result.status})`);
@@ -2611,7 +2624,7 @@ export const HomePage = () => {
                 </div>
               </div>
 
-              {/* Dashboard */}
+              {/* Generate Visuals */}
               <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
                 <button
                   onClick={openGenerateDashboardModal}
@@ -2626,7 +2639,7 @@ export const HomePage = () => {
                   onMouseOver={e => { e.currentTarget.style.transform = 'translateY(-1px)'; }}
                   onMouseOut={e => { e.currentTarget.style.transform = 'none'; }}
                 >
-                  <span style={{ fontSize: 14 }}>📊</span> Dashboard
+                  <span style={{ fontSize: 14 }}>🎨</span> Generate Visuals
                 </button>
                 <div style={{ position: 'relative', display: 'inline-block' }}
                   onMouseEnter={() => setShowDashboardTooltip(true)}
@@ -2635,11 +2648,11 @@ export const HomePage = () => {
                   <div style={{ width: 18, height: 18, borderRadius: '50%', background: 'rgba(0,161,201,0.12)', border: '1.5px solid rgba(0,161,201,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'help', fontSize: 10, fontWeight: 700, color: '#00a1c9' }}>?</div>
                   {showDashboardTooltip && (
                     <div style={{ position: 'absolute', top: 24, right: 0, width: 260, padding: 12, borderRadius: 10, background: Colors.Background.Surface.Default, border: `1.5px solid ${Colors.Border.Neutral.Default}`, boxShadow: '0 8px 24px rgba(0,0,0,0.25)', zIndex: 10000, fontSize: 12, lineHeight: 1.6 }}>
-                      <Strong style={{ fontSize: 13, marginBottom: 6, display: 'block' }}>📊 Generate Dashboard</Strong>
-                      <div>Create a Dynatrace dashboard tailored to your running journeys.</div>
-                      <div style={{ marginTop: 6 }}><Strong>Company</Strong> — Select from active companies</div>
-                      <div><Strong>Journey</Strong> — Pick the journey type to visualise</div>
-                      <div style={{ marginTop: 6, opacity: 0.6 }}>Dashboards are deployed directly to your Dynatrace tenant.</div>
+                      <Strong style={{ fontSize: 13, marginBottom: 6, display: 'block' }}>🎨 Generate Visuals</Strong>
+                      <div>Create dashboards and executive summary PDFs for your running journeys.</div>
+                      <div style={{ marginTop: 6 }}><Strong>Dashboard</Strong> — Generate & download Dynatrace dashboard JSON</div>
+                      <div><Strong>Executive Summary</Strong> — Download a one-page PDF summary</div>
+                      <div style={{ marginTop: 6, opacity: 0.6 }}>Select a company and journey type to get started.</div>
                     </div>
                   )}
                 </div>
@@ -3825,111 +3838,290 @@ export const HomePage = () => {
 
 
 
-      {/* ── Generate Dashboard Modal (Using Dynatrace SDK) ─────────────────── */}
+      {/* ── Generate Visuals Modal (Dashboard + Executive Summary PDF) ─────────────────── */}
       {showGenerateDashboardModal && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.55)' }} onClick={() => setShowGenerateDashboardModal(false)} />
-          <div style={{ position: 'relative', width: 540, maxHeight: '80vh', overflow: 'auto', background: Colors.Background.Surface.Default, borderRadius: 16, border: `2px solid ${Colors.Theme.Primary['70']}`, boxShadow: '0 24px 48px rgba(0,0,0,0.3)' }}>
+          <div style={{ position: 'relative', width: 580, maxHeight: '85vh', overflow: 'auto', background: Colors.Background.Surface.Default, borderRadius: 16, border: `2px solid ${Colors.Theme.Primary['70']}`, boxShadow: '0 24px 48px rgba(0,0,0,0.3)' }}>
             {/* Header */}
             <div style={{ padding: '16px 24px', background: 'linear-gradient(135deg, #00a1c9, #00d4ff)', borderRadius: '14px 14px 0 0' }}>
               <Flex alignItems="center" justifyContent="space-between">
                 <Flex alignItems="center" gap={12}>
-                  <span style={{ fontSize: 24 }}>📊</span>
+                  <span style={{ fontSize: 24 }}>🎨</span>
                   <div>
-                    <Strong style={{ color: 'white', fontSize: 16 }}>Generate Dashboard</Strong>
-                    <div style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12 }}>Generate & download JSON for Dynatrace import</div>
+                    <Strong style={{ color: 'white', fontSize: 16 }}>Generate Visuals</Strong>
+                    <div style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12 }}>Dashboards & Executive Summary PDFs</div>
                   </div>
                 </Flex>
                 <button onClick={() => setShowGenerateDashboardModal(false)} style={{ background: 'none', border: 'none', color: 'white', fontSize: 20, cursor: 'pointer', padding: 4 }}>✕</button>
               </Flex>
             </div>
 
+            {/* Sub-tab Selector */}
+            <div style={{ display: 'flex', borderBottom: `1px solid ${Colors.Border.Neutral.Default}` }}>
+              <button
+                onClick={() => setVisualsSubTab('dashboard')}
+                style={{
+                  flex: 1, padding: '12px 0', border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: 13,
+                  background: visualsSubTab === 'dashboard' ? 'rgba(0,161,201,0.1)' : 'transparent',
+                  color: visualsSubTab === 'dashboard' ? '#00a1c9' : 'inherit',
+                  borderBottom: visualsSubTab === 'dashboard' ? '3px solid #00a1c9' : '3px solid transparent',
+                  transition: 'all 0.2s ease',
+                }}
+              >
+                📊 Dashboard
+              </button>
+              <button
+                onClick={() => setVisualsSubTab('pdf')}
+                style={{
+                  flex: 1, padding: '12px 0', border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: 13,
+                  background: visualsSubTab === 'pdf' ? 'rgba(108,44,156,0.1)' : 'transparent',
+                  color: visualsSubTab === 'pdf' ? '#6c2c9c' : 'inherit',
+                  borderBottom: visualsSubTab === 'pdf' ? '3px solid #6c2c9c' : '3px solid transparent',
+                  transition: 'all 0.2s ease',
+                }}
+              >
+                📄 Executive Summary
+              </button>
+            </div>
+
             {/* Content */}
             <div style={{ padding: 24 }}>
-              {/* Status Message */}
-              {dashboardGenerationStatus && (
-                <div style={{ padding: 12, marginBottom: 16, borderRadius: 8, fontSize: 13, fontFamily: 'monospace',
-                  background: dashboardGenerationStatus.includes('✅') ? 'rgba(115,190,40,0.12)' : dashboardGenerationStatus.includes('❌') ? 'rgba(220,50,47,0.12)' : 'rgba(0,161,201,0.12)',
-                  border: `1px solid ${dashboardGenerationStatus.includes('✅') ? Colors.Theme.Success['70'] : dashboardGenerationStatus.includes('❌') ? '#dc322f' : Colors.Theme.Primary['70']}` }}>
-                  {dashboardGenerationStatus}
-                </div>
+
+              {/* ===== Dashboard Sub-Tab ===== */}
+              {visualsSubTab === 'dashboard' && (
+                <>
+                  {/* Status Message */}
+                  {dashboardGenerationStatus && (
+                    <div style={{ padding: 12, marginBottom: 16, borderRadius: 8, fontSize: 13, fontFamily: 'monospace',
+                      background: dashboardGenerationStatus.includes('✅') ? 'rgba(115,190,40,0.12)' : dashboardGenerationStatus.includes('❌') ? 'rgba(220,50,47,0.12)' : 'rgba(0,161,201,0.12)',
+                      border: `1px solid ${dashboardGenerationStatus.includes('✅') ? Colors.Theme.Success['70'] : dashboardGenerationStatus.includes('❌') ? '#dc322f' : Colors.Theme.Primary['70']}` }}>
+                      {dashboardGenerationStatus}
+                    </div>
+                  )}
+
+                  {/* Company Selector */}
+                  <div style={{ marginBottom: 16 }}>
+                    <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 8, color: Colors.Theme.Primary['70'] }}>🏢 Company</label>
+                    {isLoadingDashboardData ? (
+                      <div style={{ padding: 12, textAlign: 'center', opacity: 0.6 }}>⏳ Loading companies...</div>
+                    ) : availableCompanies.length === 0 ? (
+                      <div style={{ padding: 12, textAlign: 'center', opacity: 0.6, fontSize: 12 }}>No companies found. Deploy services first.</div>
+                    ) : (
+                      <select
+                        value={dashboardCompanyName}
+                        onChange={(e) => setDashboardCompanyName(e.target.value)}
+                        style={{
+                          width: '100%', padding: '10px 14px', borderRadius: 8,
+                          border: `1px solid ${Colors.Border.Neutral.Default}`,
+                          background: Colors.Background.Surface.Default,
+                          color: 'inherit', fontSize: 13, cursor: 'pointer', fontFamily: 'inherit',
+                        }}
+                      >
+                        <option value="">-- Select a company --</option>
+                        {availableCompanies.map(company => (
+                          <option key={company} value={company}>{company}</option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+
+                  {/* Journey Type Selector */}
+                  <div style={{ marginBottom: 20 }}>
+                    <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 8, color: Colors.Theme.Primary['70'] }}>🗺️ Journey Type</label>
+                    {isLoadingDashboardData ? (
+                      <div style={{ padding: 12, textAlign: 'center', opacity: 0.6 }}>⏳ Loading journeys...</div>
+                    ) : availableJourneys.length === 0 ? (
+                      <div style={{ padding: 12, textAlign: 'center', opacity: 0.6, fontSize: 12 }}>No journey types found. Deploy services first.</div>
+                    ) : (
+                      <select
+                        value={dashboardJourneyType}
+                        onChange={(e) => setDashboardJourneyType(e.target.value)}
+                        style={{
+                          width: '100%', padding: '10px 14px', borderRadius: 8,
+                          border: `1px solid ${Colors.Border.Neutral.Default}`,
+                          background: Colors.Background.Surface.Default,
+                          color: 'inherit', fontSize: 13, cursor: 'pointer', fontFamily: 'inherit',
+                        }}
+                      >
+                        <option value="">-- Select a journey type --</option>
+                        {availableJourneys.map(journey => (
+                          <option key={journey} value={journey}>{journey}</option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+
+                  {/* Generate & Deploy Button */}
+                  <Flex gap={8}>
+                    <Button
+                      onClick={generateAndDeployDashboard}
+                      disabled={isGeneratingDashboard || isLoadingDashboardData || !dashboardCompanyName || !dashboardJourneyType}
+                      variant="emphasized"
+                      style={{ flex: 1, fontWeight: 700 }}
+                    >
+                      {isGeneratingDashboard ? '⏳ Generating...' : '📥 Generate & Download'}
+                    </Button>
+                    <Button onClick={() => setShowGenerateDashboardModal(false)} style={{ flex: 1 }}>Cancel</Button>
+                  </Flex>
+
+                  {/* Info Box */}
+                  <div style={{ marginTop: 16, padding: 12, borderRadius: 8, background: 'rgba(0,161,201,0.08)', border: `1px solid ${Colors.Theme.Primary['70']}`, fontSize: 12, lineHeight: 1.6 }}>
+                    <Strong style={{ color: Colors.Theme.Primary['70'], display: 'block', marginBottom: 8 }}>✨ How it works</Strong>
+                    <ul style={{ margin: 0, paddingLeft: 20 }}>
+                      <li>Dashboard generates from a 44-tile preset template</li>
+                      <li>Company name &amp; journey type are injected into all DQL queries</li>
+                      <li>JSON file downloads automatically to your browser</li>
+                      <li>Import it: Dynatrace → Dashboards → Upload JSON</li>
+                    </ul>
+                  </div>
+                </>
               )}
 
-              {/* Company Selector */}
-              <div style={{ marginBottom: 16 }}>
-                <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 8, color: Colors.Theme.Primary['70'] }}>🏢 Company</label>
-                {isLoadingDashboardData ? (
-                  <div style={{ padding: 12, textAlign: 'center', opacity: 0.6 }}>⏳ Loading companies...</div>
-                ) : availableCompanies.length === 0 ? (
-                  <div style={{ padding: 12, textAlign: 'center', opacity: 0.6, fontSize: 12 }}>No companies found. Deploy services first.</div>
-                ) : (
-                  <select
-                    value={dashboardCompanyName}
-                    onChange={(e) => setDashboardCompanyName(e.target.value)}
-                    style={{
-                      width: '100%', padding: '10px 14px', borderRadius: 8,
-                      border: `1px solid ${Colors.Border.Neutral.Default}`,
-                      background: Colors.Background.Surface.Default,
-                      color: 'inherit', fontSize: 13, cursor: 'pointer', fontFamily: 'inherit',
-                    }}
-                  >
-                    <option value="">-- Select a company --</option>
-                    {availableCompanies.map(company => (
-                      <option key={company} value={company}>{company}</option>
-                    ))}
-                  </select>
-                )}
-              </div>
+              {/* ===== Executive Summary PDF Sub-Tab ===== */}
+              {visualsSubTab === 'pdf' && (
+                <>
+                  {/* PDF Status Message */}
+                  {pdfStatus && (
+                    <div style={{ padding: 12, marginBottom: 16, borderRadius: 8, fontSize: 13, fontFamily: 'monospace',
+                      background: pdfStatus.includes('✅') ? 'rgba(115,190,40,0.12)' : pdfStatus.includes('❌') ? 'rgba(220,50,47,0.12)' : 'rgba(108,44,156,0.12)',
+                      border: `1px solid ${pdfStatus.includes('✅') ? Colors.Theme.Success['70'] : pdfStatus.includes('❌') ? '#dc322f' : '#6c2c9c'}` }}>
+                      {pdfStatus}
+                    </div>
+                  )}
 
-              {/* Journey Type Selector */}
-              <div style={{ marginBottom: 20 }}>
-                <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 8, color: Colors.Theme.Primary['70'] }}>🗺️ Journey Type</label>
-                {isLoadingDashboardData ? (
-                  <div style={{ padding: 12, textAlign: 'center', opacity: 0.6 }}>⏳ Loading journeys...</div>
-                ) : availableJourneys.length === 0 ? (
-                  <div style={{ padding: 12, textAlign: 'center', opacity: 0.6, fontSize: 12 }}>No journey types found. Deploy services first.</div>
-                ) : (
-                  <select
-                    value={dashboardJourneyType}
-                    onChange={(e) => setDashboardJourneyType(e.target.value)}
-                    style={{
-                      width: '100%', padding: '10px 14px', borderRadius: 8,
-                      border: `1px solid ${Colors.Border.Neutral.Default}`,
-                      background: Colors.Background.Surface.Default,
-                      color: 'inherit', fontSize: 13, cursor: 'pointer', fontFamily: 'inherit',
-                    }}
-                  >
-                    <option value="">-- Select a journey type --</option>
-                    {availableJourneys.map(journey => (
-                      <option key={journey} value={journey}>{journey}</option>
-                    ))}
-                  </select>
-                )}
-              </div>
+                  <div style={{ marginBottom: 20, padding: 16, borderRadius: 10, background: 'rgba(108,44,156,0.06)', border: '1px solid rgba(108,44,156,0.2)' }}>
+                    <Heading level={5} style={{ marginBottom: 8, color: '#6c2c9c' }}>📄 Executive Summary PDF</Heading>
+                    <Paragraph style={{ fontSize: 13, lineHeight: 1.6, marginBottom: 12 }}>
+                      Generate a professional one-page PDF summary of your business observability journey, including:
+                    </Paragraph>
+                    <ul style={{ margin: 0, paddingLeft: 20, fontSize: 12, lineHeight: 2 }}>
+                      <li><Strong>Company & Journey Overview</Strong> — Name, industry, journey type</li>
+                      <li><Strong>Step-by-Step Breakdown</Strong> — All journey steps with service details</li>
+                      <li><Strong>Business Metrics</Strong> — KPIs, revenue data, conversion metrics</li>
+                      <li><Strong>Dashboard Summary</Strong> — Tile counts, DQL query overview</li>
+                    </ul>
+                  </div>
 
-              {/* Generate & Deploy Button */}
-              <Flex gap={8}>
-                <Button
-                  onClick={generateAndDeployDashboard}
-                  disabled={isGeneratingDashboard || isLoadingDashboardData || !dashboardCompanyName || !dashboardJourneyType}
-                  variant="emphasized"
-                  style={{ flex: 1, fontWeight: 700 }}
-                >
-                  {isGeneratingDashboard ? '⏳ Generating...' : '� Generate & Download'}
-                </Button>
-                <Button onClick={() => setShowGenerateDashboardModal(false)} style={{ flex: 1 }}>Cancel</Button>
-              </Flex>
+                  {/* Company Selector */}
+                  <div style={{ marginBottom: 16 }}>
+                    <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 8, color: '#6c2c9c' }}>🏢 Company</label>
+                    {isLoadingDashboardData ? (
+                      <div style={{ padding: 12, textAlign: 'center', opacity: 0.6 }}>⏳ Loading companies...</div>
+                    ) : availableCompanies.length === 0 ? (
+                      <div style={{ padding: 12, textAlign: 'center', opacity: 0.6, fontSize: 12 }}>No companies found. Deploy services first.</div>
+                    ) : (
+                      <select
+                        value={dashboardCompanyName}
+                        onChange={(e) => setDashboardCompanyName(e.target.value)}
+                        style={{
+                          width: '100%', padding: '10px 14px', borderRadius: 8,
+                          border: `1px solid ${Colors.Border.Neutral.Default}`,
+                          background: Colors.Background.Surface.Default,
+                          color: 'inherit', fontSize: 13, cursor: 'pointer', fontFamily: 'inherit',
+                        }}
+                      >
+                        <option value="">-- Select a company --</option>
+                        {availableCompanies.map(company => (
+                          <option key={company} value={company}>{company}</option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
 
-              {/* Info Box */}
-              <div style={{ marginTop: 16, padding: 12, borderRadius: 8, background: 'rgba(0,161,201,0.08)', border: `1px solid ${Colors.Theme.Primary['70']}`, fontSize: 12, lineHeight: 1.6 }}>
-                <Strong style={{ color: Colors.Theme.Primary['70'], display: 'block', marginBottom: 8 }}>✨ How it works</Strong>
-                <ul style={{ margin: 0, paddingLeft: 20 }}>
-                  <li>Dashboard generates from a 44-tile preset template</li>
-                  <li>Company name &amp; journey type are injected into all DQL queries</li>
-                  <li>JSON file downloads automatically to your browser</li>
-                  <li>Import it: Dynatrace → Dashboards → Upload JSON</li>
-                </ul>
-              </div>
+                  {/* Journey Type Selector */}
+                  <div style={{ marginBottom: 20 }}>
+                    <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 8, color: '#6c2c9c' }}>🗺️ Journey Type</label>
+                    {isLoadingDashboardData ? (
+                      <div style={{ padding: 12, textAlign: 'center', opacity: 0.6 }}>⏳ Loading journeys...</div>
+                    ) : availableJourneys.length === 0 ? (
+                      <div style={{ padding: 12, textAlign: 'center', opacity: 0.6, fontSize: 12 }}>No journey types found. Deploy services first.</div>
+                    ) : (
+                      <select
+                        value={dashboardJourneyType}
+                        onChange={(e) => setDashboardJourneyType(e.target.value)}
+                        style={{
+                          width: '100%', padding: '10px 14px', borderRadius: 8,
+                          border: `1px solid ${Colors.Border.Neutral.Default}`,
+                          background: Colors.Background.Surface.Default,
+                          color: 'inherit', fontSize: 13, cursor: 'pointer', fontFamily: 'inherit',
+                        }}
+                      >
+                        <option value="">-- Select a journey type --</option>
+                        {availableJourneys.map(journey => (
+                          <option key={journey} value={journey}>{journey}</option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+
+                  {/* Generate PDF Button */}
+                  <Flex gap={8}>
+                    <Button
+                      onClick={async () => {
+                        if (!dashboardCompanyName || !dashboardJourneyType) {
+                          setPdfStatus('⚠️ Please select both company and journey type');
+                          return;
+                        }
+                        setIsGeneratingPdf(true);
+                        setPdfStatus('🚀 Generating executive summary PDF...');
+                        try {
+                          const result = await callProxyWithRetry({
+                              action: 'generate-pdf',
+                              apiHost: apiSettings.host,
+                              apiPort: apiSettings.port,
+                              apiProtocol: apiSettings.protocol,
+                              body: {
+                                journeyData: {
+                                  companyName: dashboardCompanyName,
+                                  industryType: runningServices.find(s => s.companyName === dashboardCompanyName)?.industryType || 'Enterprise',
+                                  journeyType: dashboardJourneyType,
+                                  steps: runningServices
+                                    .filter(s => s.companyName === dashboardCompanyName)
+                                    .map(s => ({ stepName: s.stepName || s.service, name: s.service })),
+                                },
+                                dashboardData: generatedDashboardJson || {},
+                              },
+                          }, 5, 2000, setPdfStatus) as any;
+                          if (result.success && result.data?.base64) {
+                            const binaryString = atob(result.data.base64);
+                            const bytes = new Uint8Array(binaryString.length);
+                            for (let i = 0; i < binaryString.length; i++) {
+                              bytes[i] = binaryString.charCodeAt(i);
+                            }
+                            const blob = new Blob([bytes], { type: 'application/pdf' });
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = result.data.filename || `${dashboardCompanyName}-BizObs-Summary.pdf`;
+                            document.body.appendChild(a);
+                            a.click();
+                            document.body.removeChild(a);
+                            URL.revokeObjectURL(url);
+                            setPdfStatus(`✅ Downloaded ${result.data.filename} (${result.data.sizeKb}KB)`);
+                            showToast(`📄 Executive Summary PDF downloaded!`, 'success', 6000);
+                          } else {
+                            throw new Error(result.error || 'PDF generation failed');
+                          }
+                        } catch (err: any) {
+                          console.error('[PDF] ❌', err);
+                          setPdfStatus(`❌ ${err.message}`);
+                          showToast(`❌ PDF generation failed: ${err.message}`, 'error', 5000);
+                        } finally {
+                          setIsGeneratingPdf(false);
+                        }
+                      }}
+                      disabled={isGeneratingPdf || isLoadingDashboardData || !dashboardCompanyName || !dashboardJourneyType}
+                      variant="emphasized"
+                      style={{ flex: 1, fontWeight: 700 }}
+                    >
+                      {isGeneratingPdf ? '⏳ Generating PDF...' : '📄 Download Executive Summary'}
+                    </Button>
+                    <Button onClick={() => setShowGenerateDashboardModal(false)} style={{ flex: 1 }}>Cancel</Button>
+                  </Flex>
+                </>
+              )}
+
             </div>
           </div>
         </div>
@@ -4206,10 +4398,9 @@ export const HomePage = () => {
                         <button onClick={async (e) => {
                           e.stopPropagation();
                           try {
-                            const res = await functions.call('proxy-api', {
-                              data: { action: 'deploy-workflow', apiHost: apiSettings.host, apiPort: apiSettings.port, apiProtocol: apiSettings.protocol || 'http' },
-                            });
-                            const result = await res.json() as any;
+                            const result = await callProxyWithRetry(
+                              { action: 'deploy-workflow', apiHost: apiSettings.host, apiPort: apiSettings.port, apiProtocol: apiSettings.protocol || 'http' }
+                            ) as any;
                             if (result.success && result.data?.workflowTemplate) {
                               const json = JSON.stringify(result.data.workflowTemplate, null, 2);
                               const blob = new Blob([json], { type: 'application/json' });
@@ -4296,6 +4487,7 @@ export const HomePage = () => {
           </button>
         </div>
       )}
+      <div style={{ position: 'fixed', bottom: 4, right: 8, fontSize: 9, color: 'rgba(255,255,255,0.18)', zIndex: 1, pointerEvents: 'none', fontFamily: 'monospace' }}>v1.3.8</div>
     </Page>
   );
 };

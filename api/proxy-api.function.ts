@@ -10,7 +10,7 @@ import { documentsClient, environmentSharesClient } from '@dynatrace-sdk/client-
 import { queryExecutionClient } from '@dynatrace-sdk/client-query';
 
 interface ProxyPayload {
-  action: 'simulate-journey' | 'test-connection' | 'get-services' | 'stop-all-services' | 'stop-company-services' | 'get-dormant-services' | 'clear-dormant-services' | 'clear-company-dormant' | 'chaos-get-active' | 'chaos-get-recipes' | 'chaos-inject' | 'chaos-revert' | 'chaos-revert-all' | 'chaos-get-targeted' | 'chaos-remove-target' | 'chaos-smart' | 'ec-create' | 'ec-update-patterns' | 'detect-builtin-settings' | 'deploy-builtin-settings' | 'deploy-workflow' | 'debug-builtin-schema' | 'generate-dashboard' | 'generate-dashboard-async' | 'get-dashboard-status' | 'deploy-dashboard' | 'deploy-ai-dashboard' | 'deploy-business-flow';
+  action: 'simulate-journey' | 'test-connection' | 'get-services' | 'stop-all-services' | 'stop-company-services' | 'get-dormant-services' | 'clear-dormant-services' | 'clear-company-dormant' | 'chaos-get-active' | 'chaos-get-recipes' | 'chaos-inject' | 'chaos-revert' | 'chaos-revert-all' | 'chaos-get-targeted' | 'chaos-remove-target' | 'chaos-smart' | 'ec-create' | 'ec-update-patterns' | 'detect-builtin-settings' | 'deploy-builtin-settings' | 'deploy-workflow' | 'debug-builtin-schema' | 'generate-dashboard' | 'generate-dashboard-async' | 'get-dashboard-status' | 'deploy-dashboard' | 'deploy-ai-dashboard' | 'deploy-business-flow' | 'generate-pdf';
   apiHost: string;
   apiPort: string;
   apiProtocol: string;
@@ -25,35 +25,57 @@ export default async function (payload: ProxyPayload) {
   const { action, apiHost, apiPort, apiProtocol, body } = payload;
   const baseUrl = `${apiProtocol}://${apiHost}:${apiPort}`;
 
+  // Retry-aware fetch — handles EdgeConnect reconnection gaps (server disconnects every ~3 min)
+  const fetchWithRetry = async (url: string, init?: RequestInit, attempts = 4, delayMs = 2000): Promise<Response> => {
+    let lastErr: any;
+    for (let i = 1; i <= attempts; i++) {
+      try {
+        return await fetch(url, { ...init, signal: init?.signal || AbortSignal.timeout(15000) });
+      } catch (err: any) {
+        lastErr = err;
+        const isEC = err.message?.includes('Connection error') || err.message?.includes('EdgeConnect');
+        if (!isEC || i === attempts) throw err;
+        console.warn(`[proxy-api] fetch retry ${i}/${attempts} for ${url}: ${err.message}`);
+        await new Promise(r => setTimeout(r, delayMs));
+      }
+    }
+    throw lastErr;
+  };
+
   try {
     if (action === 'test-connection') {
-      // Helper: attempt to reach the server
-      const tryHealth = async (): Promise<{ ok: true; status: number; message: string; callerIp: string | null } | { ok: false }> => {
-        try {
-          const healthRes = await fetch(`${baseUrl}/api/health`, {
-            method: 'GET',
-            signal: AbortSignal.timeout(8000),
-          });
-          const healthData = await healthRes.json() as Record<string, unknown>;
-          const callerIp = (healthData.callerIp as string) || null;
-          return { ok: true, status: healthRes.status, message: `Server is running on ${apiHost}:${apiPort} (health: ${healthRes.status})`, callerIp };
-        } catch {
+      // Helper: attempt to reach the server (retries health endpoint before falling back)
+      const tryHealth = async (): Promise<{ ok: true; status: number; message: string; callerIp: string | null; healthy: boolean } | { ok: false }> => {
+        // Try /api/health up to 3 times (handles EdgeConnect reconnection gaps)
+        for (let attempt = 1; attempt <= 3; attempt++) {
           try {
-            const fallbackRes = await fetch(`${baseUrl}/api/journey-simulation/simulate-journey`, {
+            const healthRes = await fetch(`${baseUrl}/api/health`, {
               method: 'GET',
               signal: AbortSignal.timeout(8000),
             });
-            return { ok: true, status: fallbackRes.status, message: `Server reachable on ${apiHost}:${apiPort} (status ${fallbackRes.status})`, callerIp: null };
+            const healthData = await healthRes.json() as Record<string, unknown>;
+            const callerIp = (healthData.callerIp as string) || null;
+            return { ok: true, healthy: true, status: healthRes.status, message: `Server is running on ${apiHost}:${apiPort} (health: ${healthRes.status})`, callerIp };
           } catch {
-            return { ok: false };
+            if (attempt < 3) await new Promise(r => setTimeout(r, 2000));
           }
+        }
+        // All health retries failed — try a simple connectivity check
+        try {
+          const fallbackRes = await fetch(`${baseUrl}/`, {
+            method: 'GET',
+            signal: AbortSignal.timeout(8000),
+          });
+          return { ok: true, healthy: fallbackRes.status >= 200 && fallbackRes.status < 400, status: fallbackRes.status, message: `Server reachable on ${apiHost}:${apiPort} but /api/health failed (status ${fallbackRes.status})`, callerIp: null };
+        } catch {
+          return { ok: false };
         }
       };
 
       // First attempt
       const first = await tryHealth();
       if (first.ok) {
-        return { success: true, status: first.status, message: first.message, callerIp: first.callerIp };
+        return { success: first.healthy, status: first.status, message: first.message, callerIp: first.callerIp };
       }
 
       // Connection failed — auto-register host pattern with EdgeConnect and retry
@@ -109,7 +131,7 @@ export default async function (payload: ProxyPayload) {
     }
 
     if (action === 'get-services') {
-      const healthRes = await fetch(`${baseUrl}/api/health`, {
+      const healthRes = await fetchWithRetry(`${baseUrl}/api/health`, {
         method: 'GET',
         signal: AbortSignal.timeout(8000),
       });
@@ -118,7 +140,7 @@ export default async function (payload: ProxyPayload) {
     }
 
     if (action === 'stop-all-services') {
-      const res = await fetch(`${baseUrl}/api/admin/services/stop-everything`, {
+      const res = await fetchWithRetry(`${baseUrl}/api/admin/services/stop-everything`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         signal: AbortSignal.timeout(15000),
@@ -128,7 +150,7 @@ export default async function (payload: ProxyPayload) {
     }
 
     if (action === 'stop-company-services') {
-      const res = await fetch(`${baseUrl}/api/admin/services/stop-by-company`, {
+      const res = await fetchWithRetry(`${baseUrl}/api/admin/services/stop-by-company`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -139,7 +161,7 @@ export default async function (payload: ProxyPayload) {
     }
 
     if (action === 'get-dormant-services') {
-      const res = await fetch(`${baseUrl}/api/admin/services/dormant`, {
+      const res = await fetchWithRetry(`${baseUrl}/api/admin/services/dormant`, {
         method: 'GET',
         signal: AbortSignal.timeout(8000),
       });
@@ -148,7 +170,7 @@ export default async function (payload: ProxyPayload) {
     }
 
     if (action === 'clear-dormant-services') {
-      const res = await fetch(`${baseUrl}/api/admin/services/clear-dormant`, {
+      const res = await fetchWithRetry(`${baseUrl}/api/admin/services/clear-dormant`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body || {}),
@@ -159,7 +181,7 @@ export default async function (payload: ProxyPayload) {
     }
 
     if (action === 'clear-company-dormant') {
-      const res = await fetch(`${baseUrl}/api/admin/services/clear-dormant`, {
+      const res = await fetchWithRetry(`${baseUrl}/api/admin/services/clear-dormant`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body || {}),
@@ -172,19 +194,19 @@ export default async function (payload: ProxyPayload) {
     // ── Chaos Agent endpoints ──
 
     if (action === 'chaos-get-active') {
-      const res = await fetch(`${baseUrl}/api/gremlin/active`, { method: 'GET', signal: AbortSignal.timeout(8000) });
+      const res = await fetchWithRetry(`${baseUrl}/api/gremlin/active`, { method: 'GET', signal: AbortSignal.timeout(8000) });
       const data = await res.json();
       return { success: true, status: res.status, data };
     }
 
     if (action === 'chaos-get-recipes') {
-      const res = await fetch(`${baseUrl}/api/gremlin/recipes`, { method: 'GET', signal: AbortSignal.timeout(8000) });
+      const res = await fetchWithRetry(`${baseUrl}/api/gremlin/recipes`, { method: 'GET', signal: AbortSignal.timeout(8000) });
       const data = await res.json();
       return { success: true, status: res.status, data };
     }
 
     if (action === 'chaos-inject') {
-      const res = await fetch(`${baseUrl}/api/gremlin/inject`, {
+      const res = await fetchWithRetry(`${baseUrl}/api/gremlin/inject`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -196,7 +218,7 @@ export default async function (payload: ProxyPayload) {
 
     if (action === 'chaos-revert') {
       const { faultId } = body as { faultId: string };
-      const res = await fetch(`${baseUrl}/api/gremlin/revert/${encodeURIComponent(faultId)}`, {
+      const res = await fetchWithRetry(`${baseUrl}/api/gremlin/revert/${encodeURIComponent(faultId)}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         signal: AbortSignal.timeout(8000),
@@ -206,7 +228,7 @@ export default async function (payload: ProxyPayload) {
     }
 
     if (action === 'chaos-revert-all') {
-      const res = await fetch(`${baseUrl}/api/gremlin/revert-all`, {
+      const res = await fetchWithRetry(`${baseUrl}/api/gremlin/revert-all`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         signal: AbortSignal.timeout(15000),
@@ -216,14 +238,14 @@ export default async function (payload: ProxyPayload) {
     }
 
     if (action === 'chaos-get-targeted') {
-      const res = await fetch(`${baseUrl}/api/feature_flag/services`, { method: 'GET', signal: AbortSignal.timeout(8000) });
+      const res = await fetchWithRetry(`${baseUrl}/api/feature_flag/services`, { method: 'GET', signal: AbortSignal.timeout(8000) });
       const data = await res.json();
       return { success: true, status: res.status, data };
     }
 
     if (action === 'chaos-remove-target') {
       const { serviceName } = body as { serviceName: string };
-      const res = await fetch(`${baseUrl}/api/feature_flag/service/${encodeURIComponent(serviceName)}`, {
+      const res = await fetchWithRetry(`${baseUrl}/api/feature_flag/service/${encodeURIComponent(serviceName)}`, {
         method: 'DELETE',
         signal: AbortSignal.timeout(8000),
       });
@@ -232,7 +254,7 @@ export default async function (payload: ProxyPayload) {
     }
 
     if (action === 'chaos-smart') {
-      const res = await fetch(`${baseUrl}/api/gremlin/smart`, {
+      const res = await fetchWithRetry(`${baseUrl}/api/gremlin/smart`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -426,7 +448,7 @@ export default async function (payload: ProxyPayload) {
           const proto = apiProtocol || 'http';
           const pingUrl = `${proto}://${apiHost}:${apiPort}/api/health`;
           console.log(`[detect] Pinging ${pingUrl}...`);
-          const pingRes = await fetch(pingUrl, {
+          const pingRes = await fetchWithRetry(pingUrl, {
             method: 'GET',
             signal: AbortSignal.timeout(6000),
           });
@@ -633,20 +655,28 @@ export default async function (payload: ProxyPayload) {
             // Create FULL pipeline via Settings API (bizevents.pipelines)
             // Includes processors, costAllocation, and all section arrays — matching exact tenant config
 
-            // Check if already exists
+            // Check if already exists — search both top-level value and nested pipelines arrays
             const existingPipeline = await settingsObjectsClient.getSettingsObjects({
               schemaIds: 'builtin:openpipeline.bizevents.pipelines',
-              fields: 'objectId,value',
               pageSize: 50,
             });
-            const matchingPipeline = (existingPipeline.items || []).find(
-              (i: any) => i.value?.displayName === 'Business Observability Forge' || i.value?.displayName === 'Business Observability Generator' || i.value?.displayName === 'BizObs Template Pipeline'
-            );
+            const matchNames = ['bizobs-template-pipeline'];
+            const matchDisplayNames = ['Business Observability Forge', 'Business Observability Generator', 'BizObs Template Pipeline'];
+            const matchingPipeline = (existingPipeline.items || []).find((i: any) => {
+              const v = i.value;
+              if (!v) return false;
+              // Direct match on the settings object value
+              if (matchNames.includes(v.customId) || matchDisplayNames.includes(v.displayName)) return true;
+              // Some schemas nest pipelines in an array inside the value
+              const nested = v.pipelines || v.items || [];
+              return nested.some((p: any) => matchNames.includes(p.customId) || matchDisplayNames.includes(p.displayName));
+            });
 
             if (matchingPipeline) {
               results['openpipeline'] = { success: true, error: 'Already exists — no changes needed' };
             } else {
               // Create the full pipeline with processors, costAllocation, and all sections
+              try {
               const pipelineResponse = await settingsObjectsClient.postSettingsObjects({
                 body: [{
                   schemaId: 'builtin:openpipeline.bizevents.pipelines',
@@ -784,6 +814,16 @@ export default async function (payload: ProxyPayload) {
                   results['openpipeline-routing'] = { success: false, error: detail };
                 }
               }
+              } catch (pipelineErr: any) {
+                // Handle duplicate customId error gracefully — pipeline already exists
+                const errMsg = JSON.stringify(pipelineErr?.body || pipelineErr?.message || pipelineErr);
+                if (errMsg.includes('identical customId') || errMsg.includes('customId')) {
+                  console.log('[deploy] Pipeline already exists (caught duplicate customId error)');
+                  results['openpipeline'] = { success: true, error: 'Already exists — no changes needed (duplicate customId)' };
+                } else {
+                  throw pipelineErr;
+                }
+              }
             }
 
           } else if (configKey === 'openpipeline-routing') {
@@ -797,7 +837,7 @@ export default async function (payload: ProxyPayload) {
               pageSize: 50,
             });
             const bizobsPipeline = (pipelineCheck.items || []).find(
-              (i: any) => i.value?.displayName === 'Business Observability Forge' || i.value?.displayName === 'Business Observability Generator' || i.value?.displayName === 'BizObs Template Pipeline'
+              (i: any) => i.value?.customId === 'bizobs-template-pipeline' || i.value?.displayName === 'Business Observability Forge' || i.value?.displayName === 'Business Observability Generator' || i.value?.displayName === 'BizObs Template Pipeline'
             );
 
             if (!bizobsPipeline) {
@@ -1006,7 +1046,7 @@ export default async function (payload: ProxyPayload) {
     // ── Async Dashboard generation (jobs/polling model) ──
     if (action === 'generate-dashboard-async') {
       try {
-        const res = await fetch(`${baseUrl}/api/ai-dashboard/generate-async`, {
+        const res = await fetchWithRetry(`${baseUrl}/api/ai-dashboard/generate-async`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
@@ -1027,7 +1067,7 @@ export default async function (payload: ProxyPayload) {
         if (!jobId) {
           return { success: false, error: 'jobId required' };
         }
-        const res = await fetch(`${baseUrl}/api/ai-dashboard/status/${jobId}`, {
+        const res = await fetchWithRetry(`${baseUrl}/api/ai-dashboard/status/${jobId}`, {
           method: 'GET',
           signal: AbortSignal.timeout(15000), // Slightly longer to accommodate network/edge delays
         });
@@ -1042,7 +1082,7 @@ export default async function (payload: ProxyPayload) {
     // ── AI Dashboard generation (calls server's ai-dashboard route) ──
     if (action === 'generate-dashboard') {
       try {
-        const res = await fetch(`${baseUrl}/api/ai-dashboard/generate`, {
+        const res = await fetchWithRetry(`${baseUrl}/api/ai-dashboard/generate`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
@@ -1168,7 +1208,7 @@ export default async function (payload: ProxyPayload) {
     if (action === 'deploy-business-flow') {
       try {
         // 1. Generate the Business Flow JSON from the Node backend (no DT credentials needed)
-        const genRes = await fetch(`${baseUrl}/api/business-flow/generate`, {
+        const genRes = await fetchWithRetry(`${baseUrl}/api/business-flow/generate`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
@@ -1204,12 +1244,39 @@ export default async function (payload: ProxyPayload) {
       }
     }
 
+    // ── Executive Summary PDF generation ──
+    if (action === 'generate-pdf') {
+      try {
+        const res = await fetchWithRetry(`${baseUrl}/api/pdf/executive-summary`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+          signal: AbortSignal.timeout(30000),
+        });
+        if (!res.ok) {
+          const errText = await res.text();
+          return { success: false, error: `PDF generation failed (${res.status}): ${errText}` };
+        }
+        // Convert binary PDF to base64 so it can travel through the JSON proxy
+        const arrayBuffer = await res.arrayBuffer();
+        const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
+        const contentDisposition = res.headers.get('content-disposition') || '';
+        const filenameMatch = contentDisposition.match(/filename="?([^"]+)"?/);
+        const filename = filenameMatch ? filenameMatch[1] : 'BizObs-Summary.pdf';
+        return { success: true, data: { base64, filename, sizeKb: Math.round(arrayBuffer.byteLength / 1024) } };
+      } catch (error: any) {
+        console.error('[proxy-api] PDF generation error:', error.message);
+        return { success: false, error: error.message };
+      }
+    }
+
     if (action === 'simulate-journey') {
       const apiUrl = `${baseUrl}/api/journey-simulation/simulate-journey`;
-      const response = await fetch(apiUrl, {
+      const response = await fetchWithRetry(apiUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
+        signal: AbortSignal.timeout(60000),
       });
 
       const responseText = await response.text();

@@ -68,3 +68,6 @@ out/
 .tmp-*/
 temp/
 tmp/
+
+# EdgeConnect credentials (contains OAuth secrets)
+edgeconnect/edgeConnect.yaml
