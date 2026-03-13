@@ -277,6 +277,27 @@ export const HomePage = () => {
       } catch { /* silent — localStorage is fallback */ }
     }, 1500);
   }, [settingsObjects.data, updateSettings]);
+
+  // Generic helper: merge a partial value into the tenant settings object
+  const tenantFieldSaveRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const saveTenantField = useCallback((partial: Record<string, unknown>, debounceMs = 500) => {
+    if (tenantFieldSaveRef.current) clearTimeout(tenantFieldSaveRef.current);
+    tenantFieldSaveRef.current = setTimeout(async () => {
+      try {
+        const existingObj = settingsObjects.data?.items?.[0];
+        if (existingObj?.objectId && existingObj?.version) {
+          const currentVal = existingObj.value as any || {};
+          await updateSettings.execute({
+            objectId: existingObj.objectId,
+            optimisticLockingVersion: existingObj.version,
+            body: { value: { ...currentVal, ...partial } },
+          });
+          settingsObjects.refetch();
+        }
+      } catch { /* silent — localStorage is fallback */ }
+    }, debounceMs);
+  }, [settingsObjects.data, updateSettings]);
+
   const toggleCheck = (key: string) => {
     setChecklist(prev => {
       const next = { ...prev, [key]: !prev[key] };
@@ -345,8 +366,9 @@ export const HomePage = () => {
         }));
         setSavedTemplates(initialTemplates);
         localStorage.setItem(TEMPLATES_STORAGE_KEY, JSON.stringify(initialTemplates));
+        saveTenantField({ promptTemplates: JSON.stringify(initialTemplates) });
         console.log(`✅ Loaded ${initialTemplates.length} initial templates`);
-        console.log('[BizObs] App version: v1.3.9');
+        console.log('[BizObs] App version: v1.4.0');
       }
     } catch (error) {
       console.error('Error loading templates:', error);
@@ -398,6 +420,22 @@ export const HomePage = () => {
           }
         } catch { /* ignore parse error */ }
       }
+      // Restore prompt templates from tenant settings
+      if (v?.promptTemplates) {
+        try {
+          const restoredTemplates = JSON.parse(v.promptTemplates);
+          if (Array.isArray(restoredTemplates) && restoredTemplates.length > 0) {
+            setSavedTemplates(restoredTemplates);
+            localStorage.setItem(TEMPLATES_STORAGE_KEY, JSON.stringify(restoredTemplates));
+            console.log(`[BizObs] Restored ${restoredTemplates.length} templates from tenant settings`);
+          }
+        } catch { /* ignore parse error */ }
+      }
+      // Restore connectionTested from tenant settings
+      if (v?.connectionTested === true) {
+        setConnectionTestedOk(true);
+        localStorage.setItem('bizobs_connection_tested', 'true');
+      }
       settingsLoadedRef.current = true;
       return;
     }
@@ -441,6 +479,7 @@ export const HomePage = () => {
         if (result.data['test-connection']) {
           setConnectionTestedOk(true);
           localStorage.setItem('bizobs_connection_tested', 'true');
+          saveTenantField({ connectionTested: true });
         }
         // Merge detected true values into persisted checklist
         setChecklist(prev => {
@@ -624,16 +663,23 @@ export const HomePage = () => {
     // Only attempt tenant save if the settings API is available
     if (settingsAvailableRef.current === true) {
       try {
+        // Merge form fields with tenant-scoped state (templates, checklist, connectionTested)
+        const tenantValue = {
+          ...settingsForm,
+          checklistState: JSON.stringify(checklist),
+          promptTemplates: JSON.stringify(savedTemplates),
+          connectionTested: connectionTestedOk,
+        };
         const existingObj = settingsObjects.data?.items?.[0];
         if (existingObj?.objectId && existingObj?.version) {
           await updateSettings.execute({
             objectId: existingObj.objectId,
             optimisticLockingVersion: existingObj.version,
-            body: { value: settingsForm },
+            body: { value: tenantValue },
           });
         } else {
           await createSettings.execute({
-            body: { schemaId: SETTINGS_SCHEMA_ID, value: settingsForm },
+            body: { schemaId: SETTINGS_SCHEMA_ID, value: tenantValue },
           });
         }
         settingsObjects.refetch();
@@ -687,10 +733,12 @@ export const HomePage = () => {
         // Persist successful test so checklist stays green
         setConnectionTestedOk(true);
         localStorage.setItem('bizobs_connection_tested', 'true');
+        saveTenantField({ connectionTested: true });
       } else {
         setSettingsStatus(`❌ ${result.error || result.details}`);
         setConnectionTestedOk(false);
         localStorage.setItem('bizobs_connection_tested', 'false');
+        saveTenantField({ connectionTested: false });
       }
     } catch (error: any) {
       setSettingsStatus(`❌ ${error.message}`);
@@ -1293,6 +1341,7 @@ export const HomePage = () => {
     const updated = [...savedTemplates, newTemplate];
     setSavedTemplates(updated);
     localStorage.setItem(TEMPLATES_STORAGE_KEY, JSON.stringify(updated));
+    saveTenantField({ promptTemplates: JSON.stringify(updated) });
     setTemplateName('');
     setShowSaveDialog(false);
     showToast(`Template "${templateName}" saved!`, 'success');
@@ -1330,6 +1379,7 @@ export const HomePage = () => {
         const updated = savedTemplates.filter(t => t.id !== templateId);
         setSavedTemplates(updated);
         localStorage.setItem(TEMPLATES_STORAGE_KEY, JSON.stringify(updated));
+        saveTenantField({ promptTemplates: JSON.stringify(updated) });
         if (selectedTemplate === templateId) {
           setSelectedTemplate('');
         }
@@ -1386,6 +1436,7 @@ export const HomePage = () => {
         
         setSavedTemplates(merged);
         localStorage.setItem(TEMPLATES_STORAGE_KEY, JSON.stringify(merged));
+        saveTenantField({ promptTemplates: JSON.stringify(merged) });
         showToast(`Imported ${templates.length} template(s) successfully!`, 'success');
       } catch (error) {
         showToast('Failed to import templates. Please check the file format.', 'error');

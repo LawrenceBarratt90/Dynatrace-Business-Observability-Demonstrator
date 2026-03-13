@@ -2,11 +2,11 @@
   "dynatrace": "1",
   "schemaId": "app:my.bizobs.generator.master:api-config",
   "displayName": "BizObs Generator API Configuration",
-  "version": "1.4",
+  "version": "1.5",
   "multiObject": false,
   "maxObjects": 1,
   "allowedScopes": ["app"],
-  "description": "API connection settings and checklist state for the BizObs Generator service",
+  "description": "API connection settings, checklist state, and prompt templates for the BizObs Generator service (tenant-scoped)",
   "properties": {
     "apiHost": {
       "displayName": "API Host",
@@ -47,6 +47,21 @@
       "default": "{}",
       "maxLength": 4096,
       "nullable": true
+    },
+    "promptTemplates": {
+      "displayName": "Prompt Templates",
+      "description": "JSON-serialized array of saved prompt templates that persists across all users on the tenant",
+      "type": "text",
+      "default": "[]",
+      "maxLength": 200000,
+      "nullable": true
+    },
+    "connectionTested": {
+      "displayName": "Connection Tested",
+      "description": "Whether the app-to-server connection has been successfully tested at least once",
+      "type": "boolean",
+      "default": false,
+      "nullable": false
     },
     "adminUserId": {
       "displayName": "Admin User ID (deprecated)",
