@@ -1,4 +1,4 @@
-# Business Observability Forge
+# Business Observability Forge — v2.23.1
 
 ### Transform Customer Journeys Into Real-Time Business Intelligence
 
@@ -35,7 +35,7 @@ All we need to do is choose a journey (or describe one in plain language). The F
 
 Then an AI agent diagnoses and fixes it — automatically, in seconds.
 
-24 ready-made templates across healthcare, banking, retail, insurance, telecoms, and more — or generate a bespoke journey for any customer using AI.
+110+ ready-made templates across 55+ industry verticals — from healthcare, banking, retail, insurance, and telecoms to aerospace, gaming, energy, logistics, pharmaceuticals, and many more — or generate a bespoke journey for any customer using AI.
 
 ---
 
@@ -52,8 +52,53 @@ Then an AI agent diagnoses and fixes it — automatically, in seconds.
 | **Proving Dynatrace value beyond IT** | Generates live journeys with real revenue numbers — executives see dollars at risk, not dashboards of metrics they don't understand |
 | **Engaging business stakeholders** | Models *their* actual customer journey, not a generic demo — a bank sees their loan origination flow, a hospital sees their patient intake |
 | **Creating proof points fast** | Spins up a full working environment in 30 minutes — real services, real business events, real AI detection and remediation |
-| **Scaling demos across teams** | 24 ready-made templates plus AI-generated custom journeys — any SE or partner delivers the same polished story without building from scratch |
+| **Scaling demos across teams** | 110+ ready-made templates plus AI-generated custom journeys — any SE or partner delivers the same polished story without building from scratch |
 | **Bridging the gap between POC and production** | Shows customers exactly what Dynatrace looks like with their data shape, accelerating onboarding and time to value |
+
+---
+
+## Key Capabilities
+
+### AI Agent Hub
+
+Four AI agents powered by Ollama (llama3.2) work together to create a fully autonomous chaos-and-remediation loop:
+
+| Agent | Role |
+|-------|------|
+| **Nemesis** (Chaos) | Injects realistic failures into services — elevated error rates, latency, cache misses — using per-service feature flags |
+| **Fix-It** (Remediation) | Queries Dynatrace for active problems, diagnoses root cause via LLM function-calling, and auto-remediates by resetting feature flags |
+| **Librarian** (Memory) | Records every chaos injection, revert, diagnosis, and fix into a persistent vector + history store. Provides context for future incidents and powers the Librarian Dashboard |
+| **Dashboard** (BI) | Generates and deploys DQL-powered Dynatrace Business Dashboards from natural language descriptions |
+
+### Librarian Dashboard
+
+An AI-powered operational memory panel accessible from the **Forge Dashboards** page. Click the 📚 **Librarian** button to open a modal overlay that shows:
+
+- **AI Summary** — Ollama analyses your full incident history and produces an SRE-style narrative
+- **Stats Cards** — colour-coded counts by event type (chaos injected, reverted, fixes, failures)
+- **AI Insights** — severity-tagged observations (critical / warning / info)
+- **Detected Patterns** — recurring incident patterns with recommendations
+- **Event Timeline** — scrollable, reverse-chronological log of all operational events
+
+Falls back to raw-data analysis when Ollama is cold or unavailable.
+
+### Forge Dashboards
+
+A DQL-powered dashboard page with pre-built dashboard presets (Security, Digital Intelligence, Infrastructure, and more). Each tile runs a live DQL query against your Dynatrace environment. 31 saved dashboard configurations are included.
+
+### Solutions Gallery
+
+A showcase of 55+ industry verticals across 11 categories, each with:
+- Dynatrace capability mapping
+- Pre-built demo journeys (click to load and run)
+- Industry-specific KPIs, BizEvent schemas, and field definitions
+
+### Partner Event Materials
+
+Ready-made partner demo assets included in the repo:
+- **Talk track** — 8-section partner event demo guide (`PARTNER-EVENT-TALK-TRACK-AND-DEMO.md`)
+- **PowerPoint** — 16-slide, 16:9 widescreen presentation (`Business-Observability-Forge-Partner-Event.pptx`)
+- **PPT generator** — Python script to regenerate the deck (`generate-partner-ppt.py`)
 
 ---
 
@@ -67,7 +112,7 @@ Then an AI agent diagnoses and fixes it — automatically, in seconds.
 
 ## Demoability & Internal Training
 
-**Give every SE and partner the same powerful story.** No more building bespoke demos from scratch. Anyone can pick a template, launch a full environment in 30 minutes, and deliver a polished business observability walkthrough. It's also ideal for internal enablement — new team members can see the full Dynatrace platform story (services, business events, AI detection, remediation, dashboards) running end-to-end on day one.
+**Give every SE and partner the same powerful story.** No more building bespoke demos from scratch. Anyone can pick a template, launch a full environment in 30 minutes, and deliver a polished business observability walkthrough — with partner-ready slide decks and talk tracks included. It's also ideal for internal enablement — new team members can see the full Dynatrace platform story (services, business events, AI detection, remediation, dashboards) running end-to-end on day one.
 
 ---
 
@@ -76,16 +121,37 @@ Then an AI agent diagnoses and fixes it — automatically, in seconds.
 The Forge runs as an app inside your Dynatrace tenant. Setup takes about 30 minutes.
 
 **You'll need:**
-- A Dynatrace tenant
+- A Dynatrace SaaS tenant (Sprint or Live)
 - A server to run the engine (cloud VM or GitHub Codespace)
 
 **Then:**
-1. Deploy the app to your tenant
-2. Run the setup script on your server
-3. Open the app — a guided checklist walks you through the rest
-4. Pick a journey and start your demo
+1. Clone the repo and run `./setup.sh` — it walks you through 6 guided prompts
+2. Open the app in Dynatrace — a guided Get Started checklist walks you through the rest
+3. Pick a journey and start your demo
 
 For full setup instructions, see the [Technical Guide](TECHNICAL-GUIDE.md).
+
+---
+
+## Industry Coverage
+
+110+ pre-built templates across 55+ industry verticals in 11 categories:
+
+| Category | Verticals |
+|----------|-----------|
+| **Financial Services** | Banking, Insurance, Financial Services, Payments |
+| **Healthcare & Life Sciences** | Healthcare, Pharmaceuticals, Veterinary |
+| **Technology** | Cybersecurity, Data Centre, Gaming, Robotics, Semiconductor, Social Media |
+| **Retail & Consumer** | Retail, Fashion, Beauty, Food & Beverage, Marketplace |
+| **Energy & Utilities** | Energy, EV, Water, Waste, Mining |
+| **Transport & Logistics** | Airlines, Logistics, Shipping, Rail, Ride-Hailing, Delivery |
+| **Manufacturing & Industrial** | Manufacturing, Industrial, Chemical, Construction |
+| **Media & Entertainment** | Media, Music, Publishing, Sports, Lottery |
+| **Professional Services** | Consulting, Legal, HR, Advertising, Nonprofit |
+| **Government & Public** | Government, Defence, Smart City, ESG |
+| **Real Estate & Hospitality** | Real Estate, Hospitality, Space, Agriculture, Fitness |
+
+Each vertical includes 2 pre-built demo journeys tailored to that industry's business processes.
 
 ---
 
@@ -98,13 +164,16 @@ Yes. These are real services generating real business events, traces, and metric
 Absolutely. Describe any customer's journey in plain language and the AI builds the full configuration. The demo mirrors *their* business, not a generic example.
 
 **Does it require Dynatrace?**
-Yes. It's built natively on Dynatrace.
+Yes. It's built natively on Dynatrace SaaS (Grail, DPS, and Dynatrace Intelligence).
 
 **How long does setup take?**
 About 30 minutes the first time. After that, launching a new demo is one click.
 
 **Can I use it for customer demos?**
 That's exactly what it's built for.
+
+**What about partners on Dynatrace Managed (no Grail)?**
+The partner event materials are designed to show the value of business observability concepts, even for audiences primarily on Managed. The live demo itself requires a SaaS tenant with Grail.
 
 ---
 

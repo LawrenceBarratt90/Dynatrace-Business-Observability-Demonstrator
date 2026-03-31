@@ -6,7 +6,7 @@
       {
         "name": "orderTotal",
         "type": "numeric",
-        "sampleValue": 232.01
+        "sampleValue": 340.63
       },
       {
         "name": "transactionValue",
@@ -116,7 +116,7 @@
       {
         "name": "deviceType",
         "type": "string",
-        "sampleValue": "mobile"
+        "sampleValue": "desktop"
       },
       {
         "name": "region",
@@ -126,32 +126,32 @@
       {
         "name": "customerSegmentValue",
         "type": "string",
-        "sampleValue": "rental_tenant"
+        "sampleValue": "new_build"
       },
       {
         "name": "loyaltyTier",
         "type": "string",
-        "sampleValue": "Smart Home"
+        "sampleValue": "Green"
       },
       {
         "name": "segment",
         "type": "string",
-        "sampleValue": "dual_fuel"
+        "sampleValue": "prepayment"
       },
       {
         "name": "Productname",
         "type": "string",
-        "sampleValue": "Dual Fuel Fixed 12m"
+        "sampleValue": "Gas Fixed 24m"
       },
       {
         "name": "ProductId",
         "type": "string",
-        "sampleValue": "ENG-EV-005"
+        "sampleValue": "ENG-GS-003"
       },
       {
         "name": "ProductType",
         "type": "string",
-        "sampleValue": "electricity_variable"
+        "sampleValue": "gas_fixed"
       },
       {
         "name": "Price",
@@ -161,7 +161,7 @@
       {
         "name": "estimatedAnnualCost",
         "type": "numeric",
-        "sampleValue": 1800
+        "sampleValue": 1400
       },
       {
         "name": "meterType",
@@ -171,7 +171,7 @@
       {
         "name": "energyEfficiencyRating",
         "type": "string",
-        "sampleValue": "C"
+        "sampleValue": "E"
       },
       {
         "name": "depositRequired",
@@ -181,7 +181,7 @@
       {
         "name": "marketTrend",
         "type": "string",
-        "sampleValue": "energy_price_cap"
+        "sampleValue": "green_energy"
       },
       {
         "name": "browser",
@@ -226,17 +226,17 @@
       {
         "name": "discountApplied",
         "type": "numeric",
-        "sampleValue": 8.38
+        "sampleValue": 8.82
       },
       {
         "name": "taxAmount",
         "type": "numeric",
-        "sampleValue": 18.56
+        "sampleValue": 27.25
       },
       {
         "name": "shippingCost",
         "type": "numeric",
-        "sampleValue": 14.71
+        "sampleValue": 10.86
       },
       {
         "name": "pricingTier",
@@ -360,8 +360,8 @@
       "PaymentSetup",
       "WelcomeAndOnboarding"
     ],
-    "lastUpdated": "2026-03-31T13:06:18.361Z",
-    "runCount": 4393
+    "lastUpdated": "2026-03-31T13:17:19.309Z",
+    "runCount": 4966
   },
   "kumon|subscription flow": {
     "companyName": "Kumon",
@@ -2296,7 +2296,7 @@
       {
         "name": "orderTotal",
         "type": "numeric",
-        "sampleValue": 79.87
+        "sampleValue": 370.96
       },
       {
         "name": "transactionValue",
@@ -2311,7 +2311,7 @@
       {
         "name": "contractValue",
         "type": "numeric",
-        "sampleValue": 2164.12
+        "sampleValue": 4468.97
       },
       {
         "name": "annualRevenue",
@@ -2341,7 +2341,7 @@
       {
         "name": "acquisitionCost",
         "type": "numeric",
-        "sampleValue": 31.01
+        "sampleValue": 67.37
       },
       {
         "name": "conversionProbability",
@@ -2401,17 +2401,17 @@
       {
         "name": "channel",
         "type": "string",
-        "sampleValue": "online_check_in"
+        "sampleValue": "airport_kiosk"
       },
       {
         "name": "deviceType",
         "type": "string",
-        "sampleValue": "mobile"
+        "sampleValue": "desktop"
       },
       {
         "name": "region",
         "type": "string",
-        "sampleValue": "Africa"
+        "sampleValue": "North America"
       },
       {
         "name": "customerSegmentValue",
@@ -2431,17 +2431,17 @@
       {
         "name": "Productname",
         "type": "string",
-        "sampleValue": "Online Check-In Standard"
+        "sampleValue": "Premium Seat Upgrade"
       },
       {
         "name": "ProductId",
         "type": "string",
-        "sampleValue": "AIR-CI-104"
+        "sampleValue": "AIR-CI-102"
       },
       {
         "name": "ProductType",
         "type": "string",
-        "sampleValue": "seat_upgrade"
+        "sampleValue": "standard_checkin"
       },
       {
         "name": "Price",
@@ -2451,22 +2451,22 @@
       {
         "name": "checkInTiming",
         "type": "string",
-        "sampleValue": "24h_before"
+        "sampleValue": "48h_before"
       },
       {
         "name": "seatAssigned",
         "type": "string",
-        "sampleValue": "1A_first"
+        "sampleValue": "15D_middle"
       },
       {
         "name": "boardingGroup",
         "type": "numeric",
-        "sampleValue": 3
+        "sampleValue": 4
       },
       {
         "name": "specialAssistance",
         "type": "string",
-        "sampleValue": "false"
+        "sampleValue": "true"
       },
       {
         "name": "travelDocumentVerified",
@@ -2521,17 +2521,17 @@
       {
         "name": "discountApplied",
         "type": "numeric",
-        "sampleValue": 17.58
+        "sampleValue": 14.86
       },
       {
         "name": "taxAmount",
         "type": "numeric",
-        "sampleValue": 6.39
+        "sampleValue": 29.68
       },
       {
         "name": "shippingCost",
         "type": "numeric",
-        "sampleValue": 6.37
+        "sampleValue": 12.93
       },
       {
         "name": "pricingTier",
@@ -2601,7 +2601,7 @@
       {
         "name": "costPerAcquisition",
         "type": "numeric",
-        "sampleValue": 37.21
+        "sampleValue": 80.84
       },
       {
         "name": "riskLevel",
@@ -2655,8 +2655,8 @@
       "BoardingPassGeneration",
       "AirportGuidanceAndNotifications"
     ],
-    "lastUpdated": "2026-03-31T13:06:19.011Z",
-    "runCount": 63057
+    "lastUpdated": "2026-03-31T13:17:18.888Z",
+    "runCount": 63464
   },
   "cybershield security|incident response": {
     "companyName": "CyberShield Security",
@@ -4595,7 +4595,7 @@
       {
         "name": "fraudRisk",
         "type": "string",
-        "sampleValue": "medium"
+        "sampleValue": "low"
       },
       {
         "name": "riskLevel",
@@ -4610,17 +4610,17 @@
       {
         "name": "deviceType",
         "type": "string",
-        "sampleValue": "desktop"
+        "sampleValue": "mobile"
       },
       {
         "name": "region",
         "type": "string",
-        "sampleValue": "London"
+        "sampleValue": "Bristol"
       },
       {
         "name": "customerSegmentValue",
         "type": "string",
-        "sampleValue": "high_net_worth"
+        "sampleValue": "retail_investor"
       },
       {
         "name": "loyaltyTier",
@@ -4630,17 +4630,17 @@
       {
         "name": "segment",
         "type": "string",
-        "sampleValue": "wealth_builder"
+        "sampleValue": "portfolio_diversifier"
       },
       {
         "name": "Productname",
         "type": "string",
-        "sampleValue": "Lifetime ISA"
+        "sampleValue": "Self-Invested Personal Pension"
       },
       {
         "name": "ProductId",
         "type": "string",
-        "sampleValue": "FS-JISA-004"
+        "sampleValue": "FS-GIA-003"
       },
       {
         "name": "ProductType",
@@ -4655,7 +4655,7 @@
       {
         "name": "initialInvestment",
         "type": "numeric",
-        "sampleValue": 10000
+        "sampleValue": 5000
       },
       {
         "name": "riskAppetite",
@@ -4665,17 +4665,17 @@
       {
         "name": "investmentHorizon",
         "type": "string",
-        "sampleValue": "20_years"
+        "sampleValue": "5_years"
       },
       {
         "name": "annualManagementFee",
         "type": "numeric",
-        "sampleValue": 0.45
+        "sampleValue": 0.25
       },
       {
         "name": "marketTrend",
         "type": "string",
-        "sampleValue": "esg_demand"
+        "sampleValue": "passive_investing"
       },
       {
         "name": "browser",
@@ -4720,7 +4720,7 @@
       {
         "name": "discountApplied",
         "type": "numeric",
-        "sampleValue": 5.52
+        "sampleValue": 6.38
       },
       {
         "name": "taxAmount",
@@ -4730,7 +4730,7 @@
       {
         "name": "shippingCost",
         "type": "numeric",
-        "sampleValue": 13.37
+        "sampleValue": 9.96
       },
       {
         "name": "pricingTier",
@@ -4839,7 +4839,7 @@
       "FundPurchase",
       "PortfolioSetup"
     ],
-    "lastUpdated": "2026-03-31T13:06:19.116Z",
-    "runCount": 6697
+    "lastUpdated": "2026-03-31T13:17:18.976Z",
+    "runCount": 7192
   }
 }

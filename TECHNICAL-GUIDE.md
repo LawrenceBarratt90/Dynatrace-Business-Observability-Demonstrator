@@ -1,4 +1,4 @@
-# Technical Guide — Business Observability Forge
+# Technical Guide — Business Observability Forge (v2.23.1)
 
 > A hands-on guide for engineers, SEs, and developers who want to get the platform running and understand what's under the hood.
 
@@ -38,20 +38,22 @@ The Engine runs on your host (EC2, VM, Codespace). The Forge UI runs inside Dyna
 │                                                                  │
 │  ┌──────────────────────────────────────────────────────────┐    │
 │  │  Main Server (port 8080) — Express.js + Socket.IO        │    │
-│  │  ├── 18 API route modules (75+ endpoints)                │    │
+│  │  ├── 20+ API route modules (100+ endpoints)              │    │
 │  │  ├── AI Agents: Nemesis (chaos), Fix-It (remediation),   │    │
-│  │  │              Librarian (memory), Dashboard (deploy)   │    │
+│  │  │     Librarian (memory/audit), Dashboard (BI deploy)   │    │
 │  │  ├── Feature Flag Manager (per-service isolation)        │    │
 │  │  ├── Journey Simulation Engine                           │    │
+│  │  ├── MCP Server + PDF Export + Workflow Webhooks         │    │
 │  │  └── Dynatrace Event Ingestion + DT API Proxy            │    │
 │  └──────────────────────────────────────────────────────────┘    │
 │                          │                                       │
-│              spawns child processes                              │
+│              spawns child processes (with --require otel.cjs)   │
 │                          ▼                                       │
 │  ┌──────────────────────────────────────────────────────────┐    │
-│  │  Dynamic Child Services (ports 8081–8200)                │    │
+│  │  Dynamic Child Services (ports 8081–8740, 660 ports)     │    │
 │  │  Each = separate Node.js process with:                   │    │
 │  │  ├── Own Express server + /health endpoint               │    │
+│  │  ├── OpenTelemetry auto-instrumentation (otel.cjs)       │    │
 │  │  ├── Dynatrace OneAgent identity (unique DT_TAGS)        │    │
 │  │  ├── Per-service feature flags from main server          │    │
 │  │  └── Service-to-service call chaining                    │    │
@@ -76,7 +78,7 @@ Before you start, make sure you have **all of these** ready:
 | 2 | **Dynatrace API Token** | — | Engine sends events to DT | Create in DT: Settings → Access Tokens → Generate. Scopes: `events.ingest`, `metrics.ingest`, `openTelemetryTrace.ingest`, `entities.read` |
 | 3 | **OAuth Client(s)** | — | EdgeConnect + app deploy | Create in DT: Settings → General → External Requests → Add EdgeConnect. It generates the OAuth creds. Optionally add deploy scopes or use a separate client. |
 | 4 | **EC2 / VM / Host** | Linux recommended | Runs the Engine server | SSH access, ports 8080–8200 open in Security Group (inbound not strictly required — EdgeConnect tunnels inbound) |
-| 5 | **Node.js** | v22+ | Server runtime | `node --version` → should show v22.x+ |
+| 5 | **Node.js** | v22+ (v24 recommended) | Server runtime | `node --version` → should show v22.x+ |
 | 6 | **Docker** | Latest | Runs EdgeConnect | `docker --version` |
 | 7 | **Dynatrace OneAgent** | Latest | Auto-instruments every child service | `sudo systemctl status oneagent` or check Hosts in DT UI |
 | 8 | **Ollama** | Latest | Powers AI agents (Nemesis, Fix-It, Librarian) | `ollama list` → should show `llama3.2` |
@@ -323,20 +325,23 @@ Work through from top to bottom. Each green checkmark means that step is configu
 
 ### The Template Library
 
-24 pre-built industry journey templates across 8 verticals:
+110+ pre-built industry journey templates across 55+ verticals in 11 categories:
 
-| Industry | Journeys |
+| Category | Verticals |
 |----------|----------|
-| **Banking** | Account Opening, Fraud Resolution, Loan Application |
-| **Insurance** | Claims, Purchase, Renewal |
-| **Manufacturing** | Maintenance Support, Procurement, Upgrade Project |
-| **Media** | Purchase, Support, Upgrade |
-| **Retail** | Click & Collect, Loyalty Signup, Purchase |
-| **Telecommunications** | Broadband Signup, Purchase, Support |
-| **Travel & Hospitality** | Booking, Complaint Resolution, Corporate Booking |
-| **Financial Services** | Account Opening, ISA Transfer, Support Request |
+| **Financial Services** | Banking, Insurance, Financial Services, Payments |
+| **Healthcare & Life Sciences** | Healthcare, Pharmaceuticals, Veterinary |
+| **Technology** | Cybersecurity, Data Centre, Gaming, Robotics, Semiconductor, Social Media |
+| **Retail & Consumer** | Retail, Fashion, Beauty, Food & Beverage, Marketplace |
+| **Energy & Utilities** | Energy, EV, Water, Waste, Mining |
+| **Transport & Logistics** | Airlines, Logistics, Shipping, Rail, Ride-Hailing, Delivery |
+| **Manufacturing & Industrial** | Manufacturing, Industrial, Chemical, Construction |
+| **Media & Entertainment** | Media, Music, Publishing, Sports, Lottery |
+| **Professional Services** | Consulting, Legal, HR, Advertising, Nonprofit |
+| **Government & Public** | Government, Defence, Smart City, ESG |
+| **Real Estate & Hospitality** | Real Estate, Hospitality, Space, Agriculture, Fitness |
 
-Each template includes: company name, domain, industry type, journey steps with substeps, business metadata (revenue, category, KPIs), and customer profiles.
+Each vertical includes 2 pre-built demo journeys. Each template includes: company name, domain, industry type, journey steps with substeps, business metadata (revenue, category, KPIs), and customer profiles.
 
 ![For Ui - Settings](Screenshots/template-library.png)
 
@@ -392,6 +397,17 @@ The Nemesis agent (Nemesis) sets error rates on specific services. Each service 
 
 All agents use **LLM function calling** (via Ollama) to decide what actions to take. The Librarian provides persistent memory so agents can learn from past incidents.
 
+#### Librarian Dashboard
+
+The Librarian agent also powers the **Librarian Dashboard** — a modal overlay on the Forge Dashboards page (📚 button). When opened, it:
+
+1. Fetches all history events and vector store stats from the backend
+2. Sends the condensed timeline to Ollama for SRE-style analysis (with a 65-second `Promise.race` timeout)
+3. Renders: AI Summary, colour-coded Stats Cards, severity-tagged Insights, Detected Patterns, and a scrollable Event Timeline
+4. Falls back to raw-data analysis when Ollama is cold or unavailable
+
+Backend endpoints: `GET /api/librarian/history`, `GET /api/librarian/stats`, `POST /api/librarian/analyze`.
+
 ### Dynatrace Event Ingestion
 
 Every chaos injection and remediation action sends a `CUSTOM_DEPLOYMENT` event to Dynatrace:
@@ -432,13 +448,20 @@ These events appear as deployment markers on the affected service in Dynatrace, 
 | `/api/nemesis/*` | POST | Nemesis AI agent endpoints |
 | `/api/fixit/*` | POST | Fix-It AI agent endpoints |
 | `/api/librarian/*` | GET/POST | Librarian memory endpoints |
+| `/api/librarian/analyze` | POST | Ollama-powered history analysis (Librarian Dashboard) |
+| `/api/ai-dashboard/*` | POST | AI-generated DQL dashboard deployment |
+| `/api/pdf/*` | POST | PDF export of dashboards |
+| `/api/mcp/*` | Various | MCP (Model Context Protocol) server endpoints |
+| `/api/autonomous/*` | POST | Autonomous agent orchestration |
+| `/api/workflow-webhook/*` | POST | Dynatrace workflow webhook receiver |
+| `/api/business-flow/*` | GET/POST | Business flow configuration |
 | `/api/dt-proxy/*` | GET | Proxy to Dynatrace APIs |
 
 ---
 
 ## Forge UI Pages (AppEngine)
 
-The Dynatrace AppEngine app has 7 routes:
+The Dynatrace AppEngine app has 8 routes:
 
 | Page | Route | Purpose |
 |------|-------|---------|
@@ -446,9 +469,10 @@ The Dynatrace AppEngine app has 7 routes:
 | **Services** | `/services` | Live service dashboard with start/stop controls per company (accessible via direct URL) |
 | **Chaos Control** | `/chaos` | Select a service, pick a chaos type, inject — with live active faults list |
 | **Fix-It Agent** | `/fixit` | Trigger automated diagnosis and remediation |
+| **Forge Dashboards** | `/forge-dashboards` | DQL-powered dashboard presets (Security, DI, Infra, etc.) + Librarian modal overlay for AI-driven incident analysis |
 | **Settings** | `/settings` | Configure server IP, API tokens, EdgeConnect credentials |
 | **Demo Guide** | `/demo-guide` | Interactive walkthrough paths for demos (Quick Start, Chaos & Fix-It, Traces, Platform, LiveDebugger) |
-| **Solutions** | `/solutions` | Industry solutions showcase with Dynatrace capability mapping |
+| **Solutions** | `/solutions` | 55+ industry verticals with Dynatrace capability mapping, clickable demo journeys |
 
 > **Note:** The primary navigation is the Home page with 3 tabs: Welcome, Customer Details, Generate Prompts. Chaos control is also accessible via the Nemesis modal on the Home page. Active Journeys shows running services and their status.
 
@@ -460,7 +484,7 @@ The Dynatrace AppEngine app has 7 routes:
 Welcome Tab → Step 1: Company Details → Step 2: Generate Prompts → Step 3: Run Simulation
      │
      ├── Template Library sidebar (left panel)
-     │   ├── 24 pre-built industry templates
+     │   ├── 110+ pre-built industry templates (55+ verticals)
      │   ├── Search/filter by industry
      │   ├── Click to load → auto-populates all fields
      │   ├── Export/Import configs (JSON)
@@ -483,6 +507,8 @@ Welcome Tab → Step 1: Company Details → Step 2: Generate Prompts → Step 3:
 | `.dt-credentials.json` | DT environment URL + API token | ✅ |
 | `saved-configs/*.json` | Journey templates + user configs | ✅ |
 | `memory/` | Librarian vector + history stores | ✅ |
+| `dashboards/saved/*.json` | Saved dashboard preset configurations (31 presets) | ✅ |
+| `data/field-repo.json` | Field definitions across all verticals (4800+ lines) | ✅ |
 
 ---
 
@@ -585,13 +611,35 @@ bash scripts/log-cleanup.sh --uninstall
 
 | Layer | Technology |
 |-------|-----------|
-| Engine Runtime | Node.js v22 (ESM), Express.js 4, Socket.IO 4 |
+| Engine Runtime | Node.js v22+ (ESM), Express.js 4, Socket.IO 4 |
 | AI Agents | TypeScript → compiled to `dist/`, LLM via Ollama |
 | AppEngine UI | React 18, Dynatrace Strato components, TypeScript |
 | Observability | Dynatrace OneAgent + OpenTelemetry SDK |
 | Config-as-Code | Monaco v2 (Settings API deployment) |
 | Tunnel | Dynatrace EdgeConnect |
 | Auth | OAuth 2.0 (client_credentials), API Token |
+
+---
+
+## OpenTelemetry (OTel) in Child Services
+
+Child services are spawned with `--require otel.cjs` so they get full OpenTelemetry auto-instrumentation from startup. Each child process receives its own `OTEL_SERVICE_NAME` environment variable matching its Dynatrace service name, ensuring traces appear under the correct service identity in Dynatrace.
+
+The `otel.cjs` bootstrap:
+- Registers `HttpInstrumentation` and `UndiciInstrumentation` for all HTTP and native-fetch calls
+- Tags Ollama spans with `gen_ai.*` semantic conventions (`gen_ai.operation.name`, `gen_ai.request.model`, `gen_ai.response.model`)
+- Uses OTLP/HTTP exporter to send traces to the local OneAgent endpoint
+
+---
+
+## Additional Assets
+
+| File | Purpose |
+|------|--------|
+| `PARTNER-EVENT-TALK-TRACK-AND-DEMO.md` | 8-section partner event demo guide |
+| `Business-Observability-Forge-Partner-Event.pptx` | 16-slide, 16:9 partner presentation |
+| `generate-partner-ppt.py` | Python script to regenerate the PowerPoint deck |
+| `BUSINESS-GUIDE.md` | Business perspective and value proposition |
 
 ---
 

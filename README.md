@@ -6,7 +6,7 @@
 
 Model any customer’s real business journey — their exact checkout flow, claims process, or patient care pathway — and turn it into a live, fully instrumented simulation inside Dynatrace. Describe the journey in plain language (or use AI to research it), and the Forge generates real microservices, realistic traffic, business events with revenue metadata, and executive dashboards — all wired into Dynatrace OneAgent, BizEvents, and Dynatrace Intelligence.
 
-**24 pre-built industry templates** across 8 verticals get you started in one click — but the real power is generating bespoke journeys tailored to any customer’s actual operations.
+**110+ pre-built industry templates** across 55+ verticals get you started in one click — but the real power is generating bespoke journeys tailored to any customer's actual operations.
 
 **This is a unified repo** — it contains both the **Engine** (Node.js server) and the **Forge UI** (Dynatrace AppEngine app).
 
@@ -282,7 +282,7 @@ Deploys: OneAgent features, capture rules, service naming, OpenPipeline pipeline
 | 🤖 **Step 4: AI Agent Hub** | Nemesis / Fix-It / Librarian / Dashboard agent controls |
 
 ### Additional UI Elements
-- **Saved Prompts Sidebar** (left panel): Save/load/duplicate/delete/export/import journey configs. 24 pre-built + user-saved configs.
+- **Saved Prompts Sidebar** (left panel): Save/load/duplicate/delete/export/import journey configs. 110+ pre-built + user-saved configs.
 - **Service Status Dropdown** (top-right): Live service status with refresh.
 - **Dynatrace Settings Modal**: Configure DT environment URL + API token from the UI.
 
