@@ -22,15 +22,16 @@
       "action": "dynatrace.automations:http-function",
       "input": {
         "method": "POST",
-        "url": "http://localhost:8080/api/remediation/feature-flag",
+        "url": "http://172.31.37.182:8080/api/feature_flag",
         "headers": {
           "Content-Type": "application/json"
         },
         "payload": {
-          "flag": "errorInjectionEnabled",
-          "value": false,
-          "reason": "Automated remediation - High error rate detected in {{ event()[\"event.name\"] }}",
-          "problemId": "{{ event()[\"display_id\"] }}",
+          "flags": {
+            "errors_per_transaction": 0
+          },
+          "reason": "Automated remediation - High error rate detected in {{ event()[\"event.name\"] | default(\"unknown\") }}",
+          "problemId": "{{ event()[\"display_id\"] | default(\"unknown\") }}",
           "triggeredBy": "dynatrace_workflow"
         }
       },
@@ -98,15 +99,16 @@
       "action": "dynatrace.automations:http-function",
       "input": {
         "method": "POST",
-        "url": "http://localhost:8080/api/remediation/feature-flag",
+        "url": "http://172.31.37.182:8080/api/feature_flag",
         "headers": {
           "Content-Type": "application/json"
         },
         "payload": {
-          "flag": "errorInjectionEnabled",
-          "value": true,
-          "reason": "Auto-recovery - Problem {{ event()[\"display_id\"] }} resolved, re-enabling error injection",
-          "problemId": "{{ event()[\"display_id\"] }}",
+          "flags": {
+            "errors_per_transaction": 3
+          },
+          "reason": "Auto-recovery - Problem {{ event()[\"display_id\"] | default(\"unknown\") }} resolved, re-enabling error injection",
+          "problemId": "{{ event()[\"display_id\"] | default(\"unknown\") }}",
           "triggeredBy": "dynatrace_workflow_recovery"
         }
       },

@@ -121,8 +121,13 @@ function createService(serviceName, mountFn) {
   });
   
   // Health check endpoint with error status
+  // Suppress OneAgent tracing for health checks to avoid noise in distributed traces
   app.get('/health', (req, res) => {
     try {
+      // Tell Dynatrace OneAgent to exclude this request from tracing
+      if (req.headers['x-oneagent-sdk-disable'] === undefined) {
+        res.setHeader('X-Dynatrace', 'NA');
+      }
       res.json({ 
         status: 'ok', 
         service: serviceName,
