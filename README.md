@@ -1,14 +1,14 @@
-# Business Observability Forge
+# Business Observability Demonstrator
 
 <p align="center">
-  <img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=https://github.com/LawrenceBarratt90/Business-Observablity-forge" alt="QR code linking to the Business Observability Forge repository on GitHub" />
+  <img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=https://github.com/LawrenceBarratt90/Business-Observablity-Demonstrator" alt="QR code linking to the Business Observability Demonstrator repository on GitHub" />
 </p>
 
-Model any customer’s real business journey — their exact checkout flow, claims process, or patient care pathway — and turn it into a live, fully instrumented simulation inside Dynatrace. Describe the journey in plain language (or use AI to research it), and the Forge generates real microservices, realistic traffic, business events with revenue metadata, and executive dashboards — all wired into Dynatrace OneAgent, BizEvents, and Dynatrace Intelligence.
+Model any customer’s real business journey — their exact checkout flow, claims process, or patient care pathway — and turn it into a live, fully instrumented simulation inside Dynatrace. Describe the journey in plain language (or use AI to research it), and the Demonstrator generates real microservices, realistic traffic, business events with revenue metadata, and executive dashboards — all wired into Dynatrace OneAgent, BizEvents, and Dynatrace Intelligence.
 
 **110+ pre-built industry templates** across 55+ verticals get you started in one click — but the real power is generating bespoke journeys tailored to any customer's actual operations.
 
-**This is a unified repo** — it contains both the **Engine** (Node.js server) and the **Forge UI** (Dynatrace AppEngine app).
+**This is a unified repo** — it contains both the **Engine** (Node.js server) and the **Demonstrator UI** (Dynatrace AppEngine app).
 
 ---
 
@@ -16,7 +16,7 @@ Model any customer’s real business journey — their exact checkout flow, clai
 
 | Feature | Description |
 |---------|-------------|
-| **Custom Journey Generation** | Describe any customer’s real business flow in plain language — or use AI (Copilot, Gemini, etc.) to research it — and the Forge generates the full journey config: steps, substeps, services, and business metadata. No coding required. |
+| **Custom Journey Generation** | Describe any customer’s real business flow in plain language — or use AI (Copilot, Gemini, etc.) to research it — and the Demonstrator generates the full journey config: steps, substeps, services, and business metadata. No coding required. |
 | **24 Pre-Built Templates** | One-click industry templates across Banking, Insurance, Manufacturing, Retail, Telecommunications, Healthcare, Financial Services, Travel & Hospitality — great for getting started fast or running a quick demo |
 | **Dynamic Microservices** | Spawns real Node.js child processes per journey step — each with its own Express server, Dynatrace OneAgent identity, and health endpoint |
 | **Auto-Load System** | Generates 30–60 journeys/minute per active company with zero manual interaction |
@@ -45,18 +45,18 @@ Model any customer’s real business journey — their exact checkout flow, clai
 ### One Command
 
 ```bash
-git clone https://github.com/LawrenceBarratt90/Business-Observablity-forge.git && cd Business-Observablity-forge && ./setup.sh
+git clone https://github.com/LawrenceBarratt90/Business-Observablity-Demonstrator.git && cd Business-Observablity-Demonstrator && ./setup.sh
 ```
 
 The script walks you through 6 guided prompts (environment type, tenant ID, API token, EdgeConnect OAuth, and deploy OAuth), then automatically:
 
 1. Installs npm packages
 2. Configures & starts EdgeConnect (Docker)
-3. Deploys the Forge UI to your Dynatrace tenant
+3. Deploys the Demonstrator UI to your Dynatrace tenant
 4. Builds TypeScript agents
 5. Starts the Engine server
 
-**After setup:** Open **Dynatrace → Apps → Business Observability Forge** → Settings → Config → enter your private IP → Save → Test → Get Started checklist.
+**After setup:** Open **Dynatrace → Apps → Business Observability Demonstrator** → Settings → Config → enter your private IP → Save → Test → Get Started checklist.
 
 **Then:** Pick a pre-built template to see it in action immediately — or describe a customer’s real journey and generate a bespoke simulation tailored to their business.
 
@@ -68,8 +68,8 @@ The script walks you through 6 guided prompts (environment type, tenant ID, API 
 ### Phase 1 — Pull
 
 ```bash
-git clone https://github.com/LawrenceBarratt90/Business-Observablity-forge.git
-cd Business-Observablity-forge
+git clone https://github.com/LawrenceBarratt90/Business-Observablity-Demonstrator.git
+cd Business-Observablity-Demonstrator
 npm install
 ```
 
@@ -84,7 +84,7 @@ cp ~/Downloads/edgeConnect.yaml edgeconnect/edgeConnect.yaml
 # 2. Start EdgeConnect tunnel
 bash edgeconnect/run-edgeconnect.sh
 
-# 3. Deploy Forge UI to Dynatrace AppEngine
+# 3. Deploy Demonstrator UI to Dynatrace AppEngine
 #    (setup.sh handles credentials automatically — for manual deploy, run ./setup.sh)
 npx dt-app deploy
 
@@ -95,7 +95,7 @@ npm start
 
 ### Phase 3 — Configure
 
-1. Open Dynatrace → **Apps** → **Business Observability Forge**
+1. Open Dynatrace → **Apps** → **Business Observability Demonstrator**
 2. Go to **Settings** (gear icon) → **Config** tab
 3. Set Host/IP to your **private IP** (not public!) — find it with `hostname -I | awk '{print $1}'`
 4. Set Port to `8080`, Protocol to `HTTP`
@@ -119,7 +119,7 @@ For the full detailed guide, see [TECHNICAL-GUIDE.md](TECHNICAL-GUIDE.md).
 │                                                                  │
 │  ┌──────────────────────────┐   ┌───────────────────────────┐   │
 │  │  Business Observability  │   │  Services / BizEvents /   │   │
-│  │  Forge UI (AppEngine)    │   │  Dashboards / Problems    │   │
+│  │  Demonstrator UI (AppEngine)    │   │  Dashboards / Problems    │   │
 │  └──────────┬───────────────┘   └───────────────────────────┘   │
 │             │ EdgeConnect Tunnel                  ▲               │
 │             │ (HTTPS → port 8080)                 │ OneAgent +   │
@@ -183,7 +183,7 @@ Persistent knowledge store for the AI agent ecosystem.
 - **History store**: Chronological event timeline
 - **Records**: Chaos events, reverts, DT problems, diagnoses, fixes, outcomes
 - **LLM-powered learning**: Generates insights from incident history
-- **Librarian Dashboard**: Modal overlay on the Forge Dashboards page — Ollama analyses your full incident history and renders an AI Summary, colour-coded Stats Cards, severity-tagged Insights, Detected Patterns, and a scrollable Event Timeline. Falls back to raw-data analysis when Ollama is cold.
+- **Librarian Dashboard**: Modal overlay on the Demonstrator Dashboards page — Ollama analyses your full incident history and renders an AI Summary, colour-coded Stats Cards, severity-tagged Insights, Detected Patterns, and a scrollable Event Timeline. Falls back to raw-data analysis when Ollama is cold.
 
 ### Dashboard — AI Dashboard Deployer
 One-click Dynatrace dashboard deployment.
@@ -273,7 +273,7 @@ Deploys: OneAgent features, capture rules, service naming, OpenPipeline pipeline
 
 ## UI Overview
 
-### 5-Tab Wizard + Forge Pages
+### 5-Tab Wizard + Demonstrator Pages
 
 | Tab/Page | Description |
 |-----|-------------|
@@ -282,7 +282,7 @@ Deploys: OneAgent features, capture rules, service naming, OpenPipeline pipeline
 | **Step 2: Generate Prompts** | AI/Copilot prompt generation for journey creation |
 | **Step 3: Generate Data** | Journey simulation controls, data generation, LoadRunner integration |
 | 🤖 **Step 4: AI Agent Hub** | Nemesis / Fix-It / Librarian / Dashboard agent controls |
-| 📊 **Forge Dashboards** | DQL-powered dashboard presets (Security, DI, Infra) + 📚 Librarian modal overlay |
+| 📊 **Demonstrator Dashboards** | DQL-powered dashboard presets (Security, DI, Infra) + 📚 Librarian modal overlay |
 | 🏭 **Solutions** | 55+ industry verticals with clickable demo journeys and Dynatrace capability mapping |
 | 🎯 **Demo Guide** | Interactive walkthrough paths (Quick Start, Chaos & Fix-It, Traces, Platform, LiveDebugger) |
 
@@ -422,7 +422,7 @@ npm run configure:monaco        # Deploy DT config via Monaco CLI
 ## Demo Walkthrough
 
 ### Quick Start (pre-built template)
-1. Open the Forge UI → **Home** → pick a template from the **Template Library** (e.g. Healthcare — Patient Care Journey)
+1. Open the Demonstrator UI → **Home** → pick a template from the **Template Library** (e.g. Healthcare — Patient Care Journey)
 2. Click **Run** → services spin up, auto-load generates traffic, Dynatrace lights up
 3. Open the **AI Agent Hub** → inject chaos with **Nemesis** → watch **Dynatrace Intelligence** detect it → let **Fix-It** auto-remediate
 
@@ -430,12 +430,12 @@ The 110+ templates are a fast on-ramp — use them for demos, POCs, or to learn 
 
 ### Custom Journey (the real power)
 1. **Describe any customer’s journey** — e.g. “A patient registers, gets triaged, sees a consultant, receives treatment, and is discharged”
-2. **Or use AI to research it** — ask Copilot/Gemini about a customer’s real business flow, paste the output into the Forge
-3. The Forge generates the full config: services, substeps, business metadata (revenue, KPIs, churn risk)
+2. **Or use AI to research it** — ask Copilot/Gemini about a customer’s real business flow, paste the output into the Demonstrator
+3. The Demonstrator generates the full config: services, substeps, business metadata (revenue, KPIs, churn risk)
 4. **Run it** → real microservices, real traffic, real Dynatrace telemetry — tailored to *that* customer’s operations
 5. **Demo it** → chaos injection → Dynatrace Intelligence detection → AI remediation → revenue impact dashboard
 
-This is what makes the Forge different: it’s not a canned demo. It’s *their* business, running live in Dynatrace.
+This is what makes the Demonstrator different: it’s not a canned demo. It’s *their* business, running live in Dynatrace.
 
 ---
 
