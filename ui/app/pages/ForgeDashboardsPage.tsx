@@ -1926,7 +1926,7 @@ async function exportToNotebook(tiles: TileDefinition[], presetLabel: string) {
     const res = await functions.call('proxy-api', {
       data: {
         action: 'create-notebook',
-        body: { name: `Forge — ${presetLabel} — ${new Date().toISOString().slice(0, 16)}`, content: JSON.stringify({ version: '1', defaultTimeframe: { from: 'now()-2h', to: 'now()' }, sections }) },
+        body: { name: `Demonstrator — ${presetLabel} — ${new Date().toISOString().slice(0, 16)}`, content: JSON.stringify({ version: '1', defaultTimeframe: { from: 'now()-2h', to: 'now()' }, sections }) },
       },
     });
     const result = (await res.json()) as any;

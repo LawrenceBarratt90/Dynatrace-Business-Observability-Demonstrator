@@ -648,7 +648,7 @@ export default async function (payload) {
                                                 costAllocation: {
                                                     processors: [
                                                         {
-                                                            id: 'processor_Business_Observability_Forge_' + Math.floor(Math.random() * 10000),
+                                                            id: 'processor_Business_Observability_Demonstrator_' + Math.floor(Math.random() * 10000),
                                                             type: 'costAllocation',
                                                             matcher: 'matchesvalue(event.category, "Business Observability Demonstrator")',
                                                             description: 'Business Observability Demonstrator',
@@ -656,7 +656,7 @@ export default async function (payload) {
                                                             costAllocation: {
                                                                 value: {
                                                                     type: 'constant',
-                                                                    constant: 'BusinessObservabilityForgeApp',
+                                                                    constant: 'BusinessObservabilityDemonstratorApp',
                                                                 },
                                                             },
                                                         },

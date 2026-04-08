@@ -1,8 +1,8 @@
-# Business Observability Forge — Deployment Guide
+# Business Observability Demonstrator — Deployment Guide
 
 > **Version:** 2.9.28 · **Last updated:** February 2026
 >
-> Deploy the full Business Observability Forge: Node.js server with Ollama AI, OpenTelemetry instrumentation (traces, metrics, logs), the Dynatrace AppEngine UI, and EdgeConnect tunnel — all connected to your Dynatrace environment.
+> Deploy the full Business Observability Demonstrator: Node.js server with Ollama AI, OpenTelemetry instrumentation (traces, metrics, logs), the Dynatrace AppEngine UI, and EdgeConnect tunnel — all connected to your Dynatrace environment.
 
 ---
 
@@ -15,7 +15,7 @@
                          │  ┌────────────────────────────┐  │
                          │  │   AppEngine UI (React)     │  │
                          │  │   "Business Observability  │  │
-                         │  │    Forge" in Apps menu      │  │
+                         │  │    Demonstrator" in Apps menu      │  │
                          │  └─────────┬──────────────────┘  │
                          │            │ HTTP via EdgeConnect │
                          │  ┌─────────▼──────────────────┐  │
@@ -247,7 +247,7 @@ ollama pull llama3.2
 ```bash
 cd /home/ec2-user   # or your preferred directory
 git clone https://github.com/LawrenceBarratt90/Business-Observablity-forge.git "Business-Observablity-forge"
-cd "Business Observability Forge"
+cd "Business Observability Demonstrator"
 
 # Install dependencies (the repo does NOT include node_modules — this is required)
 npm install
@@ -407,7 +407,7 @@ The `dt-app deploy` command reads `app.config.json` (which you updated in Step 4
 
 1. Open your Dynatrace environment
 2. Go to **Apps** (left sidebar)
-3. Look for **Business Observability Forge** in the app list
+3. Look for **Business Observability Demonstrator** in the app list
 4. Click it — it should load the UI
 
 > **Note:** The AppEngine UI won't be able to reach the server until EdgeConnect is running (next step).
@@ -523,7 +523,7 @@ For auto-start on boot:
 ```bash
 sudo tee /etc/systemd/system/bizobs.service << EOF
 [Unit]
-Description=Business Observability Forge
+Description=Business Observability Demonstrator
 After=network.target ollama.service
 Wants=ollama.service
 
@@ -576,7 +576,7 @@ sudo systemctl start bizobs
 ### AppEngine UI
 
 1. Go to **Apps** in the Dynatrace sidebar
-2. Open **Business Observability Forge**
+2. Open **Business Observability Demonstrator**
 3. The UI should connect to the server via EdgeConnect and display the dashboard
 
 ---

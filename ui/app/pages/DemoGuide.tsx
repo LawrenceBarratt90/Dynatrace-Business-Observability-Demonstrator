@@ -328,7 +328,7 @@ const DEMO_PATHS: DemoPath[] = [
         title: 'Verify Ollama is running',
         action: 'Check that the local LLM is available. On the host, run: curl http://localhost:11434/api/tags — you should see the llama3.2 model listed. If Ollama is not running, start it with: sudo systemctl start ollama.',
         where: 'Host terminal',
-        tip: 'The Forge auto-warms Ollama every 8 minutes to keep the model loaded in memory. If it\'s been idle for a while, the first call may be slower.',
+        tip: 'The Demonstrator auto-warms Ollama every 8 minutes to keep the model loaded in memory. If it\'s been idle for a while, the first call may be slower.',
       },
       {
         title: 'Trigger AI agent calls',
@@ -347,7 +347,7 @@ const DEMO_PATHS: DemoPath[] = [
         action: 'The Overview page shows a high-level summary: total LLM calls, average latency, token usage trends, and model distribution. You should see "ollama" as the AI system with the llama3.2 model. Click into any metric to drill down.',
         where: 'Dynatrace → GenAI Observability → Overview',
         dtLink: { label: 'GenAI Observability', url: `${TENANT_URL}/ui/apps/dynatrace.genai.observability/overview` },
-        tip: 'The data comes from OpenTelemetry GenAI semantic conventions (gen_ai.*) that the Forge instruments on every Ollama call.',
+        tip: 'The data comes from OpenTelemetry GenAI semantic conventions (gen_ai.*) that the Demonstrator instruments on every Ollama call.',
       },
       {
         title: 'Drill into individual LLM calls',
@@ -358,7 +358,7 @@ const DEMO_PATHS: DemoPath[] = [
       },
       {
         title: 'View traces with GenAI spans',
-        action: 'Open Distributed Traces and filter for gen_ai.system == "ollama". Each trace shows the full request flow — from the Forge API call, through the AI agent decision logic, to the Ollama HTTP call and back. The GenAI span attributes show model, tokens, and timing.',
+        action: 'Open Distributed Traces and filter for gen_ai.system == "ollama". Each trace shows the full request flow — from the Demonstrator API call, through the AI agent decision logic, to the Ollama HTTP call and back. The GenAI span attributes show model, tokens, and timing.',
         where: 'Dynatrace',
         dtLink: { label: 'Distributed Traces', url: `${TENANT_URL}/ui/apps/dynatrace.distributedtracing/` },
       },

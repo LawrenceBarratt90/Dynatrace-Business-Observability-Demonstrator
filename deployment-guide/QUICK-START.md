@@ -1,4 +1,4 @@
-# Business Observability Forge — Quick Start (Plain English)
+# Business Observability Demonstrator — Quick Start (Plain English)
 
 This is the simple version. If you want the full technical reference, see the main README.md.
 
@@ -216,7 +216,7 @@ npx dt-app build
 npx dt-app deploy
 ```
 
-After it deploys, go to your Dynatrace environment → Apps → you should see **Business Observability Forge** in the list. It won't fully work yet though — it needs EdgeConnect to reach the server (next step).
+After it deploys, go to your Dynatrace environment → Apps → you should see **Business Observability Demonstrator** in the list. It won't fully work yet though — it needs EdgeConnect to reach the server (next step).
 
 ### 8. Set up EdgeConnect
 
@@ -269,7 +269,7 @@ You should see it connect successfully. Now go back to the AppEngine UI in Dynat
 
 Give it a couple of minutes for data to flow, then:
 
-- **Apps** → **Business Observability Forge** → should load the UI and connect to the server
+- **Apps** → **Business Observability Demonstrator** → should load the UI and connect to the server
 - **Distributed Traces** → click the **Ingested traces** tab → look for traces from `bizobs-ai-engine`
 - **Logs & Events** → filter by `bizobs-ai-engine`
 - **AI Observability** → you should see Ollama LLM calls with model info, latency, and token usage

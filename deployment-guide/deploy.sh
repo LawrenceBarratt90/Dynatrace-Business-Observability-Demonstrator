@@ -1,6 +1,6 @@
 #!/bin/bash
 # ============================================================
-#  Business Observability Forge — Full Deployment Script
+#  Business Observability Demonstrator — Full Deployment Script
 # ============================================================
 #
 #  Usage:
@@ -102,7 +102,7 @@ done
 
 echo -e "${BOLD}"
 echo "╔══════════════════════════════════════════════════════════╗"
-echo "║     Business Observability Forge — Full Deployment      ║"
+echo "║     Business Observability Demonstrator — Full Deployment      ║"
 echo "╠══════════════════════════════════════════════════════════╣"
 echo "║  Server + OTel + AppEngine UI + EdgeConnect             ║"
 echo "╚══════════════════════════════════════════════════════════╝"
@@ -196,7 +196,7 @@ elif [[ -f "server.js" && -f "package.json" ]]; then
 elif [[ -f "../server.js" && -f "../package.json" ]]; then
   APP_DIR="$(cd .. && pwd)"
 else
-  APP_DIR="$(pwd)/Business Observability Forge"
+  APP_DIR="$(pwd)/Business Observability Demonstrator"
 fi
 
 if [[ ! -f "$APP_DIR/server.js" ]]; then
@@ -421,7 +421,7 @@ else
     echo "  Deploying to ${DT_APPS_URL}..."
     if npx dt-app deploy --non-interactive 2>&1 | tail -10; then
       ok "AppEngine UI deployed to your Dynatrace tenant"
-      echo -e "  ${CYAN}Open Dynatrace → Apps → Business Observability Forge${NC}"
+      echo -e "  ${CYAN}Open Dynatrace → Apps → Business Observability Demonstrator${NC}"
     else
       warn "AppEngine deploy had issues — you can retry manually with:"
       echo -e "  ${CYAN}DT_APP_OAUTH_CLIENT_ID=$APP_OAUTH_CLIENT_ID DT_APP_OAUTH_CLIENT_SECRET=... npx dt-app deploy${NC}"
@@ -567,7 +567,7 @@ echo -e "  ${BOLD}Restart:${NC}        kill \$(cat server.pid); sleep 2; node --
 echo ""
 if [[ -n "$DT_URL" ]]; then
   echo -e "  ${BOLD}Dynatrace:${NC}      $DT_URL"
-  echo -e "  ${BOLD}AppEngine UI:${NC}   Dynatrace → Apps → Business Observability Forge"
+  echo -e "  ${BOLD}AppEngine UI:${NC}   Dynatrace → Apps → Business Observability Demonstrator"
   echo -e "  ${BOLD}View traces:${NC}    Distributed Traces → Ingested traces tab"
   echo -e "  ${BOLD}AI Observability:${NC} Look for gen_ai.system = ollama"
   echo ""
