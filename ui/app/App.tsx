@@ -8,6 +8,9 @@ import { SettingsPage } from './pages/SettingsPage';
 import { DemoGuide } from './pages/DemoGuide';
 import { SolutionsPage } from './pages/SolutionsPage';
 import { ForgeDashboardsPage } from './pages/ForgeDashboardsPage';
+import { VCARBDashboard } from './pages/VCARBDashboard';
+import { VCARBPreRace } from './pages/VCARBPreRace';
+import { VCARBLiveRace } from './pages/VCARBLiveRace';
 
 export const App = () => {
   return (
@@ -20,6 +23,9 @@ export const App = () => {
         <Route path="/demo-guide" element={<DemoGuide />} />
         <Route path="/solutions" element={<SolutionsPage />} />
         <Route path="/forge-dashboards" element={<ForgeDashboardsPage />} />
+        <Route path="/vcarb" element={<VCARBDashboard />} />
+        <Route path="/vcarb/pre-race" element={<VCARBPreRace />} />
+        <Route path="/vcarb/race" element={<VCARBLiveRace />} />
       </Routes>
   );
 };

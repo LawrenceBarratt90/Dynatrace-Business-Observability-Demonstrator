@@ -1,7 +1,7 @@
 {
   "id": "ibank--loan-application",
   "dashboard": {
-    "name": "IBANK Loan Application Dashboard [MCP Custom]",
+    "name": "Create a C-level executive dashboard focused on revenue impa [MCP Custom]",
     "type": "dashboard",
     "version": 1,
     "content": {
@@ -14,7 +14,7 @@
           "version": 2,
           "editable": true,
           "multiple": false,
-          "input": "fetch bizevents | filter event.kind == \"BIZ_EVENT\" | filter json.companyName == \"IBANK\" | fields json.companyName | dedup json.companyName"
+          "input": "fetch bizevents | filter event.kind == \"BIZ_EVENT\" | filter json.companyName == \"iBank\" | fields json.companyName | dedup json.companyName"
         },
         {
           "key": "JourneyType",
@@ -34,7 +34,7 @@
           "editable": true,
           "multiple": true,
           "defaultValue": "3420b2ac-f1cf-4b24-b62d-61ba1ba8ed05*",
-          "input": "fetch bizevents | filter event.kind == \"BIZ_EVENT\" | filter in(json.journeyType, $JourneyType) | filter json.companyName == \"IBANK\" | fields json.stepName | dedup json.stepName"
+          "input": "fetch bizevents | filter event.kind == \"BIZ_EVENT\" | filter in(json.journeyType, $JourneyType) | filter json.companyName == \"iBank\" | fields json.stepName | dedup json.stepName"
         },
         {
           "key": "Service",
@@ -61,7 +61,7 @@
         "0": {
           "title": "",
           "type": "markdown",
-          "content": "# IBANK Loan Application Dashboard\n## IBANK | Loan Application Journey | Business Observability\n**Data Signals:** 🔧 Services\n---"
+          "content": "# Create a C-level executive dashboard focused on revenue impa\n## iBank | Loan Application Journey | Business Observability\n**Data Signals:** 🔧 Services\n---"
         },
         "1": {
           "title": "",
@@ -74,7 +74,27 @@
           "content": "### 📊 Key Performance Indicators"
         },
         "3": {
-          "title": "Revenue Growth",
+          "title": "Conversion Rate",
+          "type": "data",
+          "query": "fetch bizevents | filter event.kind == \"BIZ_EVENT\" | filter json.companyName == $CompanyName | filter in(json.journeyType, $JourneyType) | summarize value = sum(additionalfields.conversionProbability)",
+          "visualization": "singleValue",
+          "visualizationSettings": {},
+          "querySettings": {
+            "maxResultRecords": 1000,
+            "defaultScanLimitGbytes": 500,
+            "maxResultMegaBytes": 1,
+            "defaultSamplingRatio": 10,
+            "enableSampling": false
+          },
+          "davis": {
+            "enabled": false,
+            "davisVisualization": {
+              "isAvailable": true
+            }
+          }
+        },
+        "4": {
+          "title": "Average Order Value",
           "type": "data",
           "query": "fetch bizevents | filter event.kind == \"BIZ_EVENT\" | filter json.companyName == $CompanyName | filter in(json.journeyType, $JourneyType) | summarize value = avg(additionalfields.orderTotal)",
           "visualization": "singleValue",
@@ -93,15 +113,127 @@
             }
           }
         },
-        "4": {
+        "5": {
+          "title": "Customer Lifetime Value",
+          "type": "data",
+          "query": "fetch bizevents | filter event.kind == \"BIZ_EVENT\" | filter json.companyName == $CompanyName | filter in(json.journeyType, $JourneyType) | summarize value = sum(additionalfields.customerLifetimeValue)",
+          "visualization": "singleValue",
+          "visualizationSettings": {},
+          "querySettings": {
+            "maxResultRecords": 1000,
+            "defaultScanLimitGbytes": 500,
+            "maxResultMegaBytes": 1,
+            "defaultSamplingRatio": 10,
+            "enableSampling": false
+          },
+          "davis": {
+            "enabled": false,
+            "davisVisualization": {
+              "isAvailable": true
+            }
+          }
+        },
+        "6": {
+          "title": "Churn Risk",
+          "type": "data",
+          "query": "fetch bizevents | filter event.kind == \"BIZ_EVENT\" | filter json.companyName == $CompanyName | filter in(json.journeyType, $JourneyType) | filter isNotNull(additionalfields.abandonmentRisk) | summarize count = count(), by: {additionalfields.abandonmentRisk} | sort count desc | limit 10",
+          "visualization": "gauge",
+          "visualizationSettings": {
+            "gauge": {
+              "label": "Churn Risk",
+              "recordField": "rate",
+              "min": 0,
+              "max": 100,
+              "thresholds": [
+                {
+                  "value": 95,
+                  "color": "#2AB06F"
+                },
+                {
+                  "value": 85,
+                  "color": "#EEA53C"
+                },
+                {
+                  "value": 0,
+                  "color": "#C62239"
+                }
+              ]
+            }
+          },
+          "querySettings": {
+            "maxResultRecords": 1000,
+            "defaultScanLimitGbytes": 500,
+            "maxResultMegaBytes": 1,
+            "defaultSamplingRatio": 10,
+            "enableSampling": false
+          },
+          "davis": {
+            "enabled": false,
+            "davisVisualization": {
+              "isAvailable": true
+            }
+          }
+        },
+        "7": {
           "title": "",
           "type": "markdown",
           "content": "### 📈 Analysis & Trends"
         },
-        "5": {
-          "title": "Churn Risk",
+        "8": {
+          "title": "Revenue Growth Rate",
           "type": "data",
-          "query": "fetch bizevents | filter event.kind == \"BIZ_EVENT\" | filter json.companyName == $CompanyName | filter in(json.journeyType, $JourneyType) | filter isNotNull(additionalfields.churnRate) | summarize count = count(), by: {additionalfields.churnRate} | sort count desc | limit 10",
+          "query": "fetch bizevents | filter event.kind == \"BIZ_EVENT\" | filter json.companyName == $CompanyName | filter in(json.journeyType, $JourneyType) | makeTimeseries value = sum(additionalfields.orderTotal), bins:30",
+          "visualization": "lineChart",
+          "visualizationSettings": {
+            "chartSettings": {
+              "gapPolicy": "connect"
+            },
+            "thresholds": [],
+            "unitsOverrides": []
+          },
+          "querySettings": {
+            "maxResultRecords": 1000,
+            "defaultScanLimitGbytes": 500,
+            "maxResultMegaBytes": 1,
+            "defaultSamplingRatio": 10,
+            "enableSampling": false
+          },
+          "davis": {
+            "enabled": false,
+            "davisVisualization": {
+              "isAvailable": true
+            }
+          }
+        },
+        "9": {
+          "title": "Device Distribution",
+          "type": "data",
+          "query": "fetch bizevents | filter event.kind == \"BIZ_EVENT\" | filter json.companyName == $CompanyName | filter in(json.journeyType, $JourneyType) | filter isNotNull(additionalfields.deviceType) | summarize count = count(), by: {additionalfields.deviceType} | sort count desc | limit 10",
+          "visualization": "pieChart",
+          "visualizationSettings": {
+            "legend": {
+              "position": "auto",
+              "showLegend": true
+            }
+          },
+          "querySettings": {
+            "maxResultRecords": 1000,
+            "defaultScanLimitGbytes": 500,
+            "maxResultMegaBytes": 1,
+            "defaultSamplingRatio": 10,
+            "enableSampling": false
+          },
+          "davis": {
+            "enabled": false,
+            "davisVisualization": {
+              "isAvailable": true
+            }
+          }
+        },
+        "10": {
+          "title": "Browser Market Share",
+          "type": "data",
+          "query": "fetch bizevents | filter event.kind == \"BIZ_EVENT\" | filter json.companyName == $CompanyName | filter in(json.journeyType, $JourneyType) | filter isNotNull(additionalfields.browser) | summarize count = count(), by: {additionalfields.browser} | sort count desc | limit 10",
           "visualization": "barChart",
           "visualizationSettings": {
             "categoryAxis": {
@@ -139,119 +271,53 @@
             }
           }
         },
-        "6": {
-          "title": "",
-          "type": "markdown",
-          "content": "### 📊 Key Performance Indicators"
-        },
-        "7": {
-          "title": "Revenue by Product",
-          "type": "data",
-          "query": "fetch bizevents | filter event.kind == \"BIZ_EVENT\" | filter json.companyName == $CompanyName | filter in(json.journeyType, $JourneyType) | summarize value = sum(additionalfields.productRevenue)",
-          "visualization": "singleValue",
-          "visualizationSettings": {},
-          "querySettings": {
-            "maxResultRecords": 1000,
-            "defaultScanLimitGbytes": 500,
-            "maxResultMegaBytes": 1,
-            "defaultSamplingRatio": 10,
-            "enableSampling": false
-          },
-          "davis": {
-            "enabled": false,
-            "davisVisualization": {
-              "isAvailable": true
-            }
-          }
-        },
-        "8": {
-          "title": "",
-          "type": "markdown",
-          "content": "### 📈 Analysis & Trends"
-        },
-        "9": {
-          "title": "Order Total Trend",
-          "type": "data",
-          "query": "fetch bizevents | filter event.kind == \"BIZ_EVENT\" | filter json.companyName == $CompanyName | filter in(json.journeyType, $JourneyType) | makeTimeseries value = avg(additionalfields.orderTotal), bins:30",
-          "visualization": "lineChart",
-          "visualizationSettings": {
-            "chartSettings": {
-              "gapPolicy": "connect"
-            },
-            "thresholds": [],
-            "unitsOverrides": []
-          },
-          "querySettings": {
-            "maxResultRecords": 1000,
-            "defaultScanLimitGbytes": 500,
-            "maxResultMegaBytes": 1,
-            "defaultSamplingRatio": 10,
-            "enableSampling": false
-          },
-          "davis": {
-            "enabled": false,
-            "davisVisualization": {
-              "isAvailable": true
-            }
-          }
-        },
-        "10": {
-          "title": "Customer Segmentation",
-          "type": "data",
-          "query": "fetch bizevents | filter event.kind == \"BIZ_EVENT\" | filter json.companyName == $CompanyName | filter in(json.journeyType, $JourneyType) | filter isNotNull(additionalfields.customerSegments) | summarize count = count(), by: {additionalfields.customerSegments} | sort count desc | limit 10",
-          "visualization": "pieChart",
-          "visualizationSettings": {
-            "legend": {
-              "position": "auto",
-              "showLegend": true
-            }
-          },
-          "querySettings": {
-            "maxResultRecords": 1000,
-            "defaultScanLimitGbytes": 500,
-            "maxResultMegaBytes": 1,
-            "defaultSamplingRatio": 10,
-            "enableSampling": false
-          },
-          "davis": {
-            "enabled": false,
-            "davisVisualization": {
-              "isAvailable": true
-            }
-          }
-        },
         "11": {
-          "title": "Monthly Revenue Performance",
-          "type": "data",
-          "query": "fetch bizevents | filter event.kind == \"BIZ_EVENT\" | filter json.companyName == $CompanyName | filter in(json.journeyType, $JourneyType) | makeTimeseries value = sum(additionalfields.monthlyRevenue), bins:30",
-          "visualization": "areaChart",
-          "visualizationSettings": {
-            "chartSettings": {
-              "gapPolicy": "connect"
-            },
-            "thresholds": [],
-            "unitsOverrides": []
-          },
-          "querySettings": {
-            "maxResultRecords": 1000,
-            "defaultScanLimitGbytes": 500,
-            "maxResultMegaBytes": 1,
-            "defaultSamplingRatio": 10,
-            "enableSampling": false
-          },
-          "davis": {
-            "enabled": false,
-            "davisVisualization": {
-              "isAvailable": true
-            }
-          }
+          "title": "",
+          "type": "markdown",
+          "content": "### 📋 Detailed Views"
         },
         "12": {
-          "title": "",
-          "type": "markdown",
-          "content": "---\n🤖 *Dashboard generated by Bespoke Ollama (6 unique tiles) | 2026-03-19 | 12 tiles*"
+          "title": "Revenue by Region",
+          "type": "data",
+          "query": "fetch bizevents | filter event.kind == \"BIZ_EVENT\" | filter json.companyName == $CompanyName | filter in(json.journeyType, $JourneyType) | filter isNotNull(additionalfields.location) | summarize count = count(), by: {additionalfields.location} | sort count desc",
+          "visualization": "choroplethMap",
+          "visualizationSettings": {
+            "choroplethMap": {
+              "baseLayer": {
+                "type": "world"
+              },
+              "dataMapping": {
+                "regionField": "additionalfields.location",
+                "valueField": "count"
+              },
+              "colorPalette": {
+                "type": "sequential",
+                "steps": 5,
+                "minColor": "#E8F5E9",
+                "maxColor": "#1B5E20"
+              }
+            }
+          },
+          "querySettings": {
+            "maxResultRecords": 1000,
+            "defaultScanLimitGbytes": 500,
+            "maxResultMegaBytes": 1,
+            "defaultSamplingRatio": 10,
+            "enableSampling": false
+          },
+          "davis": {
+            "enabled": false,
+            "davisVisualization": {
+              "isAvailable": true
+            }
+          }
         },
         "13": {
+          "title": "",
+          "type": "markdown",
+          "content": "---\n🤖 *Dashboard generated by Bespoke AI (8 Ollama tiles + 5 sections, Grail field data) | 2026-04-06 | 13 tiles*"
+        },
+        "14": {
           "title": "",
           "type": "markdown",
           "content": "## 🔗 Deep-Link Navigation\n\n| Resource | Link |\n|----------|------|\n| 🔍 **Distributed Traces** | [Open Trace Explorer →](https://your-environment.apps.dynatrace.com/ui/diagnostictools/purepaths?gtf=-24h+to+now&gf=all) |\n| 📊 **Service Overview** | [Open Services →](https://your-environment.apps.dynatrace.com/ui/services?gtf=-24h+to+now&gf=all) |\n| ❌ **Failure Analysis** | [Open Failure Analysis →](https://your-environment.apps.dynatrace.com/ui/diagnostictools/mda?gtf=-24h+to+now&gf=all&mdaId=failureAnalysis) |\n| 🐛 **Exception Analysis** | [Open Exception Analysis →](https://your-environment.apps.dynatrace.com/ui/diagnostictools/mda?gtf=-24h+to+now&gf=all&mdaId=exceptionAnalysis) |\n| 📈 **Dynatrace Intelligence Problems** | [Open Problems →](https://your-environment.apps.dynatrace.com/ui/problems?gtf=-24h+to+now) |\n| 📊 **Business Events** | [Open BizEvents →](https://your-environment.apps.dynatrace.com/ui/bizevents?gtf=-24h+to+now) |\n\n*Links open in your Dynatrace environment*"
@@ -283,60 +349,66 @@
           "h": 3
         },
         "4": {
+          "x": 6,
+          "y": 6,
+          "w": 6,
+          "h": 3
+        },
+        "5": {
+          "x": 12,
+          "y": 6,
+          "w": 6,
+          "h": 3
+        },
+        "6": {
+          "x": 18,
+          "y": 6,
+          "w": 6,
+          "h": 3
+        },
+        "7": {
           "x": 0,
           "y": 9,
           "w": 24,
           "h": 1
         },
-        "5": {
+        "8": {
           "x": 0,
           "y": 10,
           "w": 12,
           "h": 4
         },
-        "6": {
-          "x": 0,
-          "y": 14,
-          "w": 24,
-          "h": 1
-        },
-        "7": {
-          "x": 0,
-          "y": 15,
-          "w": 6,
-          "h": 3
-        },
-        "8": {
-          "x": 0,
-          "y": 18,
-          "w": 24,
-          "h": 1
-        },
         "9": {
-          "x": 0,
-          "y": 19,
+          "x": 12,
+          "y": 10,
           "w": 12,
           "h": 4
         },
         "10": {
-          "x": 12,
-          "y": 19,
+          "x": 0,
+          "y": 14,
           "w": 12,
           "h": 4
         },
         "11": {
           "x": 0,
-          "y": 23,
-          "w": 12,
-          "h": 4
+          "y": 18,
+          "w": 24,
+          "h": 1
         },
         "12": {
+          "x": 0,
+          "y": 19,
+          "w": 24,
+          "h": 8
+        },
+        "13": {
           "x": 0,
           "y": 27,
           "w": 24,
           "h": 1
         },
-        "13": {
+        "14": {
           "x": 0,
           "y": 28,
           "w": 24,
@@ -359,10 +431,10 @@
       "generatedBy": "ai-dashboard-generator",
       "generationMethod": "mcp-prompt-driven",
       "model": "llama3.2",
-      "company": "IBANK",
+      "company": "iBank",
       "journeyType": "Loan Application",
-      "dashboardSlug": "bank-loan-dashboard-kebab-slug",
-      "totalTiles": 14,
+      "dashboardSlug": "executive-customer-trends",
+      "totalTiles": 15,
       "dynamicFieldTiles": 0,
       "detectedFields": {
         "additionalFields": [],
@@ -395,12 +467,12 @@
           "services": false
         }
       },
-      "generatedAt": "2026-03-19T11:01:12.361Z"
+      "generatedAt": "2026-04-06T03:31:23.523Z"
     }
   },
   "generationMethod": "mcp-prompt-driven",
-  "company": "IBANK",
+  "company": "iBank",
   "journeyType": "Loan Application",
-  "tileCount": 14,
-  "savedAt": "2026-03-19T11:01:12.361Z"
+  "tileCount": 15,
+  "savedAt": "2026-04-06T03:31:23.524Z"
 }

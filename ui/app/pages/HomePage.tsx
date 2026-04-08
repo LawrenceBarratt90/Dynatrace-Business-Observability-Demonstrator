@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Page } from '@dynatrace/strato-components-preview/layouts';
 import { Flex } from '@dynatrace/strato-components/layouts';
 import { Heading, Paragraph, Strong } from '@dynatrace/strato-components/typography';
@@ -16,6 +16,7 @@ import { getEnvironmentUrl } from '@dynatrace-sdk/app-environment';
 import { generateCsuitePrompt, generateJourneyPrompt, PROMPT_DESCRIPTIONS } from '../constants/promptTemplates';
 import { INITIAL_TEMPLATES, InitialTemplate } from '../constants/initialTemplates';
 import { FORGE_LOGO } from '../constants/forgeLogo';
+import { VCARB_CAR } from '../constants/vcarbCar';
 import { InfoButton } from '../components/InfoButton';
 import appConfig from '../../../app.config.json';
 
@@ -183,6 +184,11 @@ export const HomePage = () => {
   const [showJourneysTooltip, setShowJourneysTooltip] = useState(false);
   const [showGetStartedTooltip, setShowGetStartedTooltip] = useState(false);
   const [showDashboardTooltip, setShowDashboardTooltip] = useState(false);
+
+  // VCARB Race state
+  const navigate = useNavigate();
+  const [isStartingRace, setIsStartingRace] = useState(false);
+  const [raceStatus, setRaceStatus] = useState<string | null>(null);
 
   // Journeys modal state
   const [showJourneysModal, setShowJourneysModal] = useState(false);
@@ -1364,6 +1370,44 @@ export const HomePage = () => {
     } catch (error) {
       showToast('Invalid JSON response. Please check the format and try again.', 'error');
       setGenerationStatus('❌ JSON validation failed');
+    }
+  };
+
+  // Start VCARB Race Operations — loads saved config and triggers journey simulation
+  const startVcarbRace = async () => {
+    try {
+      setIsStartingRace(true);
+      setRaceStatus('🏎️ Loading VCARB config...');
+
+      setRaceStatus('🏁 Starting race simulation...');
+
+      const result = await callProxyWithRetry({
+        action: 'simulate-vcarb-race',
+        apiHost: apiSettings.host,
+        apiPort: apiSettings.port,
+        apiProtocol: apiSettings.protocol,
+        body: { configName: 'vcarb-race-operations' },
+      }, 5, 2000) as any;
+
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to start VCARB race');
+      }
+
+      // Store the raceId so dashboards filter to this specific race
+      if (result.raceId) {
+        localStorage.setItem('vcarb-active-raceId', result.raceId);
+      }
+
+      setRaceStatus('✅ Race is live!');
+      showToast('🏎️ VCARB Race Operations started! Opening dashboard...', 'success', 3000);
+      setTimeout(() => { setRaceStatus(null); navigate('/vcarb'); }, 1500);
+    } catch (err: any) {
+      console.error('[VCARB] Start race error:', err);
+      setRaceStatus(`❌ ${err.message}`);
+      showToast(`Failed to start VCARB race: ${err.message}`, 'error', 8000);
+      setTimeout(() => setRaceStatus(null), 8000);
+    } finally {
+      setIsStartingRace(false);
     }
   };
 
@@ -2888,6 +2932,52 @@ export const HomePage = () => {
                   color={Colors.Theme.Primary['70']}
                 />
               </div>
+
+              {/* Start The Race — VCARB car image button + Dashboard link */}
+              <Flex alignItems="center" gap={6}>
+                <button
+                  onClick={startVcarbRace}
+                  disabled={isStartingRace}
+                  style={{
+                    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
+                    padding: 0, border: 'none', background: 'none',
+                    cursor: isStartingRace ? 'wait' : 'pointer',
+                    opacity: isStartingRace ? 0.6 : 1,
+                    transition: 'all 0.2s ease',
+                  }}
+                  onMouseOver={e => { if (!isStartingRace) { e.currentTarget.style.transform = 'translateY(-2px) scale(1.05)'; } }}
+                  onMouseOut={e => { e.currentTarget.style.transform = 'none'; }}
+                  title={raceStatus || 'Start VCARB F1 Race Weekend Operations'}
+                >
+                  <img
+                    src={VCARB_CAR}
+                    alt="VCARB Race Car"
+                    style={{
+                      height: 36, borderRadius: 6, objectFit: 'cover',
+                      border: isStartingRace ? '2px solid #e10600' : '2px solid rgba(225,6,0,0.3)',
+                      boxShadow: isStartingRace ? '0 0 12px rgba(225,6,0,0.5)' : '0 2px 8px rgba(0,0,0,0.2)',
+                      transition: 'all 0.2s ease',
+                    }}
+                  />
+                  <span style={{
+                    fontSize: 8, fontWeight: 800, letterSpacing: '0.5px',
+                    color: isStartingRace ? '#e10600' : 'rgba(225,6,0,0.7)',
+                    textTransform: 'uppercase',
+                    whiteSpace: 'nowrap',
+                  }}>
+                    {isStartingRace ? '🏁 Starting...' : 'Start the Race'}
+                  </span>
+                </button>
+                <Link to="/vcarb" style={{
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
+                  textDecoration: 'none', padding: '4px 8px', borderRadius: 8,
+                  background: 'linear-gradient(135deg, rgba(225,6,0,0.15), rgba(30,144,255,0.15))',
+                  border: '1px solid rgba(225,6,0,0.3)', transition: 'all 0.2s ease',
+                }}>
+                  <span style={{ fontSize: 16 }}>🏎️</span>
+                  <span style={{ fontSize: 7, fontWeight: 800, letterSpacing: '0.5px', color: '#e10600', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>Race Hub</span>
+                </Link>
+              </Flex>
             </Flex>
           </TitleBar.Action>
         </TitleBar>

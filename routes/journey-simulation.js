@@ -986,7 +986,7 @@ router.post('/simulate-journey', async (req, res) => {
       
       if (stepsArray) {
         console.log('[journey-sim] Raw stepsArray:', JSON.stringify(stepsArray, null, 2));
-        stepData = stepsArray.slice(0, 6).map(step => {
+        stepData = stepsArray.map(step => {
           console.log('[journey-sim] Processing step:', JSON.stringify(step, null, 2));
           // Extract step name from various AI response formats
           const stepName = step.stepName || step.name || step.step || step.title || 'UnknownStep';
@@ -1527,6 +1527,391 @@ router.post('/simulate-journey', async (req, res) => {
   }
 });
 
+// ============ VCARB LAP-BY-LAP RACE SIMULATION ============
+// Track active race simulations
+const activeVcarbRaces = new Map();
+
+/**
+ * Generate realistic per-lap telemetry for Dynatrace Linz.
+ * Values evolve based on lap number, tyre stint, fuel load, etc.
+ */
+function generateLapTelemetry(lap, totalLaps, pitStopLaps, tyreStrategy) {
+  // Determine stint: which pit stops have happened before this lap
+  const completedPits = pitStopLaps.filter(p => p < lap);
+  const lastPitLap = completedPits.length > 0 ? completedPits[completedPits.length - 1] : 0;
+  const stintLap = lap - lastPitLap; // laps since last pit stop (or race start)
+  const stintIndex = completedPits.length; // which stint we're in (0, 1, 2)
+  const isPitInLap = pitStopLaps.includes(lap);
+  const compound = tyreStrategy[stintIndex] || 'Hard';
+
+  // Fuel: starts at 110kg, burns ~1.75 kg/lap
+  const fuelRemaining = Math.max(110 - (lap * 1.75), 2);
+  const fuelEffect = (110 - fuelRemaining) * 0.018; // lighter car = faster
+
+  // Tyre degradation: increases with age, varies by compound
+  const compoundDegRate = compound === 'Soft' ? 0.12 : compound === 'Medium' ? 0.08 : 0.05;
+  const tyreDeg = Math.min(stintLap * compoundDegRate, 3.5);
+
+  // Base lap time: ~87.5s at Dynatrace Linz in optimal conditions
+  const baseLap = 87.5 - fuelEffect + tyreDeg + (Math.random() - 0.5) * 0.5;
+  // Pit in-lap is slower (pit entry), pit out-lap is slower (cold tyres)
+  const pitPenalty = isPitInLap ? 2.5 : (lap > 1 && pitStopLaps.includes(lap - 1)) ? 1.2 : 0;
+  const lapTime = Number((baseLap + pitPenalty).toFixed(3));
+  const s1Frac = 0.322, s2Frac = 0.356, s3Frac = 0.322;
+
+  // Tyre temps: increase with stint age
+  const baseTyreTemp = compound === 'Soft' ? 100 : compound === 'Medium' ? 96 : 93;
+  const tyreHeat = Math.min(stintLap * 1.5, 20);
+
+  // Tyre wear: increases with stint
+  const wearRate = compound === 'Soft' ? 4.5 : compound === 'Medium' ? 3.0 : 2.0;
+  const baseWear = Math.min(stintLap * wearRate, 85);
+
+  // ERS cycles every ~3 laps
+  const ersCycle = ((lap * 1.3) % 3) / 3;
+  const ersCharge = Math.round(100 - ersCycle * 80 + Math.random() * 10);
+
+  // Positions: Lawson starts P6, Lindblad starts P9
+  // Dynamic positions with random battles, overtakes, and position changes
+  // Base trajectory: Lawson P6→P1, Lindblad P9→P3, but with lap-to-lap fluctuation
+  const lawsonBase = 6;
+  const lindbladBase = 9;
+
+  // Lawson target progression
+  let targetLawson = lawsonBase;
+  if (lap >= 5) targetLawson = 5;
+  if (lap >= 12) targetLawson = 4;
+  if (lap >= 18) targetLawson = 3;
+  if (lap >= 26) targetLawson = 4;   // loses a spot
+  if (lap >= 30) targetLawson = 3;
+  if (lap >= 36) targetLawson = 2;
+  if (lap >= 44) targetLawson = 2;
+  if (lap >= 49) targetLawson = 1;
+
+  // Lindblad target progression
+  let targetLindblad = lindbladBase;
+  if (lap >= 4) targetLindblad = 8;
+  if (lap >= 8) targetLindblad = 7;
+  if (lap >= 14) targetLindblad = 6;
+  if (lap >= 18) targetLindblad = 5;
+  if (lap >= 24) targetLindblad = 6;  // loses a spot
+  if (lap >= 28) targetLindblad = 5;
+  if (lap >= 35) targetLindblad = 4;
+  if (lap >= 42) targetLindblad = 4;
+  if (lap >= 48) targetLindblad = 3;
+
+  // Add random noise: drivers can be +/- 1-2 positions from target on any lap
+  // Simulates battling, dirty air, blue flags, safety car bunching
+  const battleNoise = () => {
+    const rnd = Math.random();
+    if (rnd < 0.15) return -2;   // dramatic overtake, gained 2
+    if (rnd < 0.35) return -1;   // clean overtake
+    if (rnd < 0.65) return 0;    // holding position
+    if (rnd < 0.85) return 1;    // lost a position
+    return 2;                    // lost 2 positions (mistake/undercut)
+  };
+  const posLawson = Math.max(1, Math.min(20, targetLawson + battleNoise()));
+  const posLindblad = Math.max(1, Math.min(20, targetLindblad + battleNoise()));
+
+  const r = () => Math.random();
+
+  return {
+    lapNumber: lap,
+    totalLaps,
+    lapTimeSec: lapTime,
+    sectorOneTimeSec: Number((lapTime * s1Frac + (r() - 0.5) * 0.25).toFixed(3)),
+    sectorTwoTimeSec: Number((lapTime * s2Frac + (r() - 0.5) * 0.25).toFixed(3)),
+    sectorThreeTimeSec: Number((lapTime * s3Frac + (r() - 0.5) * 0.25).toFixed(3)),
+    topSpeedMph: Math.round(204 + r() * 9),
+    maxGForceLateral: Number((4.5 + r() * 1.0).toFixed(1)),
+    maxGForceBraking: Number((5.0 + r() * 1.0).toFixed(1)),
+    tyreSurfaceTempFL: Math.round(baseTyreTemp + tyreHeat - 2 + r() * 4),
+    tyreSurfaceTempFR: Math.round(baseTyreTemp + tyreHeat + r() * 4),
+    tyreSurfaceTempRL: Math.round(baseTyreTemp + tyreHeat + 3 + r() * 4),
+    tyreSurfaceTempRR: Math.round(baseTyreTemp + tyreHeat + 5 + r() * 4),
+    tyreWearPercentFL: Math.round(Math.min(baseWear + r() * 3, 90)),
+    tyreWearPercentFR: Math.round(Math.min(baseWear + 2 + r() * 3, 92)),
+    tyreWearPercentRL: Math.round(Math.min(baseWear - 2 + r() * 3, 88)),
+    tyreWearPercentRR: Math.round(Math.min(baseWear - 1 + r() * 3, 89)),
+    tyreCompound: compound,
+    tyrePressurePsiFL: Number((21.5 + stintLap * 0.04 + r() * 0.3).toFixed(1)),
+    tyrePressurePsiFR: Number((21.7 + stintLap * 0.04 + r() * 0.3).toFixed(1)),
+    tyrePressurePsiRL: Number((20.5 + stintLap * 0.04 + r() * 0.3).toFixed(1)),
+    tyrePressurePsiRR: Number((20.7 + stintLap * 0.04 + r() * 0.3).toFixed(1)),
+    brakeDiscTempFrontC: Math.round(650 + stintLap * 8 + r() * 50),
+    brakeDiscTempRearC: Math.round(580 + stintLap * 7 + r() * 40),
+    brakePadWearPercentF: Math.round(Math.min(lap * 1.3 + r() * 3, 85)),
+    brakePadWearPercentR: Math.round(Math.min(lap * 1.0 + r() * 3, 70)),
+    fuelRemainingKg: Number(fuelRemaining.toFixed(1)),
+    fuelBurnRateKgPerLap: Number((1.72 + r() * 0.15).toFixed(2)),
+    ersStateOfChargePercent: Math.max(5, Math.min(100, ersCharge)),
+    ersDeployKW: Math.round(120 + r() * 230),
+    ersHarvestKW: Math.round(40 + r() * 100),
+    engineRPM: Math.round(10500 + r() * 4500),
+    engineTempCoolantC: Math.round(108 + stintLap * 0.3 + r() * 5),
+    engineTempOilC: Math.round(125 + stintLap * 0.3 + r() * 5),
+    drsActivated: r() > 0.4 ? 1 : 0,
+    drsActivationsPerLap: Math.round(r() * 2),
+    positionCar30: posLawson,
+    positionCar41: posLindblad,
+    gapToLeaderSec: Number((2.0 + lap * 0.08 + (r() - 0.5) * 1.5).toFixed(1)),
+    gapToCarAheadSec: Number((0.3 + r() * 2.0).toFixed(1)),
+    overtakeAttempts: posLawson < targetLawson || posLindblad < targetLindblad ? Math.floor(r() * 3) + 1 : Math.floor(r() * 2),
+    overtakeSuccessful: posLawson < targetLawson || posLindblad < targetLindblad ? 1 : Math.floor(r() * 2),
+    windSpeedMph: Math.round(4 + r() * 12),
+    windDirectionDeg: Math.round(r() * 360),
+    trackTempC: Math.round(32 + r() * 10),
+    ambientTempC: Math.round(18 + r() * 9),
+    humidity: Math.round(42 + r() * 28),
+    rainProbabilityPercent: Math.round(r() * 15),
+    downforceN: Math.round(13800 + r() * 1700),
+    dragCoefficientCd: Number((0.84 + r() * 0.09).toFixed(2)),
+    telemetryChannelsActive: Math.round(295 + r() * 17),
+    telemetryLatencyMs: Math.round(35 + r() * 50),
+    dataRateGbps: Number((1.1 + r() * 0.6).toFixed(1)),
+    sensorHealthPercent: Number((98.5 + r() * 1.5).toFixed(1)),
+    radioTransmissions: Math.round(8 + r() * 22),
+    safetyCarDeployed: r() > 0.96 ? 1 : 0,
+    driverCar: r() > 0.5 ? 'Lawson #30' : 'Lindblad #41',
+    sessionType: 'Race',
+    circuitName: 'Dynatrace Linz',
+    isPitLap: isPitInLap ? 1 : 0,
+    pitStopTimeSec: isPitInLap ? Number((1.87 + r() * 0.35).toFixed(2)) : null,
+    pitCrewReadinessPercent: isPitInLap ? Math.round(95 + r() * 5) : null,
+    channel: ['trackside_pit_wall', 'faenza_war_room', 'milton_keynes_ops'][Math.floor(r() * 3)],
+    deviceType: ['pit_wall_terminal', 'war_room_workstation', 'tablet_trackside'][Math.floor(r() * 3)],
+    region: 'Linz, Austria',
+    segment: ['telemetry', 'strategy', 'pit_operations'][Math.floor(r() * 3)],
+  };
+}
+
+router.post('/simulate-vcarb-race', async (req, res) => {
+  console.log('[vcarb-race] 🏁 Starting VCARB Dynatrace Linz lap-by-lap race simulation');
+
+  const raceId = `race_linz_${Date.now()}`;
+  const totalLaps = 52;
+  const pitStopLaps = [17, 35]; // 2-stop strategy: Soft → Medium → Hard
+  const tyreStrategy = ['Soft', 'Medium', 'Hard'];
+  const intervalMs = req.body.intervalMs || 120000; // default 2 min per lap (~104 min race)
+
+  try {
+    // Load VCARB config
+    const configPath = path.join(process.cwd(), 'saved-configs', 'config-vcarb-race-operations.json');
+    if (!fs.existsSync(configPath)) {
+      return res.status(404).json({ success: false, error: 'VCARB config not found' });
+    }
+    const vcarbConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+
+    const companyName = vcarbConfig.companyName || 'Visa Cash App Racing Bulls';
+    const companyContext = {
+      companyName,
+      domain: vcarbConfig.domain || 'https://www.visacashapprb.com',
+      industryType: vcarbConfig.industryType || 'Formula 1 & Motorsport',
+      journeyType: vcarbConfig.journeyType || '2026 Dynatrace Linz Grand Prix',
+    };
+
+    // ── Phase 1: Fire pre-race steps (1-5) immediately ──
+    const preRaceSteps = (vcarbConfig.steps || []).slice(0, 5);
+    const preRaceResults = [];
+
+    for (const step of preRaceSteps) {
+      const stepName = step.stepName;
+      const serviceName = step.serviceName || `${stepName}Service`;
+      try {
+        const port = await ensureServiceRunning(stepName, {
+          ...companyContext, stepName, serviceName,
+          description: step.description, category: step.category,
+        });
+        if (!port) {
+          preRaceResults.push({ stepName, status: 'failed', error: 'No port available' });
+          continue;
+        }
+        const payload = {
+          journeyId: vcarbConfig.journeyId || raceId,
+          correlationId: raceId,
+          startTime: new Date().toISOString(),
+          companyName: companyContext.companyName,
+          domain: companyContext.domain,
+          industryType: companyContext.industryType,
+          journeyType: companyContext.journeyType,
+          serviceName,
+          stepName,
+          stepIndex: step.stepIndex || preRaceSteps.indexOf(step) + 1,
+          totalSteps: 8,
+          additionalFields: {
+            raceId,
+            sessionType: step.stepIndex <= 2 ? 'Setup' : step.stepIndex === 3 ? 'FP1' : step.stepIndex === 4 ? 'Qualifying' : 'Pre-Race',
+            circuitName: 'Dynatrace Linz',
+            driverCar: Math.random() > 0.5 ? 'Lawson #30' : 'Lindblad #41',
+            channel: 'trackside_pit_wall',
+            region: 'Linz, Austria',
+            hasError: false,
+          },
+          hasError: false,
+        };
+        await callDynamicService(stepName, port, payload, {});
+        preRaceResults.push({ stepName, status: 'completed' });
+        console.log(`[vcarb-race] ✅ Pre-race step complete: ${stepName}`);
+      } catch (err) {
+        preRaceResults.push({ stepName, status: 'failed', error: err.message });
+        console.error(`[vcarb-race] ❌ Pre-race step failed: ${stepName}:`, err.message);
+      }
+    }
+
+    // ── Phase 2: Ensure race services are running ──
+    const raceStepName = 'LinzGrandPrix';
+    const pitStepName = 'LinzPitStops';
+    const debriefStepName = 'LinzPostRaceDebrief';
+
+    await ensureServiceRunning(raceStepName, { ...companyContext, stepName: raceStepName, serviceName: 'RaceExecutionService' });
+    await ensureServiceRunning(pitStepName, { ...companyContext, stepName: pitStepName, serviceName: 'PitStopService' });
+    await ensureServiceRunning(debriefStepName, { ...companyContext, stepName: debriefStepName, serviceName: 'PostRaceAnalyticsService' });
+
+    // ── Phase 3: Start background lap-by-lap simulation ──
+    let currentLap = 0;
+    const raceState = { raceId, currentLap: 0, totalLaps, status: 'racing', startTime: Date.now(), preRaceResults };
+
+    const raceInterval = setInterval(async () => {
+      currentLap++;
+      raceState.currentLap = currentLap;
+
+      if (currentLap > totalLaps) {
+        // Race complete — fire debrief
+        clearInterval(raceInterval);
+        raceState.status = 'finished';
+        console.log(`[vcarb-race] 🏁 RACE COMPLETE — ${totalLaps} laps finished`);
+
+        try {
+          const debriefPort = await ensureServiceRunning(debriefStepName, { ...companyContext, stepName: debriefStepName, serviceName: 'PostRaceAnalyticsService' });
+          if (debriefPort) {
+            await callDynamicService(debriefStepName, debriefPort, {
+              journeyId: vcarbConfig.journeyId || raceId,
+              correlationId: raceId,
+              companyName: companyContext.companyName,
+              domain: companyContext.domain,
+              industryType: companyContext.industryType,
+              journeyType: companyContext.journeyType,
+              serviceName: 'PostRaceAnalyticsService',
+              stepName: debriefStepName,
+              stepIndex: 8,
+              totalSteps: 8,
+              additionalFields: { raceId, sessionType: 'Post-Race Debrief', circuitName: 'Dynatrace Linz', totalLaps, driverCar: 'Lawson #30', hasError: false },
+              hasError: false,
+            }, {});
+            console.log(`[vcarb-race] ✅ Post-race debrief fired`);
+          }
+        } catch (err) {
+          console.error(`[vcarb-race] ❌ Debrief error:`, err.message);
+        }
+        activeVcarbRaces.delete(raceId);
+        return;
+      }
+
+      // Generate lap telemetry
+      const lapData = generateLapTelemetry(currentLap, totalLaps, pitStopLaps, tyreStrategy);
+      const isPitLap = pitStopLaps.includes(currentLap);
+
+      console.log(`[vcarb-race] 🏎️ Lap ${currentLap}/${totalLaps} | ${lapData.lapTimeSec}s | ${lapData.tyreCompound} | Fuel: ${lapData.fuelRemainingKg}kg${isPitLap ? ' | 🔧 PIT STOP' : ''}`);
+
+      try {
+        // Fire race lap bizevent
+        const racePort = await ensureServiceRunning(raceStepName, { ...companyContext, stepName: raceStepName, serviceName: 'RaceExecutionService' });
+        if (racePort) {
+          await callDynamicService(raceStepName, racePort, {
+            journeyId: vcarbConfig.journeyId || raceId,
+            correlationId: raceId,
+            companyName: companyContext.companyName,
+            domain: companyContext.domain,
+            industryType: companyContext.industryType,
+            journeyType: companyContext.journeyType,
+            serviceName: 'RaceExecutionService',
+            stepName: raceStepName,
+            stepIndex: 6,
+            totalSteps: 8,
+            additionalFields: { ...lapData, raceId, hasError: false },
+            hasError: false,
+          }, {});
+        }
+
+        // Fire pit stop bizevent on pit laps
+        if (isPitLap) {
+          const pitPort = await ensureServiceRunning(pitStepName, { ...companyContext, stepName: pitStepName, serviceName: 'PitStopService' });
+          if (pitPort) {
+            await callDynamicService(pitStepName, pitPort, {
+              journeyId: vcarbConfig.journeyId || raceId,
+              correlationId: raceId,
+              companyName: companyContext.companyName,
+              domain: companyContext.domain,
+              industryType: companyContext.industryType,
+              journeyType: companyContext.journeyType,
+              serviceName: 'PitStopService',
+              stepName: pitStepName,
+              stepIndex: 7,
+              totalSteps: 8,
+              additionalFields: {
+                raceId,
+                lapNumber: currentLap,
+                pitStopTimeSec: lapData.pitStopTimeSec,
+                pitCrewReadinessPercent: lapData.pitCrewReadinessPercent,
+                tyreCompoundOld: tyreStrategy[pitStopLaps.indexOf(currentLap)] || 'Soft',
+                tyreCompoundNew: tyreStrategy[pitStopLaps.indexOf(currentLap) + 1] || 'Hard',
+                driverCar: lapData.driverCar,
+                circuitName: 'Dynatrace Linz',
+                sessionType: 'Race',
+                hasError: false,
+              },
+              hasError: false,
+            }, {});
+            console.log(`[vcarb-race] 🔧 Pit stop event sent — ${lapData.pitStopTimeSec}s`);
+          }
+        }
+      } catch (err) {
+        console.error(`[vcarb-race] ❌ Lap ${currentLap} error:`, err.message);
+      }
+    }, intervalMs);
+
+    activeVcarbRaces.set(raceId, { interval: raceInterval, state: raceState });
+
+    console.log(`[vcarb-race] 🏁 Race ${raceId} started — ${totalLaps} laps at ${intervalMs / 1000}s/lap`);
+    res.json({
+      success: true,
+      raceId,
+      totalLaps,
+      pitStopLaps,
+      tyreStrategy,
+      intervalMs,
+      preRaceStepsCompleted: preRaceResults.filter(r => r.status === 'completed').length,
+      preRaceResults,
+      message: `Race simulation started. ${totalLaps} laps, 1 lap every ${intervalMs / 1000}s. Pre-race steps 1-5 fired immediately.`,
+    });
+  } catch (error) {
+    console.error('[vcarb-race] Race simulation start failed:', error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Get VCARB race status
+router.get('/vcarb-race-status/:raceId', (req, res) => {
+  const race = activeVcarbRaces.get(req.params.raceId);
+  if (!race) {
+    return res.json({ success: true, status: 'not_found', message: 'Race not found or already finished' });
+  }
+  res.json({ success: true, ...race.state });
+});
+
+// Stop VCARB race
+router.post('/stop-vcarb-race/:raceId', (req, res) => {
+  const race = activeVcarbRaces.get(req.params.raceId);
+  if (!race) {
+    return res.json({ success: true, status: 'not_found', message: 'Race not found or already finished' });
+  }
+  clearInterval(race.interval);
+  race.state.status = 'stopped';
+  activeVcarbRaces.delete(req.params.raceId);
+  console.log(`[vcarb-race] 🛑 Race ${req.params.raceId} stopped at lap ${race.state.currentLap}`);
+  res.json({ success: true, status: 'stopped', stoppedAtLap: race.state.currentLap });
+});
+
 // Multiple customer journey simulation with detailed output
 router.post('/simulate-multiple-journeys', async (req, res) => {
   console.log('[journey-sim] Multiple journeys simulation called');
@@ -1673,7 +2058,7 @@ router.post('/simulate-multiple-journeys', async (req, res) => {
         console.log(`[journey-sim] Starting journey for customer ${customerIndex + 1}/${customers}, correlationId: ${correlationId}`);
 
         // Prepare step data with duration fields from Copilot response
-        const stepData = journeyObj.steps.slice(0, 6).map(step => {
+        const stepData = journeyObj.steps.map(step => {
           const stepName = step.stepName || step.name || step.step || step.title || 'UnknownStep';
           const description = step.description || step.action || step.summary || '';
           const category = step.category || step.type || step.phase || '';
@@ -2366,7 +2751,7 @@ router.post('/simulate-batch-chained', async (req, res) => {
       stepsArray = customSteps;
     }
     if (stepsArray) {
-      stepData = stepsArray.slice(0, 6).map(step => {
+      stepData = stepsArray.map(step => {
         const stepName = step.stepName || step.name || step.step || step.title || 'UnknownStep';
         const description = step.description || step.action || step.summary || '';
         const category = step.category || step.type || step.phase || '';

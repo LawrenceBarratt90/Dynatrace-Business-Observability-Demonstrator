@@ -10,7 +10,7 @@ import { documentsClient, environmentSharesClient } from '@dynatrace-sdk/client-
 import { queryExecutionClient } from '@dynatrace-sdk/client-query';
 
 interface ProxyPayload {
-  action: 'simulate-journey' | 'test-connection' | 'get-services' | 'stop-all-services' | 'stop-company-services' | 'get-dormant-services' | 'clear-dormant-services' | 'clear-company-dormant' | 'chaos-get-active' | 'chaos-get-recipes' | 'chaos-inject' | 'chaos-revert' | 'chaos-revert-all' | 'chaos-get-targeted' | 'chaos-remove-target' | 'chaos-smart' | 'ec-create' | 'ec-update-patterns' | 'detect-builtin-settings' | 'deploy-builtin-settings' | 'deploy-workflow' | 'debug-builtin-schema' | 'generate-dashboard' | 'generate-dashboard-async' | 'get-dashboard-status' | 'deploy-dashboard' | 'deploy-ai-dashboard' | 'mcp-generate-deploy-dashboard' | 'list-saved-dashboards' | 'load-saved-dashboard' | 'delete-saved-dashboard' | 'deploy-business-flow' | 'list-business-flows' | 'delete-business-flows' | 'generate-pdf' | 'generate-doc' | 'load-app-settings' | 'save-app-settings' | 'check-journey-assets' | 'create-notebook' | 'execute-dql' | 'forge-ai-tiles' | 'forge-tiles-status' | 'field-repo-get' | 'librarian-history' | 'librarian-stats' | 'librarian-analyze';
+  action: 'simulate-journey' | 'simulate-vcarb-race' | 'vcarb-race-status' | 'stop-vcarb-race' | 'get-saved-config' | 'test-connection' | 'get-services' | 'stop-all-services' | 'stop-company-services' | 'get-dormant-services' | 'clear-dormant-services' | 'clear-company-dormant' | 'chaos-get-active' | 'chaos-get-recipes' | 'chaos-inject' | 'chaos-revert' | 'chaos-revert-all' | 'chaos-get-targeted' | 'chaos-remove-target' | 'chaos-smart' | 'ec-create' | 'ec-update-patterns' | 'detect-builtin-settings' | 'deploy-builtin-settings' | 'deploy-workflow' | 'debug-builtin-schema' | 'generate-dashboard' | 'generate-dashboard-async' | 'get-dashboard-status' | 'deploy-dashboard' | 'deploy-ai-dashboard' | 'mcp-generate-deploy-dashboard' | 'list-saved-dashboards' | 'load-saved-dashboard' | 'delete-saved-dashboard' | 'deploy-business-flow' | 'list-business-flows' | 'delete-business-flows' | 'generate-pdf' | 'generate-doc' | 'load-app-settings' | 'save-app-settings' | 'check-journey-assets' | 'create-notebook' | 'execute-dql' | 'forge-ai-tiles' | 'forge-tiles-status' | 'field-repo-get' | 'librarian-history' | 'librarian-stats' | 'librarian-analyze';
   apiHost: string;
   apiPort: string;
   apiProtocol: string;
@@ -1530,6 +1530,53 @@ export default async function (payload: ProxyPayload) {
         console.error('[proxy-api] Document generation error:', error.message);
         return { success: false, error: error.message };
       }
+    }
+
+    if (action === 'get-saved-config') {
+      const configName = (body as any)?.configName || '';
+      const apiUrl = `${baseUrl}/api/admin/configs/${encodeURIComponent(configName)}`;
+      const response = await fetchWithRetry(apiUrl, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(15000),
+      });
+      if (!response.ok) {
+        return { success: false, status: response.status, error: `Config not found: ${configName}` };
+      }
+      const data = await response.json();
+      return { success: true, data };
+    }
+
+    if (action === 'simulate-vcarb-race') {
+      const apiUrl = `${baseUrl}/api/journey-simulation/simulate-vcarb-race`;
+      const response = await fetchWithRetry(apiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(120000),
+      });
+      const data = await response.json();
+      return { success: response.ok, status: response.status, data };
+    }
+
+    if (action === 'vcarb-race-status') {
+      const raceId = (body as any)?.raceId || '';
+      const apiUrl = `${baseUrl}/api/journey-simulation/vcarb-race-status/${encodeURIComponent(raceId)}`;
+      const response = await fetchWithRetry(apiUrl, { method: 'GET', signal: AbortSignal.timeout(10000) });
+      const data = await response.json();
+      return { success: response.ok, data };
+    }
+
+    if (action === 'stop-vcarb-race') {
+      const raceId = (body as any)?.raceId || '';
+      const apiUrl = `${baseUrl}/api/journey-simulation/stop-vcarb-race/${encodeURIComponent(raceId)}`;
+      const response = await fetchWithRetry(apiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(10000),
+      });
+      const data = await response.json();
+      return { success: response.ok, data };
     }
 
     if (action === 'simulate-journey') {

@@ -48,7 +48,7 @@ interface FieldProfile {
   allFieldNames: string[];         // all field keys found
 }
 
-type DashboardPreset = 'developer' | 'operations' | 'executive' | 'intelligence' | 'genai' | 'security' | 'sre' | 'logs';
+type DashboardPreset = 'developer' | 'operations' | 'executive' | 'intelligence' | 'genai' | 'security' | 'sre' | 'logs' | 'vcarb';
 
 type Timeframe = 'now()-30m' | 'now()-1h' | 'now()-2h' | 'now()-6h' | 'now()-12h' | 'now()-24h' | 'now()-3d' | 'now()-7d';
 
@@ -72,6 +72,7 @@ const PRESET_META: Record<DashboardPreset, { label: string; icon: string; color:
   security:     { label: 'Security',               icon: '🔒', color: '#f59e0b', desc: 'Security Events · Attacks · Categories · Trends · Affected Entities' },
   sre:          { label: 'SRE / Reliability',      icon: '📋', color: '#06b6d4', desc: 'Availability · Error Budget · SLOs · Percentiles · Deployments' },
   logs:         { label: 'Biz Events',             icon: '📝', color: '#8b5cf6', desc: 'Event Volume · Types · Errors · Journeys · Services · Companies' },
+  vcarb:        { label: 'VCARB Race Ops',         icon: '🏎️', color: '#e10600', desc: 'Lap Times · Tyres · ERS · Pit Stops · Positions · Telemetry · Weather' },
 };
 
 /** Rich marketing overview for each dashboard — shown at the top of each preset */
@@ -155,6 +156,16 @@ const PRESET_OVERVIEW: Record<DashboardPreset, { headline: string; bullets: stri
       'Full event detail table with step-level granularity for end-to-end journey troubleshooting',
     ],
     poweredBy: 'Grail Biz Events, DQL Analytics, DPS Event Processing',
+  },
+  vcarb: {
+    headline: 'Visa Cash App Racing Bulls F1 race operations — real-time telemetry, tyre strategy, pit stops, and race positions.',
+    bullets: [
+      'Live lap times, sector splits, and top speed tracking across all race weekend sessions for both drivers',
+      'Tyre management analytics: surface temps, pressures, and wear across all four corners with compound tracking',
+      'ERS energy flow, engine RPM, fuel burn rate, and power unit health monitoring in real-time',
+      'Pit stop execution analysis, position tracking, gap management, and overtake success rate for race strategy',
+    ],
+    poweredBy: 'Grail Biz Events, Race Telemetry Pipeline, DQL Analytics',
   },
 };
 
@@ -538,6 +549,7 @@ function buildStepMatch(steps: string[]): string {
 /** Executive tiles with industry-aware vocabulary */
 function getExecutiveTiles(b: string, timeframe: Timeframe, journeyType: string, companyName: string): TileCandidate[] {
   const v = getVocab(journeyType, companyName);
+
   return [
     // ══════ KEY BUSINESS METRICS ══════
     { id: 'ex-kpi-banner', title: 'KEY BUSINESS METRICS', vizType: 'sectionBanner', width: 3, icon: '📊', accent: '#a78bfa', dql: '' },
@@ -1164,6 +1176,105 @@ function getCandidates(companyName: string, journeyType: string, preset: Dashboa
       { id: 'log-detail-banner', title: 'EVENT DETAILS', vizType: 'sectionBanner', width: 3, icon: '📋', accent: '#a78bfa', dql: '' },
       { id: 'log-detail-table', title: 'Event Detail Table', vizType: 'table', width: 3, icon: '📋', accent: '#a78bfa', desc: 'Full event detail view with all key fields — the comprehensive audit trail for your business events.',
         dql: `${b}\n| fields Time = timestamp, Type = event.type, Service = json.serviceName, Journey = json.journeyType, Step = json.stepName, Company = json.companyName, Error = json.hasError\n| sort Time desc\n| limit 100` },
+    ];
+
+    /* ══════════════════════════════════════════════════════════════
+       VCARB RACE OPS — Lap Performance · Tyres · ERS · Pit Stops ·
+                         Positions · Weather · Telemetry Pipeline
+       ══════════════════════════════════════════════════════════════ */
+    case 'vcarb': return [
+      // ── RACE OVERVIEW ──
+      { id: 'vc-overview-banner', title: 'RACE OVERVIEW', vizType: 'sectionBanner', width: 3, icon: '🏁', accent: '#e10600', dql: '' },
+      { id: 'vc-total-events', title: 'Total Telemetry Events', vizType: 'heroMetric', width: 1, icon: '📡', accent: '#e10600', desc: 'Total business events generated across the race weekend — measures overall telemetry pipeline throughput.',
+        dql: `${b}\n| summarize totalEvents = count()` },
+      { id: 'vc-pos-car30', title: 'Car #30 Position', vizType: 'heroMetric', width: 1, icon: '🏎️', accent: '#1e3a5f', desc: 'Latest race position for Liam Lawson (#30) — lower is better.',
+        dql: `${b}\n| filter isNotNull(additionalfields.positionCar30)\n| sort timestamp desc\n| fieldsAdd pos = toDouble(additionalfields.positionCar30)\n| summarize latestPos = last(pos)` },
+      { id: 'vc-pos-car41', title: 'Car #41 Position', vizType: 'heroMetric', width: 1, icon: '🏎️', accent: '#e10600', desc: 'Latest race position for Arvid Lindblad (#41) — lower is better.',
+        dql: `${b}\n| filter isNotNull(additionalfields.positionCar41)\n| sort timestamp desc\n| fieldsAdd pos = toDouble(additionalfields.positionCar41)\n| summarize latestPos = last(pos)` },
+
+      // ── LAP PERFORMANCE ──
+      { id: 'vc-lap-banner', title: 'LAP PERFORMANCE', vizType: 'sectionBanner', width: 3, icon: '⏱️', accent: '#f5a623', dql: '' },
+      { id: 'vc-avg-lap', title: 'Avg Lap Time (sec)', vizType: 'heroMetric', width: 1, icon: '⏱️', accent: '#f5a623', desc: 'Average lap time across all events — the primary pace indicator for the session.',
+        dql: `${b}\n| filter isNotNull(additionalfields.lapTimeSec)\n| summarize avgLap = round(avg(toDouble(additionalfields.lapTimeSec)), decimals:3)` },
+      { id: 'vc-best-lap', title: 'Best Lap Time (sec)', vizType: 'heroMetric', width: 1, icon: '🏆', accent: '#27ae60', desc: 'Fastest lap recorded in the period — benchmark for qualifying and race pace targets.',
+        dql: `${b}\n| filter isNotNull(additionalfields.lapTimeSec)\n| summarize bestLap = round(min(toDouble(additionalfields.lapTimeSec)), decimals:3)` },
+      { id: 'vc-top-speed', title: 'Max Top Speed (kph)', vizType: 'heroMetric', width: 1, icon: '💨', accent: '#3498db', desc: 'Highest top speed trap reading — indicates power unit performance and drag efficiency.',
+        dql: `${b}\n| filter isNotNull(additionalfields.topSpeedKph)\n| summarize maxSpeed = round(max(toDouble(additionalfields.topSpeedKph)), decimals:1)` },
+      { id: 'vc-lap-ts', title: 'Lap Times Over Time', vizType: 'timeseries', width: 2, icon: '📈', accent: '#f5a623', desc: 'Lap time trend — track pace evolution through stints, tyre degradation, and fuel burn.',
+        dql: `${b}\n| filter isNotNull(additionalfields.lapTimeSec)\n| makeTimeseries lapTime = avg(toDouble(additionalfields.lapTimeSec))` },
+      { id: 'vc-sectors', title: 'Sector Times', vizType: 'categoricalBar', width: 1, icon: '🔀', accent: '#e67e22', desc: 'Average sector split times — reveals which parts of the circuit offer the most time gain.',
+        dql: `${b}\n| filter isNotNull(additionalfields.sectorOneTimeSec)\n| summarize S1 = round(avg(toDouble(additionalfields.sectorOneTimeSec)), decimals:3), S2 = round(avg(toDouble(additionalfields.sectorTwoTimeSec)), decimals:3), S3 = round(avg(toDouble(additionalfields.sectorThreeTimeSec)), decimals:3)\n| fieldsAdd record(Sector1 = S1, Sector2 = S2, Sector3 = S3)` },
+
+      // ── TYRE MANAGEMENT ──
+      { id: 'vc-tyre-banner', title: 'TYRE MANAGEMENT', vizType: 'sectionBanner', width: 3, icon: '🛞', accent: '#a78bfa', dql: '' },
+      { id: 'vc-tyre-temp-ts', title: 'Tyre Surface Temps (°C)', vizType: 'timeseries', width: 2, icon: '🌡️', accent: '#e74c3c', desc: 'Surface temperature across all four tyres — optimal window is critical for grip and degradation management.',
+        dql: `${b}\n| filter isNotNull(additionalfields.tyreSurfaceTempFL)\n| makeTimeseries FL = avg(toDouble(additionalfields.tyreSurfaceTempFL)), FR = avg(toDouble(additionalfields.tyreSurfaceTempFR)), RL = avg(toDouble(additionalfields.tyreSurfaceTempRL)), RR = avg(toDouble(additionalfields.tyreSurfaceTempRR))` },
+      { id: 'vc-tyre-wear', title: 'Tyre Wear %', vizType: 'timeseries', width: 1, icon: '📉', accent: '#a78bfa', desc: 'Tyre wear progression per corner — determines pit window timing and strategy calls.',
+        dql: `${b}\n| filter isNotNull(additionalfields.tyreWearPercentFL)\n| makeTimeseries FL = avg(toDouble(additionalfields.tyreWearPercentFL)), FR = avg(toDouble(additionalfields.tyreWearPercentFR)), RL = avg(toDouble(additionalfields.tyreWearPercentRL)), RR = avg(toDouble(additionalfields.tyreWearPercentRR))` },
+      { id: 'vc-tyre-pressure', title: 'Tyre Pressures (PSI)', vizType: 'timeseries', width: 2, icon: '🎈', accent: '#3498db', desc: 'Tyre pressure trend across all four corners — pressure rise indicates overheating; drops signal puncture risk.',
+        dql: `${b}\n| filter isNotNull(additionalfields.tyrePressurePsiFL)\n| makeTimeseries FL = avg(toDouble(additionalfields.tyrePressurePsiFL)), FR = avg(toDouble(additionalfields.tyrePressurePsiFR)), RL = avg(toDouble(additionalfields.tyrePressurePsiRL)), RR = avg(toDouble(additionalfields.tyrePressurePsiRR))` },
+      { id: 'vc-brake-temps', title: 'Brake Disc Temps (°C)', vizType: 'timeseries', width: 1, icon: '🔥', accent: '#e74c3c', desc: 'Front and rear brake disc temperatures — excessive heat causes brake fade and increased stopping distance.',
+        dql: `${b}\n| filter isNotNull(additionalfields.brakeDiscTempFrontC)\n| makeTimeseries Front = avg(toDouble(additionalfields.brakeDiscTempFrontC)), Rear = avg(toDouble(additionalfields.brakeDiscTempRearC))` },
+
+      // ── POWER UNIT & ERS ──
+      { id: 'vc-pu-banner', title: 'POWER UNIT & ERS', vizType: 'sectionBanner', width: 3, icon: '⚡', accent: '#10b981', dql: '' },
+      { id: 'vc-ers-charge', title: 'ERS State of Charge %', vizType: 'timeseries', width: 1, icon: '🔋', accent: '#10b981', desc: 'Energy Recovery System charge level — managing deployment vs harvesting is key to overtake and defence strategy.',
+        dql: `${b}\n| filter isNotNull(additionalfields.ersStateOfChargePercent)\n| makeTimeseries ersCharge = avg(toDouble(additionalfields.ersStateOfChargePercent))` },
+      { id: 'vc-ers-flow', title: 'ERS Deploy vs Harvest (kW)', vizType: 'timeseries', width: 1, icon: '⚡', accent: '#f59e0b', desc: 'Energy deployment and harvesting rates — balance determines available boost per lap.',
+        dql: `${b}\n| filter isNotNull(additionalfields.ersDeployKW)\n| makeTimeseries deploy = avg(toDouble(additionalfields.ersDeployKW)), harvest = avg(toDouble(additionalfields.ersHarvestKW))` },
+      { id: 'vc-engine-rpm', title: 'Engine RPM', vizType: 'timeseries', width: 1, icon: '🔧', accent: '#e67e22', desc: 'Engine RPM trend — sustained high RPM indicates full-power mode; dips may signal lift-and-coast fuel saving.',
+        dql: `${b}\n| filter isNotNull(additionalfields.engineRPM)\n| makeTimeseries rpm = avg(toDouble(additionalfields.engineRPM))` },
+      { id: 'vc-fuel', title: 'Fuel Remaining (kg)', vizType: 'timeseries', width: 1, icon: '⛽', accent: '#06b6d4', desc: 'Fuel load trend — must reach zero at the finish with minimum margin for weight optimisation.',
+        dql: `${b}\n| filter isNotNull(additionalfields.fuelRemainingKg)\n| makeTimeseries fuel = avg(toDouble(additionalfields.fuelRemainingKg))` },
+      { id: 'vc-engine-temps', title: 'Engine Temps (°C)', vizType: 'timeseries', width: 1, icon: '🌡️', accent: '#e74c3c', desc: 'Oil and coolant temperature — overheating triggers engine mode restrictions or retirement.',
+        dql: `${b}\n| filter isNotNull(additionalfields.engineTempOilC)\n| makeTimeseries Oil = avg(toDouble(additionalfields.engineTempOilC)), Coolant = avg(toDouble(additionalfields.engineTempCoolantC))` },
+      { id: 'vc-fuel-burn', title: 'Fuel Burn Rate (kg/lap)', vizType: 'heroMetric', width: 1, icon: '🔥', accent: '#f59e0b', desc: 'Average fuel consumption per lap — informs lift-and-coast strategy and pit window calculations.',
+        dql: `${b}\n| filter isNotNull(additionalfields.fuelBurnRateKgPerLap)\n| summarize avgBurn = round(avg(toDouble(additionalfields.fuelBurnRateKgPerLap)), decimals:2)` },
+
+      // ── PIT STOP OPERATIONS ──
+      { id: 'vc-pit-banner', title: 'PIT STOP OPERATIONS', vizType: 'sectionBanner', width: 3, icon: '🔧', accent: '#8b5cf6', dql: '' },
+      { id: 'vc-pit-avg', title: 'Avg Pit Stop Time (sec)', vizType: 'heroMetric', width: 1, icon: '⏱️', accent: '#8b5cf6', desc: 'Average stationary pit stop time — sub-2.5s is elite; slow stops lose positions and race outcomes.',
+        dql: `${b}\n| filter isNotNull(additionalfields.pitStopTimeSec)\n| summarize avgPit = round(avg(toDouble(additionalfields.pitStopTimeSec)), decimals:2)` },
+      { id: 'vc-pit-best', title: 'Best Pit Stop (sec)', vizType: 'heroMetric', width: 1, icon: '🏆', accent: '#27ae60', desc: 'Fastest pit stop execution — represents crew peak performance under race pressure.',
+        dql: `${b}\n| filter isNotNull(additionalfields.pitStopTimeSec)\n| summarize bestPit = round(min(toDouble(additionalfields.pitStopTimeSec)), decimals:2)` },
+      { id: 'vc-pit-crew', title: 'Crew Readiness %', vizType: 'heroMetric', width: 1, icon: '👷', accent: '#3498db', desc: 'Pit crew readiness index — low readiness correlates with slower stops and increased fumble risk.',
+        dql: `${b}\n| filter isNotNull(additionalfields.pitCrewReadinessPercent)\n| summarize readiness = round(avg(toDouble(additionalfields.pitCrewReadinessPercent)), decimals:1)` },
+
+      // ── RACE POSITIONS & STRATEGY ──
+      { id: 'vc-pos-banner', title: 'RACE POSITIONS & STRATEGY', vizType: 'sectionBanner', width: 3, icon: '🏁', accent: '#1e3a5f', dql: '' },
+      { id: 'vc-pos-ts', title: 'Position Tracking', vizType: 'timeseries', width: 2, icon: '📊', accent: '#1e3a5f', desc: 'Race position for both cars over time — visualise overtakes, undercuts, and strategy calls.',
+        dql: `${b}\n| filter isNotNull(additionalfields.positionCar30)\n| makeTimeseries Car30 = avg(toDouble(additionalfields.positionCar30)), Car41 = avg(toDouble(additionalfields.positionCar41))` },
+      { id: 'vc-gap-leader', title: 'Gap to Leader (sec)', vizType: 'timeseries', width: 1, icon: '📏', accent: '#e67e22', desc: 'Time gap to the race leader — decreasing gaps indicate a charge through the field.',
+        dql: `${b}\n| filter isNotNull(additionalfields.gapToLeaderSec)\n| makeTimeseries gapToLeader = avg(toDouble(additionalfields.gapToLeaderSec))` },
+      { id: 'vc-overtakes', title: 'Overtake Success Rate', vizType: 'heroMetric', width: 1, icon: '🏎️', accent: '#27ae60', desc: 'Percentage of overtake attempts that succeeded — a key indicator of race-craft and car pace advantage.',
+        dql: `${b}\n| filter isNotNull(additionalfields.overtakeAttempts)\n| summarize attempts = sum(toDouble(additionalfields.overtakeAttempts)), success = sum(toDouble(additionalfields.overtakeSuccessful))\n| fieldsAdd rate = round(100.0 * success / attempts, decimals:1)` },
+      { id: 'vc-drs', title: 'DRS Activations / Lap', vizType: 'heroMetric', width: 1, icon: '📡', accent: '#3498db', desc: 'Average DRS activations per lap — more activations indicate proximity to cars ahead and overtaking opportunity.',
+        dql: `${b}\n| filter isNotNull(additionalfields.drsActivationsPerLap)\n| summarize avgDRS = round(avg(toDouble(additionalfields.drsActivationsPerLap)), decimals:1)` },
+      { id: 'vc-gap-ahead', title: 'Gap to Car Ahead (sec)', vizType: 'timeseries', width: 1, icon: '📏', accent: '#a78bfa', desc: 'Time gap to the car immediately ahead — under 1 second enables DRS activation.',
+        dql: `${b}\n| filter isNotNull(additionalfields.gapToCarAheadSec)\n| makeTimeseries gapAhead = avg(toDouble(additionalfields.gapToCarAheadSec))` },
+
+      // ── WEATHER & TRACK CONDITIONS ──
+      { id: 'vc-wx-banner', title: 'WEATHER & TRACK CONDITIONS', vizType: 'sectionBanner', width: 3, icon: '🌤️', accent: '#06b6d4', dql: '' },
+      { id: 'vc-track-temp', title: 'Track & Ambient Temp (°C)', vizType: 'timeseries', width: 1, icon: '🌡️', accent: '#e74c3c', desc: 'Track surface and air temperature — directly affects tyre grip, degradation rate, and engine cooling.',
+        dql: `${b}\n| filter isNotNull(additionalfields.trackTempC)\n| makeTimeseries Track = avg(toDouble(additionalfields.trackTempC)), Ambient = avg(toDouble(additionalfields.ambientTempC))` },
+      { id: 'vc-wind', title: 'Wind Speed (kph)', vizType: 'timeseries', width: 1, icon: '💨', accent: '#06b6d4', desc: 'Wind speed trend — headwinds reduce top speed; crosswinds affect aero balance and car stability.',
+        dql: `${b}\n| filter isNotNull(additionalfields.windSpeedKph)\n| makeTimeseries wind = avg(toDouble(additionalfields.windSpeedKph))` },
+      { id: 'vc-rain', title: 'Rain Probability %', vizType: 'heroMetric', width: 1, icon: '🌧️', accent: '#3498db', desc: 'Current rain probability — triggers strategic decisions on tyre compound, pit timing, and setup changes.',
+        dql: `${b}\n| filter isNotNull(additionalfields.rainProbabilityPercent)\n| sort timestamp desc\n| summarize rainProb = last(toDouble(additionalfields.rainProbabilityPercent))` },
+
+      // ── TELEMETRY PIPELINE ──
+      { id: 'vc-tel-banner', title: 'TELEMETRY PIPELINE', vizType: 'sectionBanner', width: 3, icon: '📡', accent: '#f59e0b', dql: '' },
+      { id: 'vc-tel-latency', title: 'Telemetry Latency (ms)', vizType: 'timeseries', width: 1, icon: '⏱️', accent: '#f59e0b', desc: 'End-to-end latency from car sensors to pit wall — low latency is critical for real-time strategy decisions.',
+        dql: `${b}\n| filter isNotNull(additionalfields.telemetryLatencyMs)\n| makeTimeseries latency = avg(toDouble(additionalfields.telemetryLatencyMs))` },
+      { id: 'vc-tel-channels', title: 'Active Channels', vizType: 'heroMetric', width: 1, icon: '📊', accent: '#10b981', desc: 'Number of active telemetry channels — full channel count confirms car-to-pit data link health.',
+        dql: `${b}\n| filter isNotNull(additionalfields.telemetryChannelsActive)\n| sort timestamp desc\n| summarize channels = last(toDouble(additionalfields.telemetryChannelsActive))` },
+      { id: 'vc-tel-data-rate', title: 'Data Rate (Gbps)', vizType: 'heroMetric', width: 1, icon: '🌐', accent: '#06b6d4', desc: 'Telemetry data throughput — drops indicate bandwidth issues or sensor failures on the car.',
+        dql: `${b}\n| filter isNotNull(additionalfields.dataRateGbps)\n| sort timestamp desc\n| summarize dataRate = last(toDouble(additionalfields.dataRateGbps))` },
+
+      // ── RACE EVENT TABLE ──
+      { id: 'vc-events-banner', title: 'RACE EVENT LOG', vizType: 'sectionBanner', width: 3, icon: '📋', accent: '#e10600', dql: '' },
+      { id: 'vc-event-table', title: 'Race Weekend Event Log', vizType: 'table', width: 3, icon: '📋', accent: '#e10600', desc: 'Full event log with step, service, lap time, position, and tyre compound — the complete race weekend audit trail.',
+        dql: `${b}\n| fields Time = timestamp, Step = json.stepName, Service = json.serviceName, LapTime = additionalfields.lapTimeSec, TopSpeed = additionalfields.topSpeedKph, Pos30 = additionalfields.positionCar30, Pos41 = additionalfields.positionCar41, Compound = additionalfields.tyreCompound, Fuel = additionalfields.fuelRemainingKg\n| sort Time desc\n| limit 100` },
     ];
 
     default: return [];
@@ -2155,7 +2266,7 @@ export const ForgeDashboardsPage = () => {
           <InfoButton
             align="left"
             title="📊 Forge Dashboards"
-            description="Eight persona-based preset dashboards with live DQL-powered tiles, all filterable by company, journey, service, and timeframe."
+            description="Nine persona-based preset dashboards with live DQL-powered tiles, all filterable by company, journey, service, and timeframe."
             sections={[
               { label: '🔧 Developer', detail: '~28 tiles: RED metrics, latency p50/p90/p99, errors, traces, logs, endpoints' },
               { label: '⚙️ Operations', detail: '~26 tiles: host health, CPU/memory, processes, network, availability' },
@@ -2165,6 +2276,7 @@ export const ForgeDashboardsPage = () => {
               { label: '🔒 Security', detail: '~18 tiles: security events, attacks, categories, trends, affected entities' },
               { label: '📋 SRE', detail: '~22 tiles: availability, error budget, latency percentiles, HTTP status codes' },
               { label: '📝 Biz Events', detail: '~22 tiles: event volume, types, errors by service/journey/company, details' },
+              { label: '🏎️ VCARB Race Ops', detail: '~40 tiles: lap times, tyres, ERS, pit stops, positions, weather, telemetry' },
               { label: '🔄 Refresh', detail: 'Re-run all DQL queries with current filters' },
               { label: '📓 Export to Notebook', detail: 'Export all tiles as a Dynatrace Notebook with DQL sections' },
               { label: '📚 Librarian', detail: 'View operational history, chaos events, fixes, and AI-powered incident analysis via Ollama' },
@@ -2273,7 +2385,7 @@ export const ForgeDashboardsPage = () => {
           const m = PRESET_META[p];
           const active = preset === p;
           return (
-            <button key={p} onClick={() => { setPreset(p); }} title={m.desc} style={{
+            <button key={p} onClick={() => { setPreset(p); if (p === 'vcarb') { setCompanyName('Visa Cash App Racing Bulls'); setJourneyType('2026 Dynatrace Linz Grand Prix'); } }} title={m.desc} style={{
               background: active ? `linear-gradient(135deg, ${m.color}33, ${m.color}11)` : 'rgba(30,30,50,0.5)',
               border: `1.5px solid ${active ? m.color + '88' : 'rgba(100,120,200,0.2)'}`,
               borderRadius: 8, padding: '7px 14px',

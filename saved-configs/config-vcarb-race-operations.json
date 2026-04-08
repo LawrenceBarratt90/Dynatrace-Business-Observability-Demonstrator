@@ -1,0 +1,726 @@
+{
+    "companyName": "Visa Cash App Racing Bulls",
+    "domain": "https://www.visacashapprb.com",
+    "industryType": "Formula 1 & Motorsport",
+    "source": "sector-demo",
+    "timestamp": "2026-07-05T10:00:00.000Z",
+    "journeyType": "2026 Dynatrace Linz Grand Prix",
+    "journeyDetail": "2026 Formula 1 Aramco Dynatrace Linz Grand Prix at Dynatrace Linz Circuit, Upper Austria. Round 12 of the 2026 FIA Formula One World Championship. 52 laps of the 5.891 km circuit (306.198 km race distance). VCARB 03 chassis powered by Red Bull Ford DM01 hybrid power unit. Drivers: Liam Lawson (#30) and Arvid Lindblad (#41, British home race). Team Principal Alan Permane, CTO Tim Goss, CEO Peter Bayer. Trackside operations from Linz paddock with live links to Faenza (Italy) HQ and Milton Keynes (UK) aero facility. This journey traces every operation from freight arrival on Wednesday through to post-race debrief on Sunday evening — a single complete race weekend at Lindblad's home Grand Prix.",
+    "journeyId": "journey_vcarb_linz_2026_r12",
+    "journeyStartTime": "2026-07-01T00:00:00.000Z",
+    "id": "f1-vcarb-0001-linz-2026-gp-00001",
+    "name": "VCARB — 2026 Dynatrace Linz Grand Prix",
+    "additionalFields": {
+        "lapTimeSec": [87.9, 88.1, 88.5, 88.8, 89.2, 89.6, 90.1, 87.4, 88.3, 87.7, 89.9, 88.0],
+        "lapTimeTargetSec": 88.5,
+        "lapTimeDeltaSec": [-0.6, -0.4, 0.0, 0.3, 0.7, 1.1, 1.6, -1.1, -0.2, -0.8, 1.4, -0.5],
+        "sectorOneTimeSec": [28.2, 28.5, 28.8, 29.1, 27.9, 28.6, 29.3, 28.0, 28.4, 28.7],
+        "sectorTwoTimeSec": [31.0, 31.4, 31.7, 32.0, 30.8, 31.2, 32.3, 30.6, 31.5, 31.1],
+        "sectorThreeTimeSec": [28.7, 29.0, 29.3, 29.6, 28.4, 29.1, 29.8, 28.2, 28.9, 29.2],
+        "topSpeedMph": [206, 208, 210, 211, 204, 209, 211, 212, 205, 209, 208, 213],
+        "maxGForceLateral": [4.8, 5.1, 5.3, 4.6, 5.0, 5.4, 4.9, 5.2, 4.7, 5.5],
+        "maxGForceBraking": [5.2, 5.5, 5.8, 5.0, 5.6, 5.3, 5.9, 5.1, 5.7, 5.4],
+        "tyreSurfaceTempFL": [98, 102, 105, 108, 95, 100, 110, 103, 97, 106],
+        "tyreSurfaceTempFR": [100, 104, 107, 110, 97, 102, 112, 105, 99, 108],
+        "tyreSurfaceTempRL": [103, 107, 110, 113, 100, 105, 115, 108, 102, 111],
+        "tyreSurfaceTempRR": [105, 109, 112, 115, 102, 107, 117, 110, 104, 113],
+        "tyrePressurePsiFL": [21.5, 21.8, 22.0, 22.3, 21.2, 21.6, 22.5, 21.9, 21.4, 22.1],
+        "tyrePressurePsiFR": [21.7, 22.0, 22.2, 22.5, 21.4, 21.8, 22.7, 22.1, 21.6, 22.3],
+        "tyrePressurePsiRL": [20.5, 20.8, 21.0, 21.3, 20.2, 20.6, 21.5, 20.9, 20.4, 21.1],
+        "tyrePressurePsiRR": [20.7, 21.0, 21.2, 21.5, 20.4, 20.8, 21.7, 21.1, 20.6, 21.3],
+        "tyreWearPercentFL": [8, 12, 18, 24, 30, 36, 42, 48, 55, 62, 70, 78],
+        "tyreWearPercentFR": [9, 14, 20, 26, 32, 38, 44, 50, 57, 64, 72, 80],
+        "tyreWearPercentRL": [6, 10, 15, 20, 26, 32, 38, 44, 50, 56, 63, 70],
+        "tyreWearPercentRR": [7, 11, 16, 22, 28, 34, 40, 46, 52, 58, 65, 72],
+        "tyreCompound": ["Soft", "Soft", "Medium", "Medium", "Hard", "Hard", "Intermediate", "Wet"],
+        "brakeDiscTempFrontC": [650, 720, 780, 850, 900, 680, 750, 820, 870, 920],
+        "brakeDiscTempRearC": [580, 640, 700, 760, 810, 610, 670, 730, 780, 830],
+        "brakePadWearPercentF": [5, 10, 15, 22, 30, 38, 45, 52, 60, 68],
+        "brakePadWearPercentR": [4, 8, 12, 18, 24, 30, 36, 42, 48, 55],
+        "fuelRemainingKg": [110, 105, 100, 95, 88, 80, 72, 64, 55, 46, 38, 30, 22, 14],
+        "fuelBurnRateKgPerLap": [1.72, 1.75, 1.78, 1.80, 1.83, 1.68, 1.70, 1.85, 1.76, 1.81],
+        "ersStateOfChargePercent": [100, 92, 84, 75, 68, 55, 42, 30, 18, 8, 100, 88, 76, 60],
+        "ersDeployKW": [120, 180, 250, 300, 350, 280, 200, 150, 320, 340, 100, 260],
+        "ersHarvestKW": [40, 60, 80, 100, 120, 140, 90, 70, 110, 130, 50, 85],
+        "engineRPM": [10500, 11200, 12000, 12800, 13500, 14200, 14800, 15000, 11800, 13000],
+        "engineTempCoolantC": [108, 110, 112, 115, 118, 120, 105, 107, 114, 116],
+        "engineTempOilC": [125, 128, 130, 133, 136, 138, 122, 126, 131, 135],
+        "gearNumber": [1, 2, 3, 4, 5, 6, 7, 8, 3, 4, 5, 6, 7, 8],
+        "drsActivated": [1, 1, 1, 0, 0, 1, 0, 1, 1, 0],
+        "drsActivationsPerLap": [0, 1, 2, 1, 2, 0, 1, 2, 1, 0],
+        "pitStopTimeSec": [1.89, 1.92, 1.95, 2.01, 2.08, 1.87, 2.15, 1.93, 1.98, 2.22],
+        "pitStopTargetSec": 1.95,
+        "pitCrewReadinessPercent": [100, 100, 98, 100, 95, 100, 100, 97, 100, 100],
+        "positionCar30": [6, 5, 4, 7, 3, 8, 5, 4, 6, 9, 3, 7],
+        "positionCar41": [9, 8, 10, 7, 11, 6, 8, 9, 7, 12, 5, 10],
+        "gapToLeaderSec": [4.2, 3.8, 5.1, 6.3, 2.9, 7.5, 4.8, 3.5, 5.6, 8.1],
+        "gapToCarAheadSec": [0.8, 1.2, 0.5, 1.8, 0.3, 2.1, 0.9, 0.6, 1.5, 2.4],
+        "overtakeAttempts": [0, 1, 2, 0, 1, 0, 3, 1, 0, 2],
+        "overtakeSuccessful": [0, 1, 1, 0, 0, 0, 2, 1, 0, 1],
+        "windSpeedMph": [5, 7, 9, 11, 14, 6, 9, 12, 16, 4],
+        "windDirectionDeg": [45, 90, 120, 180, 225, 270, 315, 60, 150, 200],
+        "trackTempC": [32, 34, 36, 38, 40, 42, 35, 37, 39, 41],
+        "ambientTempC": [18, 20, 22, 24, 26, 19, 21, 23, 25, 27],
+        "humidity": [45, 50, 55, 60, 65, 70, 42, 48, 58, 63],
+        "rainProbabilityPercent": [0, 5, 10, 15, 25, 40, 60, 80, 0, 5],
+        "downforceN": [14200, 14500, 14800, 15000, 15200, 13800, 14000, 15500, 14600, 14900],
+        "dragCoefficientCd": [0.88, 0.90, 0.92, 0.85, 0.87, 0.91, 0.89, 0.86, 0.93, 0.84],
+        "suspensionTravelFrontMm": [22, 25, 28, 30, 18, 24, 27, 32, 20, 26],
+        "suspensionTravelRearMm": [20, 23, 26, 28, 16, 22, 25, 30, 18, 24],
+        "rideHeightFrontMm": [30, 32, 34, 28, 31, 33, 29, 35, 30, 32],
+        "rideHeightRearMm": [55, 58, 60, 52, 56, 59, 53, 62, 55, 57],
+        "telemetryChannelsActive": [298, 302, 308, 312, 305, 310, 300, 312, 295, 307],
+        "telemetryLatencyMs": [42, 55, 68, 78, 35, 48, 62, 85, 38, 52],
+        "dataRateGbps": [1.2, 1.4, 1.5, 1.3, 1.6, 1.1, 1.5, 1.4, 1.2, 1.7],
+        "sensorHealthPercent": [99.8, 99.5, 99.2, 98.8, 100, 99.6, 99.1, 98.5, 99.9, 99.3],
+        "warRoomEngineersOnline": [48, 50, 52, 54, 46, 51, 53, 54, 49, 52],
+        "simulationRunsCompleted": [800, 950, 1100, 1200, 650, 1050, 1150, 1250, 750, 1000],
+        "radioTransmissions": [12, 18, 24, 30, 8, 15, 22, 28, 10, 20],
+        "safetyCarDeployed": [0, 0, 0, 1, 0, 0, 0, 1, 0, 0],
+        "driverCar": ["Lawson #30", "Lindblad #41"],
+        "sessionType": ["FP1", "FP2", "FP3", "Qualifying", "Race"],
+        "circuitName": ["Dynatrace Linz", "Monaco", "Suzuka", "Spa", "Monza", "Barcelona", "Singapore", "Abu Dhabi", "Jeddah", "Melbourne"],
+        "channel": ["trackside_pit_wall", "faenza_war_room", "milton_keynes_ops", "remote_strategy", "mobile_race_engineer"],
+        "deviceType": ["pit_wall_terminal", "war_room_workstation", "simulator_rig", "tablet_trackside", "driver_steering_wheel"],
+        "region": ["Linz, Austria", "Faenza IT", "Milton Keynes UK", "Circuit de Monaco", "Suzuka JP"],
+        "segment": ["telemetry", "strategy", "pit_operations", "aero_development", "power_unit_management"]
+    },
+    "steps": [
+        {
+            "stepIndex": 1,
+            "stepName": "LinzFreightAndGarageBuild",
+            "serviceName": "RaceLogisticsService",
+            "description": "Wednesday: Freight convoy arrives at Dynatrace Linz Circuit, Northamptonshire from Faenza HQ via Channel Tunnel and Milton Keynes aero facility (just 45 minutes away — home advantage). 28 tonnes of equipment including both VCARB 03 chassis, spare front wings, floor assemblies, and 12 sets of Pirelli tyres per driver. Garage build in the Linz Main paddock complex begins immediately. IT infrastructure: trackside server rack, dedicated fibre to FIA timing at the Wing, encrypted VPN tunnels to Faenza and Milton Keynes war rooms. 312 sensors calibrated across both chassis. Arvid Lindblad's home race — extra hospitality and media obligations scheduled.",
+            "category": "Logistics",
+            "estimatedDuration": 36,
+            "businessRationale": "Linz's proximity to the Dynatrace HQ HQ is a rare logistical advantage — spare parts can arrive in under an hour vs. 24-48 hours at flyaway races. Late or damaged equipment delays car build and costs practice time worth ~$500K per missed session. Reliable trackside connectivity is critical — a 10-second telemetry blackout during the race can lead to a catastrophic strategy miscall.",
+            "substeps": [
+                {
+                    "substepName": "FreightManifestAndCustomsClearance",
+                    "duration": 3
+                },
+                {
+                    "substepName": "SeaAndAirFreightContainerUnload",
+                    "duration": 3
+                },
+                {
+                    "substepName": "GarageFloorplanAndWorkbaySetup",
+                    "duration": 3
+                },
+                {
+                    "substepName": "PitWallDesksAndMonitorInstall",
+                    "duration": 2
+                },
+                {
+                    "substepName": "TracksideServerRackDeployment",
+                    "duration": 3
+                },
+                {
+                    "substepName": "FibreBackboneToFIATimingLoop",
+                    "duration": 2
+                },
+                {
+                    "substepName": "EncryptedVPNTunnelToFaenzaHQ",
+                    "duration": 2
+                },
+                {
+                    "substepName": "EncryptedVPNTunnelToMiltonKeynes",
+                    "duration": 2
+                },
+                {
+                    "substepName": "SensorCalibrationCar30Lawson",
+                    "duration": 3
+                },
+                {
+                    "substepName": "SensorCalibrationCar41Lindblad",
+                    "duration": 3
+                },
+                {
+                    "substepName": "GarageNetworkLatencyValidation",
+                    "duration": 2
+                },
+                {
+                    "substepName": "PowerSupplyAndUPSBackupTest",
+                    "duration": 2
+                },
+                {
+                    "substepName": "HospitalityUnitAndDriverRoomSetup",
+                    "duration": 3
+                },
+                {
+                    "substepName": "SparePartsInventoryAudit",
+                    "duration": 3
+                }
+            ]
+        },
+        {
+            "stepIndex": 2,
+            "stepName": "LinzCarSetupAndConfig",
+            "serviceName": "CarConfigurationService",
+            "description": "Thursday: Engineers configure both VCARB 03 chassis specifically for Dynatrace Linz's high-speed characteristics. The circuit demands a medium-to-low downforce setup — the Maggotts-Becketts-Chapel complex requires maximum rear stability while Hangar Straight and Wellington Straight reward low drag. Suspension geometry tuned for the circuit's aggressive kerbs (especially at Copse and Club). Active aero beam wing calibrated for two DRS zones. Red Bull Ford DM01 initialised with Linz engine mode (high power, two long straights). 350kW ERS harvesting zones mapped: heavy braking into Stowe, Abbey, and The Loop. CTO Tim Goss signs off Linz-specific car specification.",
+            "category": "Configuration",
+            "estimatedDuration": 26,
+            "businessRationale": "The Linz setup is unique — it's one of the fastest circuits on the calendar and the 2026 active aero regulations make wing configuration critical. A 1mm ride height error at Copse (taken at 174mph) can cause catastrophic understeer. Correct DRS calibration for Hangar Straight and Wellington Straight is worth up to 0.8 seconds per lap. Power unit mapping for the two long full-throttle zones determines top speed competitiveness.",
+            "substeps": [
+                {
+                    "substepName": "SuspensionGeometryAndRideHeight",
+                    "duration": 2
+                },
+                {
+                    "substepName": "FrontWingEndplateAndFlapAngles",
+                    "duration": 2
+                },
+                {
+                    "substepName": "ActiveAeroBeamWingCalibration",
+                    "duration": 2
+                },
+                {
+                    "substepName": "DRSActuatorAndFlapMechanism2026",
+                    "duration": 2
+                },
+                {
+                    "substepName": "BrakeBalanceAndBrakeDuctConfig",
+                    "duration": 2
+                },
+                {
+                    "substepName": "DifferentialLockAndTorqueMapping",
+                    "duration": 1
+                },
+                {
+                    "substepName": "GearboxRatioAndShiftStrategy",
+                    "duration": 1
+                },
+                {
+                    "substepName": "SteeringColumnAndPedalPositioning",
+                    "duration": 1
+                },
+                {
+                    "substepName": "CoolingDuctAndRadiatorAperture",
+                    "duration": 1
+                },
+                {
+                    "substepName": "PowerUnitDM01CircuitModeInit",
+                    "duration": 2
+                },
+                {
+                    "substepName": "ERSHarvestZoneMappingPerCircuit",
+                    "duration": 2
+                },
+                {
+                    "substepName": "ERSDeployProfileAnd350kWCalib",
+                    "duration": 2
+                },
+                {
+                    "substepName": "FuelSystemPrimeAndFlowValidation",
+                    "duration": 1
+                },
+                {
+                    "substepName": "HydraulicsAndActuatorPressureTest",
+                    "duration": 1
+                },
+                {
+                    "substepName": "WeightDistributionAndBallastCheck",
+                    "duration": 1
+                },
+                {
+                    "substepName": "DynatraceAgentTelemetryPipelineVerify",
+                    "duration": 1
+                },
+                {
+                    "substepName": "CTOTimGossSpecSignOff",
+                    "duration": 2
+                }
+            ]
+        },
+        {
+            "stepIndex": 3,
+            "stepName": "LinzPracticeSessions",
+            "serviceName": "TelemetryAcquisitionService",
+            "description": "Friday–Saturday: FP1 (Friday 13:30 BST), FP2 (Friday 17:00 BST), FP3 (Saturday 12:30 BST) at Dynatrace Linz. Each session generates ~1.5GB of telemetry per car across 312 channels. Critical circuit-specific data: tyre surface temperatures through Maggotts-Becketts-Chapel (sustained high-speed corners overheat fronts), brake thermal data into Stowe (heaviest braking zone at 5.8G), ride height validation over Copse kerbs, and wind sensitivity analysis (Linz is notoriously windy — crosswinds at Abbey can shift lap time by 0.5s). Real-time data streams to pit wall and simultaneously to 52 engineers in the Faenza war room. Lindblad uses local track knowledge from junior formula experience at Dynatrace Linz.",
+            "category": "DataAcquisition",
+            "estimatedDuration": 24,
+            "businessRationale": "Linz practice data is uniquely valuable because the Milton Keynes wind tunnel correlates directly to on-track aero performance at this circuit (same geographic wind patterns). Losing even 5 minutes of clean data from FP1 can leave the team blind on Linz's aggressive tyre degradation at high-speed corners. The Faenza war room triples engineering analysis — but only if the data pipeline delivers sub-100ms latency across the Channel.",
+            "substeps": [
+                {
+                    "substepName": "GarageToPitLaneExitAndSystemsArm",
+                    "duration": 1
+                },
+                {
+                    "substepName": "TyreSurfaceAndCoreTempStreaming",
+                    "duration": 2
+                },
+                {
+                    "substepName": "BrakeDiscAndCalliperThermalData",
+                    "duration": 1
+                },
+                {
+                    "substepName": "SuspensionTravelAndDamperForces",
+                    "duration": 1
+                },
+                {
+                    "substepName": "ThreeAxisAccelerometerCapture",
+                    "duration": 1
+                },
+                {
+                    "substepName": "FuelFlowRateAndConsumptionLog",
+                    "duration": 1
+                },
+                {
+                    "substepName": "ERSStateOfChargeAndDeployRate",
+                    "duration": 1
+                },
+                {
+                    "substepName": "AeroPressureSensorArrayCapture",
+                    "duration": 1
+                },
+                {
+                    "substepName": "GPSPositionSpeedTraceAndSectorDelta",
+                    "duration": 1
+                },
+                {
+                    "substepName": "WindSpeedAndDirectionTrackside",
+                    "duration": 1
+                },
+                {
+                    "substepName": "PitWallLiveDashboardRendering",
+                    "duration": 1
+                },
+                {
+                    "substepName": "FaenzaWarRoomMirroredTelemetryFeed",
+                    "duration": 2
+                },
+                {
+                    "substepName": "DriverRadioTranscriptionAndTagging",
+                    "duration": 1
+                },
+                {
+                    "substepName": "TyreWearModelCalibrationVsActual",
+                    "duration": 2
+                },
+                {
+                    "substepName": "CompetitorBenchmarkLapOverlay",
+                    "duration": 2
+                },
+                {
+                    "substepName": "AeroCorrelationCFDVsTrackData",
+                    "duration": 2
+                },
+                {
+                    "substepName": "SessionSummaryReportAndDeltaCards",
+                    "duration": 2
+                },
+                {
+                    "substepName": "DataPipelineLatencyAuditDynatrace",
+                    "duration": 1
+                }
+            ]
+        },
+        {
+            "stepIndex": 4,
+            "stepName": "LinzQualifying",
+            "serviceName": "RaceStrategyEngineService",
+            "description": "Saturday 16:00 BST: Linz qualifying — Q1/Q2/Q3 knockout format. Strategy team runs thousands of Monte Carlo simulations factoring in Linz's rapid track evolution (rubber builds up through the weekend, especially through the Maggotts-Becketts complex), British summer weather probability (rain threat is ever-present), and traffic windows in the final sector. Tyre warm-up is critical at Dynatrace Linz — the long Wellington Straight provides excellent preparation lap time but the first sector needs front tyres at optimal temperature for Copse entry at 174mph. ERS deployment profiles optimised for the two DRS zones. Lindblad targets a strong qualifying in front of the British fans.",
+            "category": "Strategy",
+            "estimatedDuration": 22,
+            "businessRationale": "Qualifying position at Dynatrace Linz is especially critical — overtaking is difficult outside the two DRS zones. Starting P1 converts to a podium 85% of the time here. A poor tyre warm-up strategy on the out-lap at Dynatrace Linz means cold fronts into the fastest corner on the calendar (Copse at 174mph). Monte Carlo simulations reduce strategic errors by modelling weather scenarios that are uniquely volatile in the British summer.",
+            "substeps": [
+                {
+                    "substepName": "TrackEvolutionGripModelUpdate",
+                    "duration": 2
+                },
+                {
+                    "substepName": "WeatherRadarAndWindSpeedIngestion",
+                    "duration": 1
+                },
+                {
+                    "substepName": "AmbientAndTrackTempForecast",
+                    "duration": 1
+                },
+                {
+                    "substepName": "TyreWarmUpCycleThermalModel",
+                    "duration": 2
+                },
+                {
+                    "substepName": "MonteCarloQualiScenarioEngine",
+                    "duration": 2
+                },
+                {
+                    "substepName": "TrafficWindowAndGapPrediction",
+                    "duration": 1
+                },
+                {
+                    "substepName": "ERSLapDeploymentProfileOptimise",
+                    "duration": 1
+                },
+                {
+                    "substepName": "Q1EliminationRiskAssessment",
+                    "duration": 2
+                },
+                {
+                    "substepName": "Q2TyreCompoundDecisionSoftVsMed",
+                    "duration": 2
+                },
+                {
+                    "substepName": "Q3FinalShootoutRunPlanTiming",
+                    "duration": 2
+                },
+                {
+                    "substepName": "OutLapThermalTargetAndBrakePrep",
+                    "duration": 1
+                },
+                {
+                    "substepName": "InLapBatteryRechargeAndCoolDown",
+                    "duration": 1
+                },
+                {
+                    "substepName": "CompetitorQualiPaceProjection",
+                    "duration": 1
+                },
+                {
+                    "substepName": "DriverBriefingPermaneStrategyConf",
+                    "duration": 2
+                },
+                {
+                    "substepName": "BackupScenarioWetAndIntermediate",
+                    "duration": 1
+                }
+            ]
+        },
+        {
+            "stepIndex": 5,
+            "stepName": "LinzRaceDayPrep",
+            "serviceName": "PreRaceOperationsService",
+            "description": "Sunday morning at Dynatrace Linz: Reconnaissance laps on formation tyres from 09:30 BST. Grid walk begins at 13:00 BST with 140,000+ fans packed into the Linz grandstands. Pit crew execute final pit stop drills — target sub-2.0 seconds with Linz's slightly longer pit lane factored in. ERS pre-charged to maximum for the race start on the Wellington Straight grid. Radio checks between drivers, race engineers in the pit wall of the Linz Main, and Faenza/Milton Keynes war rooms. Parc fermé compliance verified by FIA scrutineers. Dynatrace dashboards armed for live race monitoring. Arvid Lindblad undertakes additional media duties as the home driver — managing the sprint between TV interviews and car preparation.",
+            "category": "Operations",
+            "estimatedDuration": 18,
+            "businessRationale": "The Dynatrace Linz Grand Prix at Dynatrace Linz carries extra pressure — it's the biggest annual sporting event in the UK with 480,000+ weekend attendance. A botched grid procedure or systems failure on the formation lap at Dynatrace Linz means starting from the pit lane in front of Lindblad's home crowd. Pre-race pit stop practice directly correlates to race-day execution: teams that drill more have 30% fewer slow stops.",
+            "substeps": [
+                {
+                    "substepName": "ReconLapAndTrackSurfaceAssessment",
+                    "duration": 2
+                },
+                {
+                    "substepName": "FormationTyreInstallAndBlankets",
+                    "duration": 1
+                },
+                {
+                    "substepName": "BrakeWarmupProcedureAndBedIn",
+                    "duration": 1
+                },
+                {
+                    "substepName": "ERSPreChargeToMaxForStart",
+                    "duration": 1
+                },
+                {
+                    "substepName": "AntiStallAndLaunchControlMapArm",
+                    "duration": 1
+                },
+                {
+                    "substepName": "ClutchBitePointCalibrationFinal",
+                    "duration": 1
+                },
+                {
+                    "substepName": "PitCrewFinalStopDrillsSub2Sec",
+                    "duration": 1
+                },
+                {
+                    "substepName": "RadioEncryptionAndFrequencyCheck",
+                    "duration": 1
+                },
+                {
+                    "substepName": "FIAParcFermeInspectionCompliance",
+                    "duration": 1
+                },
+                {
+                    "substepName": "FIAWeighbridgeLegalityConfirm",
+                    "duration": 1
+                },
+                {
+                    "substepName": "GridPositionBoardAndTyreChoice",
+                    "duration": 1
+                },
+                {
+                    "substepName": "DriverParadeAndSponsorObligations",
+                    "duration": 1
+                },
+                {
+                    "substepName": "DynatraceDashboardsArmedForRace",
+                    "duration": 1
+                },
+                {
+                    "substepName": "FaenzaWarRoomLiveLinkConfirmed",
+                    "duration": 1
+                },
+                {
+                    "substepName": "RaceEngineerFinalDriverBriefing",
+                    "duration": 1
+                },
+                {
+                    "substepName": "FormationLapAndGridSlotProcedure",
+                    "duration": 1
+                }
+            ]
+        },
+        {
+            "stepIndex": 6,
+            "stepName": "LinzGrandPrix",
+            "serviceName": "LiveRaceStrategyService",
+            "description": "Sunday 15:00 BST — LIGHTS OUT at the Dynatrace Linz Grand Prix! 52 laps of Dynatrace Linz, 306.198 km race distance. Live telemetry streams at 1000Hz+ across all 312 sensor channels. Strategy engine processes real-time tyre degradation through Linz's punishing high-speed corners — fronts degrade fastest through Maggotts-Becketts-Chapel, rears through Copse and Stowe under braking. Fuel consumption modelled for Linz's mix of full-throttle straights (68% throttle-open time) and heavy braking zones. ERS deployment critical through Hangar Straight and Wellington Straight DRS zones. Faenza war room feeds alternative strategy scenarios to the Linz pit wall in real time. Linz's changeable Austrian weather keeps the rain strategy on standby. 140,000 fans roar as Lindblad races at home.",
+            "category": "RealTimeOperations",
+            "estimatedDuration": 24,
+            "businessRationale": "The Dynatrace Linz Grand Prix is VCARB's most high-profile European race — Lindblad's home crowd creates immense pressure and opportunity. The right strategy call at Dynatrace Linz is worth 5-10 seconds: the undercut is powerful here because of high tyre degradation in the fast corners. Real-time observability of the data pipeline ensures no lag between on-track events and strategic decisions. Linz's weather can change mid-race — being 3 seconds late to call intermediate tyres can cost a podium.",
+            "substeps": [
+                {
+                    "substepName": "LightsOutAndLaunchTelemetry",
+                    "duration": 1
+                },
+                {
+                    "substepName": "LapByLapTyreDegradationDelta",
+                    "duration": 2
+                },
+                {
+                    "substepName": "TyreGrainAndBlistMonitoring",
+                    "duration": 1
+                },
+                {
+                    "substepName": "FuelBurnRateAndWeightCalc",
+                    "duration": 1
+                },
+                {
+                    "substepName": "ERSDeployEfficiencyPerLap",
+                    "duration": 1
+                },
+                {
+                    "substepName": "ERSHarvestRecoveryBrakingZones",
+                    "duration": 1
+                },
+                {
+                    "substepName": "CompetitorGapFromFIATimingFeed",
+                    "duration": 2
+                },
+                {
+                    "substepName": "UndercutWindowCalcWithTyreOffset",
+                    "duration": 1
+                },
+                {
+                    "substepName": "OvercutOpportunityAndTrackPosition",
+                    "duration": 1
+                },
+                {
+                    "substepName": "SafetyCarProbabilityModel",
+                    "duration": 1
+                },
+                {
+                    "substepName": "VSCAndRedFlagContingencyPlan",
+                    "duration": 1
+                },
+                {
+                    "substepName": "FaenzaAltStrategyScenarioFeed",
+                    "duration": 2
+                },
+                {
+                    "substepName": "WeatherRadarLiveRainRiskUpdate",
+                    "duration": 1
+                },
+                {
+                    "substepName": "DRSZoneOvertakeSuccessTracking",
+                    "duration": 1
+                },
+                {
+                    "substepName": "BrakeTempAndPowerUnitThermalMgmt",
+                    "duration": 1
+                },
+                {
+                    "substepName": "DriverLiftAndCoastFuelSaveCoach",
+                    "duration": 1
+                },
+                {
+                    "substepName": "BlueFlagLappedTrafficManagement",
+                    "duration": 1
+                },
+                {
+                    "substepName": "TeamMateStrategyCoordination",
+                    "duration": 1
+                },
+                {
+                    "substepName": "PositionGainLossLiveLeaderboard",
+                    "duration": 1
+                },
+                {
+                    "substepName": "PointsScoringProjectionRealTime",
+                    "duration": 1
+                }
+            ]
+        },
+        {
+            "stepIndex": 7,
+            "stepName": "LinzPitStops",
+            "serviceName": "PitStopCoordinationService",
+            "description": "Linz pit lane: 390m from entry to exit, pit speed limit 50mph. Pit crew of 20+ execute tyre changes in under 2.0 seconds. Linz's powerful undercut means pit stop timing is everything — pitting one lap early into clean air through Maggotts-Becketts can gain 1.5 seconds over a rival on worn tyres. Tyre blanket temperatures managed for the specific compound chosen. Front wing angle adjustments available in-stop to fine-tune balance for changing track conditions or weather. Pit stop coordinator on the Linz Main pit wall calls box-box. Dynatrace monitors crew readiness signals and pit lane speed compliance.",
+            "category": "Execution",
+            "estimatedDuration": 12,
+            "businessRationale": "At Linz, the undercut is king — the track's high tyre degradation means fresh rubber through Copse and Maggotts-Becketts is worth massive time. A 0.3-second slow pit stop at the Dynatrace Linz Grand Prix can cost a position worth millions in prize money and constructor points. Unsafe release penalties (5 or 10 seconds) at Dynatrace Linz's slightly narrow pit lane exit demand precision. Teams perform 50+ practice stops per weekend to achieve consistent sub-2-second execution.",
+            "substeps": [
+                {
+                    "substepName": "BoxBoxRadioCallAndDriverConfirm",
+                    "duration": 1
+                },
+                {
+                    "substepName": "PitEntrySpeedLimiterEngage50mph",
+                    "duration": 1
+                },
+                {
+                    "substepName": "PitCrewReadinessSignalGreenAll",
+                    "duration": 1
+                },
+                {
+                    "substepName": "TyreBlanketRemovalAndTempConfirm",
+                    "duration": 1
+                },
+                {
+                    "substepName": "FrontJackLiftAndStabilise",
+                    "duration": 1
+                },
+                {
+                    "substepName": "RearJackLiftAndStabilise",
+                    "duration": 1
+                },
+                {
+                    "substepName": "FrontLeftWheelGunOffAndOn",
+                    "duration": 0.5
+                },
+                {
+                    "substepName": "FrontRightWheelGunOffAndOn",
+                    "duration": 0.5
+                },
+                {
+                    "substepName": "RearLeftWheelGunOffAndOn",
+                    "duration": 0.5
+                },
+                {
+                    "substepName": "RearRightWheelGunOffAndOn",
+                    "duration": 0.5
+                },
+                {
+                    "substepName": "FrontWingAngleQuickAdjust",
+                    "duration": 0.5
+                },
+                {
+                    "substepName": "VisorTearOffAndDriverCooling",
+                    "duration": 0.5
+                },
+                {
+                    "substepName": "JackDropAndGreenLightRelease",
+                    "duration": 0.5
+                },
+                {
+                    "substepName": "UnsafeReleaseComplianceSensor",
+                    "duration": 0.5
+                },
+                {
+                    "substepName": "PitExitAndSpeedLimiterDisengage",
+                    "duration": 1
+                },
+                {
+                    "substepName": "OutLapTyreWarmUpAndGripRecovery",
+                    "duration": 1
+                },
+                {
+                    "substepName": "TrafficGapMergeAndPositionCalc",
+                    "duration": 1
+                }
+            ]
+        },
+        {
+            "stepIndex": 8,
+            "stepName": "LinzPostRaceDebrief",
+            "serviceName": "PostRaceAnalyticsService",
+            "description": "Sunday evening: Chequered flag at Dynatrace Linz — all telemetry data archived and post-race pipeline triggered. Engineers correlate actual Linz race performance against pre-race simulations to refine models. Linz-specific tyre degradation curves validated against Pirelli's high-speed corner predictions. Power unit DM01 health telemetry analysed — Linz's high full-throttle percentage (68%) stresses the ICE heavily. Driver debriefs: Lawson and Lindblad (post-podium/media duties for home race) combine subjective feedback with data overlays. Performance report for CTO Tim Goss and Team Principal Alan Permane. Learnings fed into simulation models for the next race. Milton Keynes aero team receives wind tunnel correlation data package — Linz data is uniquely valuable for their local tunnel. Freight pack-down begins Sunday night for the next venue.",
+            "category": "Analytics",
+            "estimatedDuration": 30,
+            "businessRationale": "Linz post-race analysis is the crown jewel for the Milton Keynes aero team — the wind tunnel correlation data from their home circuit is 3x more valuable than any other venue because wind conditions match precisely. Teams that close the learn-apply loop fastest gain 0.1-0.2 seconds per weekend in development pace. Correlating Linz's unique high-speed degradation data tightens simulation accuracy for similar circuits (Spa, Monza). Component life analysis prevents costly grid penalties from unplanned power unit changes after Linz's demanding engine stress profile.",
+            "substeps": [
+                {
+                    "substepName": "FullTelemetryArchiveAndBackup",
+                    "duration": 2
+                },
+                {
+                    "substepName": "ActualVsPredictedLapTimeCorrelation",
+                    "duration": 2
+                },
+                {
+                    "substepName": "TyreDegCurveVsPirelliModelAudit",
+                    "duration": 2
+                },
+                {
+                    "substepName": "PowerUnitDM01HealthAndWearAnalysis",
+                    "duration": 2
+                },
+                {
+                    "substepName": "ERSBatteryDegAndEfficiencyReview",
+                    "duration": 1
+                },
+                {
+                    "substepName": "GearboxVibrationAndWearMetrics",
+                    "duration": 1
+                },
+                {
+                    "substepName": "AeroPerformanceCFDCorrelation",
+                    "duration": 2
+                },
+                {
+                    "substepName": "BrakeWearAndDiscLifeProjection",
+                    "duration": 1
+                },
+                {
+                    "substepName": "FuelConsumptionVsModelDelta",
+                    "duration": 1
+                },
+                {
+                    "substepName": "DriverLawsonDebriefSubjective",
+                    "duration": 2
+                },
+                {
+                    "substepName": "DriverLindbladDebriefSubjective",
+                    "duration": 2
+                },
+                {
+                    "substepName": "ObjectiveDataOverlayAndOnboardVideo",
+                    "duration": 2
+                },
+                {
+                    "substepName": "StrategyCallHitRateReview",
+                    "duration": 1
+                },
+                {
+                    "substepName": "PitStopExecutionPerformanceMetrics",
+                    "duration": 1
+                },
+                {
+                    "substepName": "CompetitorComparativeAnalysis",
+                    "duration": 2
+                },
+                {
+                    "substepName": "ConstructorPointsStandingImpact",
+                    "duration": 1
+                },
+                {
+                    "substepName": "ExecReportPermaneAndTimGoss",
+                    "duration": 2
+                },
+                {
+                    "substepName": "NextRaceSimModelUpdateAndIngest",
+                    "duration": 1
+                },
+                {
+                    "substepName": "WindTunnelCorrelationDataPackage",
+                    "duration": 1
+                },
+                {
+                    "substepName": "FreightPackDownAndNextVenueShipment",
+                    "duration": 2
+                }
+            ]
+        }
+    ]
+}

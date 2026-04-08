@@ -43,8 +43,14 @@ import fixitRouter from './dist/routes/fixit.js';
 import librarianRouter from './dist/routes/librarian.js';
 import autonomousRouter from './dist/routes/autonomous.js';
 import workflowWebhookRouter from './dist/routes/workflow-webhook.js';
-// Autonomous Agent Control Functions
-import { startScheduler as startNemesisScheduler } from './dist/agents/gremlin/autonomousScheduler.js';
+// Autonomous Agent Control Functions — loaded dynamically to avoid blocking server if agents not compiled
+let startNemesisScheduler = null;
+try {
+  const autoSched = await import('./dist/agents/gremlin/autonomousScheduler.js');
+  startNemesisScheduler = autoSched.startScheduler;
+} catch (e) {
+  console.warn('⚠️  Nemesis scheduler not available (compile agents first):', e.message);
+}
 // Fix-It detector available but not auto-started (triggered via workflow webhook instead)
 // import { startDetector as startFixitDetector } from './dist/agents/fixit/problemDetector.js';
 import mcpServerRouter from './routes/mcp-server.js';
@@ -4764,8 +4770,12 @@ app.use((err, req, res, next) => {
   console.log('🤖 Starting autonomous AI agents...');
   try {
     // Start Nemesis Chaos Scheduler (auto-enabled, 2-hour warmup, volume-based triggering)
-    startNemesisScheduler();
-    console.log('✅ Nemesis AI Agent: Started (warmup: 2 hours, volume-based triggering)');
+    if (startNemesisScheduler) {
+      startNemesisScheduler();
+      console.log('✅ Nemesis AI Agent: Started (warmup: 2 hours, volume-based triggering)');
+    } else {
+      console.log('⚠️  Nemesis AI Agent: Skipped (scheduler not compiled)');
+    }
     
     // Fix-It Agent: triggered by Dynatrace workflow webhook (POST /api/workflow-webhook/problem)
     // No auto-polling — Dynatrace detects problems and calls the webhook (~5-10 min after problem opens)
