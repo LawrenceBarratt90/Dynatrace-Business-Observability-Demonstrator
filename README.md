@@ -45,7 +45,7 @@ Model any customer’s real business journey — their exact checkout flow, clai
 ### One Command
 
 ```bash
-git clone https://github.com/LawrenceBarratt90/Business-Outcome-Engine.git && cd Business-Outcome-Engine && ./setup.sh
+git clone https://github.com/LawrenceBarratt90/Dynatrace-Business-Outcome-Engine.git && cd Dynatrace-Business-Outcome-Engine && chmod +x setup.sh && ./setup.sh
 ```
 
 The script walks you through 6 guided prompts (environment type, tenant ID, API token, EdgeConnect OAuth, and deploy OAuth), then automatically:
@@ -68,9 +68,10 @@ The script walks you through 6 guided prompts (environment type, tenant ID, API 
 ### Phase 1 — Pull
 
 ```bash
-git clone https://github.com/LawrenceBarratt90/Business-Outcome-Engine.git
-cd Business-Outcome-Engine
-npm install
+git clone https://github.com/LawrenceBarratt90/Dynatrace-Business-Outcome-Engine.git
+cd Dynatrace-Business-Outcome-Engine
+chmod +x setup.sh
+./setup.sh
 ```
 
 ### Phase 2 — Deploy

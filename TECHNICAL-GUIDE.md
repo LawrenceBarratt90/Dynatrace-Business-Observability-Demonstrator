@@ -102,17 +102,20 @@ Step 6: Configure from Engine UI    ← Wire everything together (private IP + G
 
 ---
 
-### Step 1: Clone & Install
+### Step 1: Clone & Setup
 
 This is a **single unified repo** — it contains both the Engine (server) and the Engine UI (AppEngine app).
 
 ```bash
 git clone https://github.com/LawrenceBarratt90/Dynatrace-Business-Outcome-Engine.git
 cd Dynatrace-Business-Outcome-Engine
-npm install
+chmod +x setup.sh
+./setup.sh
 ```
 
-**Verify:** You should see `node_modules/` and no npm errors.
+The `setup.sh` script will walk you through 6 guided prompts and handle everything automatically: npm install, credential configuration, EdgeConnect setup, AppEngine deploy, and server startup.
+
+**Verify:** The script ends with a green "All done" message and the server running on port 8080.
 
 ---
 
