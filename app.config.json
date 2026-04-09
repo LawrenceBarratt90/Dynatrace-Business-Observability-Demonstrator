@@ -3,8 +3,8 @@
   "environmentUrl": "https://bko67471.sprint.apps.dynatracelabs.com/",
   "app": {
     "id": "my.bizobs.generator.master",
-    "name": "Business Observability Demonstrator",
-    "version": "2.29.17",
+    "name": "Business Outcome Engine",
+    "version": "2.31.0",
     "description": "AI-powered Business Observability — generate and observe journeys",
     "scopes": [
       {
@@ -21,7 +21,7 @@
       },
       {
         "name": "storage:bizevents:read",
-        "comment": "Read business events for Demonstrator Dashboards live DQL tiles"
+        "comment": "Read business events for Engine Dashboards live DQL tiles"
       },
       {
         "name": "storage:metrics:read",

@@ -1401,12 +1401,12 @@ app.post('/api/admin/reset-and-restart', async (req, res) => {
     // Wait a moment for cleanup to complete
     await new Promise(resolve => setTimeout(resolve, 1000));
     
-    // No default services — everything starts on-demand from the Demonstrator UI
-    console.log('✅ Reset complete — server is clean, launch journeys from the Demonstrator UI');
+    // No default services — everything starts on-demand from the Engine UI
+    console.log('✅ Reset complete — server is clean, launch journeys from the Engine UI');
     
     res.json({ 
       ok: true, 
-      message: 'Reset complete. All services stopped. Launch journeys from the Demonstrator UI to start services.'
+      message: 'Reset complete. All services stopped. Launch journeys from the Engine UI to start services.'
     });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
@@ -2035,10 +2035,10 @@ app.post('/api/admin/services/restart-all', async (req, res) => {
     // Wait a moment for cleanup
     await new Promise(resolve => setTimeout(resolve, 2000));
     
-    // No default services — everything starts on-demand from the Demonstrator UI
-    console.log('✅ All services stopped — server is clean, launch journeys from the Demonstrator UI');
+    // No default services — everything starts on-demand from the Engine UI
+    console.log('✅ All services stopped — server is clean, launch journeys from the Engine UI');
     
-    res.json({ ok: true, message: 'All services stopped. Launch journeys from the Demonstrator UI to start services.' });
+    res.json({ ok: true, message: 'All services stopped. Launch journeys from the Engine UI to start services.' });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
   }

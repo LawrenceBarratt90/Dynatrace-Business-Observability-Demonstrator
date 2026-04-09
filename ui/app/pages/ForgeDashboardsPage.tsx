@@ -1926,7 +1926,7 @@ async function exportToNotebook(tiles: TileDefinition[], presetLabel: string) {
     const res = await functions.call('proxy-api', {
       data: {
         action: 'create-notebook',
-        body: { name: `Demonstrator — ${presetLabel} — ${new Date().toISOString().slice(0, 16)}`, content: JSON.stringify({ version: '1', defaultTimeframe: { from: 'now()-2h', to: 'now()' }, sections }) },
+        body: { name: `Engine — ${presetLabel} — ${new Date().toISOString().slice(0, 16)}`, content: JSON.stringify({ version: '1', defaultTimeframe: { from: 'now()-2h', to: 'now()' }, sections }) },
       },
     });
     const result = (await res.json()) as any;
@@ -2262,10 +2262,10 @@ export const ForgeDashboardsPage = () => {
           ← Back to Home
         </Link>
         <span style={{ color: '#e0e0ff', fontWeight: 700, fontSize: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
-          📊 {companyName ? `${companyName} Dashboards` : 'Demonstrator Dashboards'}
+          📊 {companyName ? `${companyName} Dashboards` : 'Engine Dashboards'}
           <InfoButton
             align="left"
-            title="📊 Demonstrator Dashboards"
+            title="📊 Engine Dashboards"
             description="Nine persona-based preset dashboards with live DQL-powered tiles, all filterable by company, journey, service, and timeframe."
             sections={[
               { label: '🔧 Developer', detail: '~28 tiles: RED metrics, latency p50/p90/p99, errors, traces, logs, endpoints' },
@@ -2727,7 +2727,7 @@ export const ForgeDashboardsPage = () => {
         background: 'rgba(30,30,50,0.4)', border: '1px solid rgba(100,120,200,0.15)',
         color: '#8899aa', fontSize: 11, textAlign: 'center',
       }}>
-        Demonstrator Dashboards — 7 vertical dashboards · People · Time · Money · Powered by Strato & DQL
+        Engine Dashboards — 7 vertical dashboards · People · Time · Money · Powered by Strato & DQL
       </div>
     </div>
   );

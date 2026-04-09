@@ -1,8 +1,8 @@
 #!/bin/bash
 # ============================================================
-#  Business Observability Demonstrator — Full Uninstall
+#  Business Outcome Engine — Full Uninstall
 # ============================================================
-#  Completely removes the Demonstrator from this host:
+#  Completely removes the Engine from this host:
 #    1. Stops the BizObs server
 #    2. Stops & removes EdgeConnect Docker container + image
 #    3. Removes the log-cleanup cron job
@@ -36,12 +36,12 @@ info() { echo -e "  ${RED}→ $1${NC}"; }
 
 echo -e "${BOLD}"
 echo "╔══════════════════════════════════════════════════════════╗"
-echo "║     Business Observability Demonstrator — Full Uninstall        ║"
+echo "║     Business Outcome Engine — Full Uninstall        ║"
 echo "╚══════════════════════════════════════════════════════════╝"
 echo -e "${NC}"
 
 # ── Confirm ─────────────────────────────────────────────────
-echo -e "  ${RED}This will permanently remove the Demonstrator from this host.${NC}"
+echo -e "  ${RED}This will permanently remove the Engine from this host.${NC}"
 if [ "$REMOVE_OLLAMA" = true ]; then
   echo -e "  ${RED}Ollama will also be removed (--all flag).${NC}"
 fi

@@ -186,7 +186,7 @@ TOP-LEVEL FIELDS (json.*):
   json.hasError       — Boolean error flag
   event.kind          — Always "BIZ_EVENT" for business events
   event.type          — Step name
-  event.category      — "Business Observability Demonstrator"
+  event.category      — "Business Outcome Engine"
 
 ADDITIONAL FIELDS (additionalfields.* — flattened from JSON payload):
   additionalfields.hasError         — Boolean: step had error
@@ -4432,7 +4432,7 @@ router.get('/field-repo', (req, res) => {
 });
 
 // ============================================================================
-// DEMONSTRATOR DASHBOARDS — AI TILE GENERATION
+// ENGINE DASHBOARDS — AI TILE GENERATION
 // Ollama analyses discovered bizevent fields and generates DQL tile specs
 // that are specific to the actual deployed journey data.
 // ============================================================================
@@ -4469,10 +4469,10 @@ router.post('/forge-tiles', async (req, res) => {
             return `${f} (${info.type})${info.sample !== undefined ? ` e.g. ${info.sample}` : ''}`;
           }).join(', ')}
 Use this as additional context to generate better tiles. Prefer fields that exist in both the live discovery and this repository.`;
-          console.log(`[Demonstrator AI Tiles] 📚 Enriched with field repo (${repoFieldNames.length} fields, ${repoEntry.runCount} runs)`);
+          console.log(`[Engine AI Tiles] 📚 Enriched with field repo (${repoFieldNames.length} fields, ${repoEntry.runCount} runs)`);
         }
       } catch (repoErr) {
-        console.warn('[Demonstrator AI Tiles] ⚠️  Field repo lookup failed (non-fatal):', repoErr.message);
+        console.warn('[Engine AI Tiles] ⚠️  Field repo lookup failed (non-fatal):', repoErr.message);
       }
     }
 
@@ -4550,7 +4550,7 @@ Example response:
 
 JSON array only. No markdown. No explanation.${repoContext}`;
 
-    console.log(`[Demonstrator AI Tiles] 🤖 Requesting ${preset} tiles for ${companyName || 'all'}/${journeyType || 'all'} (${fields.length} fields)...`);
+    console.log(`[Engine AI Tiles] 🤖 Requesting ${preset} tiles for ${companyName || 'all'}/${journeyType || 'all'} (${fields.length} fields)...`);
 
     const ollamaResponse = await fetch(`${OLLAMA_ENDPOINT}/api/generate`, {
       method: 'POST',
@@ -4577,7 +4577,7 @@ JSON array only. No markdown. No explanation.${repoContext}`;
     const rawText = (ollamaResult.response || '').trim();
     const elapsed = Date.now() - startTime;
 
-    console.log(`[Demonstrator AI Tiles] ✅ Ollama responded in ${elapsed}ms — tokens: prompt=${ollamaResult.prompt_eval_count || 0}, completion=${ollamaResult.eval_count || 0}`);
+    console.log(`[Engine AI Tiles] ✅ Ollama responded in ${elapsed}ms — tokens: prompt=${ollamaResult.prompt_eval_count || 0}, completion=${ollamaResult.eval_count || 0}`);
 
     // Export GenAI span for AI Observability
     const spanAttrs = createGenAISpan(
@@ -4613,7 +4613,7 @@ JSON array only. No markdown. No explanation.${repoContext}`;
         let repaired = jsonText.replace(/,\s*([}\]])/g, '$1');  // trailing commas
         tiles = JSON.parse(repaired);
       } catch {
-        console.error(`[Demonstrator AI Tiles] ❌ Failed to parse Ollama JSON:`, rawText.substring(0, 500));
+        console.error(`[Engine AI Tiles] ❌ Failed to parse Ollama JSON:`, rawText.substring(0, 500));
         return res.status(500).json({ success: false, error: 'Ollama returned invalid JSON', raw: rawText.substring(0, 500) });
       }
     }
@@ -4648,7 +4648,7 @@ JSON array only. No markdown. No explanation.${repoContext}`;
         };
       });
 
-    console.log(`[Demonstrator AI Tiles] 🎯 Returning ${validatedTiles.length} validated tiles (${tiles.length} raw from Ollama)`);
+    console.log(`[Engine AI Tiles] 🎯 Returning ${validatedTiles.length} validated tiles (${tiles.length} raw from Ollama)`);
 
     res.json({
       success: true,
@@ -4663,13 +4663,13 @@ JSON array only. No markdown. No explanation.${repoContext}`;
     });
   } catch (err) {
     const elapsed = Date.now() - startTime;
-    console.error(`[Demonstrator AI Tiles] ❌ Error after ${elapsed}ms:`, err.message);
+    console.error(`[Engine AI Tiles] ❌ Error after ${elapsed}ms:`, err.message);
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
 // ============================================================================
-// DEMONSTRATOR DASHBOARDS — ASYNC AI TILE GENERATION (job-based for EdgeConnect)
+// ENGINE DASHBOARDS — ASYNC AI TILE GENERATION (job-based for EdgeConnect)
 // The proxy kicks off a job, then polls for results.
 // ============================================================================
 

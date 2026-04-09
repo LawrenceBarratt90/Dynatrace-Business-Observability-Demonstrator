@@ -1,6 +1,6 @@
 #!/bin/bash
 # ============================================================
-#  Business Observability Demonstrator — EC2 Bootstrap Script
+#  Business Outcome Engine — EC2 Bootstrap Script
 # ============================================================
 #
 #  Run this on a FRESH Amazon Linux 2023 (or AL2/Ubuntu) EC2 instance.
@@ -79,7 +79,7 @@ INSTALL_DIR="/home/ec2-user/Business-Observablity-forge"
 
 echo -e "${BOLD}"
 echo "╔══════════════════════════════════════════════════════════════╗"
-echo "║   Business Observability Demonstrator — EC2 Full Bootstrap         ║"
+echo "║   Business Outcome Engine — EC2 Full Bootstrap         ║"
 echo "╠══════════════════════════════════════════════════════════════╣"
 echo "║   Phase 1: System packages + Node.js + Docker + Git         ║"
 echo "║   Phase 2: Clone repo                                       ║"

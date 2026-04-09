@@ -1,6 +1,6 @@
 #!/bin/bash
 # ============================================================
-#  Business Observability Demonstrator — Deploy Script
+#  Business Outcome Engine — Deploy Script
 # ============================================================
 #
 #  Usage (after git clone/pull):
@@ -107,7 +107,7 @@ fi
 
 echo -e "${BOLD}"
 echo "╔══════════════════════════════════════════════════════════╗"
-echo "║     Business Observability Demonstrator — Deploy                ║"
+echo "║     Business Outcome Engine — Deploy                ║"
 echo "╠══════════════════════════════════════════════════════════╣"
 echo "║  Server + OTel + Ollama AI + AppEngine UI + EdgeConnect  ║"
 echo "╚══════════════════════════════════════════════════════════╝"
@@ -431,7 +431,7 @@ else
     echo "  Deploying to ${DT_APPS_URL}..."
     if npx dt-app deploy --non-interactive 2>&1 | tail -10; then
       ok "AppEngine UI deployed to your Dynatrace tenant"
-      echo -e "  ${CYAN}Open Dynatrace → Apps → Business Observability Demonstrator${NC}"
+      echo -e "  ${CYAN}Open Dynatrace → Apps → Business Outcome Engine${NC}"
     else
       warn "AppEngine deploy had issues — you can retry manually with:"
       echo -e "  ${CYAN}DT_APP_OAUTH_CLIENT_ID=$APP_OAUTH_CLIENT_ID DT_APP_OAUTH_CLIENT_SECRET=... npx dt-app deploy${NC}"
@@ -686,7 +686,7 @@ echo -e "  ${BOLD}Restart:${NC}        bash stop.sh && bash deploy.sh"
 echo ""
 if [[ -n "$DT_URL" ]]; then
   echo -e "  ${BOLD}Dynatrace:${NC}      $DT_URL"
-  echo -e "  ${BOLD}AppEngine UI:${NC}   Dynatrace → Apps → Business Observability Demonstrator"
+  echo -e "  ${BOLD}AppEngine UI:${NC}   Dynatrace → Apps → Business Outcome Engine"
   echo -e "  ${BOLD}View traces:${NC}    Distributed Traces → Ingested traces tab"
   echo -e "  ${BOLD}AI Observability:${NC} Look for gen_ai.system = ollama"
   echo ""
