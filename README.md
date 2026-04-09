@@ -1,4 +1,4 @@
-# Business Outcome Engine
+# Dynatrace Business Outcome Engine
 
 <p align="center">
   <img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=https://github.com/LawrenceBarratt90/Dynatrace-Business-Outcome-Engine" alt="QR code linking to the Business Outcome Engine repository on GitHub" />
