@@ -235,25 +235,54 @@ install_node22() {
   # Remove old Node.js first (dnf/yum won't upgrade if already installed from default repo)
   if command -v node &>/dev/null; then
     echo "  Removing old Node.js $(node --version)..."
-    sudo dnf remove -y nodejs npm 2>/dev/null || sudo yum remove -y nodejs npm 2>/dev/null || sudo apt-get remove -y nodejs 2>/dev/null || true
+    sudo dnf remove -y nodejs npm 2>/dev/null || sudo yum remove -y nodejs npm 2>/dev/null || sudo apt-get remove -y nodejs npm 2>/dev/null || true
     hash -r 2>/dev/null || true
   fi
+
+  local PKG_OK=false
+
   if command -v dnf &>/dev/null; then
     # Amazon Linux 2023 / Fedora / RHEL 9+
     curl -fsSL https://rpm.nodesource.com/setup_22.x | sudo bash - 2>&1 | tail -1
     sudo dnf install -y nodejs 2>&1 | tail -3
+    command -v node &>/dev/null && PKG_OK=true
   elif command -v yum &>/dev/null; then
     # Amazon Linux 2 / RHEL 7-8 / CentOS
     curl -fsSL https://rpm.nodesource.com/setup_22.x | sudo bash - 2>&1 | tail -1
     sudo yum install -y nodejs 2>&1 | tail -3
+    command -v node &>/dev/null && PKG_OK=true
   elif command -v apt-get &>/dev/null; then
-    # Ubuntu / Debian
-    curl -fsSL https://deb.nodesource.com/setup_22.x | sudo bash - 2>&1 | tail -1
+    # Ubuntu / Debian / GCP default
+    curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash - 2>&1 | tail -3
     sudo apt-get install -y nodejs 2>&1 | tail -3
-  else
-    fail "Cannot auto-install Node.js — install v22+ manually: https://nodejs.org"
+    command -v node &>/dev/null && PKG_OK=true
   fi
-  # Refresh path
+
+  # Refresh path after package install
+  hash -r 2>/dev/null || true
+
+  # Fallback: if package manager failed, use Node.js official binary tarball
+  if [ "$PKG_OK" = false ] || ! command -v node &>/dev/null; then
+    echo "  Package manager install failed — falling back to Node.js binary tarball..."
+    local ARCH
+    ARCH=$(uname -m)
+    case "$ARCH" in
+      x86_64)  ARCH="x64" ;;
+      aarch64) ARCH="arm64" ;;
+      armv7l)  ARCH="armv7l" ;;
+      *)       fail "Unsupported architecture: $ARCH. Install Node.js v22+ manually: https://nodejs.org" ;;
+    esac
+    local NODE_TAR="node-v22.15.0-linux-${ARCH}.tar.xz"
+    local NODE_URL="https://nodejs.org/dist/v22.15.0/${NODE_TAR}"
+    echo "  Downloading ${NODE_URL}..."
+    curl -fsSL "$NODE_URL" -o "/tmp/${NODE_TAR}" || fail "Failed to download Node.js tarball from ${NODE_URL}"
+    echo "  Extracting to /usr/local..."
+    sudo tar -xJf "/tmp/${NODE_TAR}" -C /usr/local --strip-components=1
+    rm -f "/tmp/${NODE_TAR}"
+    hash -r 2>/dev/null || true
+  fi
+
+  # Final refresh
   hash -r 2>/dev/null || true
 }
 
