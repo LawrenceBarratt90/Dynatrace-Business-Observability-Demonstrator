@@ -10,7 +10,7 @@ import { documentsClient, environmentSharesClient } from '@dynatrace-sdk/client-
 import { queryExecutionClient } from '@dynatrace-sdk/client-query';
 
 interface ProxyPayload {
-  action: 'simulate-journey' | 'simulate-vcarb-race' | 'vcarb-race-status' | 'stop-vcarb-race' | 'get-saved-config' | 'test-connection' | 'get-services' | 'stop-all-services' | 'stop-company-services' | 'get-dormant-services' | 'clear-dormant-services' | 'clear-company-dormant' | 'chaos-get-active' | 'chaos-get-recipes' | 'chaos-inject' | 'chaos-revert' | 'chaos-revert-all' | 'chaos-get-targeted' | 'chaos-remove-target' | 'chaos-smart' | 'ec-create' | 'ec-update-patterns' | 'detect-builtin-settings' | 'deploy-builtin-settings' | 'deploy-workflow' | 'debug-builtin-schema' | 'generate-dashboard' | 'generate-dashboard-async' | 'get-dashboard-status' | 'deploy-dashboard' | 'deploy-ai-dashboard' | 'mcp-generate-deploy-dashboard' | 'list-saved-dashboards' | 'load-saved-dashboard' | 'delete-saved-dashboard' | 'deploy-business-flow' | 'list-business-flows' | 'delete-business-flows' | 'generate-pdf' | 'generate-doc' | 'load-app-settings' | 'save-app-settings' | 'check-journey-assets' | 'create-notebook' | 'execute-dql' | 'demonstrator-ai-tiles' | 'demonstrator-tiles-status' | 'field-repo-get' | 'librarian-history' | 'librarian-stats' | 'librarian-analyze';
+  action: 'simulate-journey' | 'simulate-vcarb-race' | 'vcarb-race-status' | 'stop-vcarb-race' | 'get-saved-config' | 'test-connection' | 'get-services' | 'stop-all-services' | 'stop-company-services' | 'get-dormant-services' | 'clear-dormant-services' | 'clear-company-dormant' | 'chaos-get-active' | 'chaos-get-recipes' | 'chaos-inject' | 'chaos-revert' | 'chaos-revert-all' | 'chaos-get-targeted' | 'chaos-remove-target' | 'chaos-smart' | 'ec-create' | 'ec-update-patterns' | 'detect-builtin-settings' | 'deploy-builtin-settings' | 'deploy-workflow' | 'debug-builtin-schema' | 'generate-dashboard' | 'generate-dashboard-async' | 'get-dashboard-status' | 'deploy-dashboard' | 'deploy-ai-dashboard' | 'mcp-generate-deploy-dashboard' | 'list-saved-dashboards' | 'load-saved-dashboard' | 'delete-saved-dashboard' | 'deploy-business-flow' | 'list-business-flows' | 'delete-business-flows' | 'generate-pdf' | 'generate-doc' | 'load-app-settings' | 'save-app-settings' | 'check-journey-assets' | 'create-notebook' | 'execute-dql' | 'demonstrator-ai-tiles' | 'demonstrator-tiles-status' | 'field-repo-get' | 'librarian-history' | 'librarian-stats' | 'librarian-analyze' | 'system-health' | 'system-cleanup';
   apiHost: string;
   apiPort: string;
   apiProtocol: string;
@@ -1990,6 +1990,32 @@ export default async function (payload: ProxyPayload) {
       } catch (err: any) {
         console.error('[proxy-api] librarian-analyze error:', err.message);
         return { success: false, error: err.message || 'Librarian analysis failed' };
+      }
+    }
+
+    /* ── System Maintenance: disk health & auto-cleanup ── */
+    if (action === 'system-health') {
+      try {
+        const resp = await fetchWithRetry(`${baseUrl}/api/system/health`, { signal: AbortSignal.timeout(30000) });
+        return await resp.json();
+      } catch (err: any) {
+        console.error('[proxy-api] system-health error:', err.message);
+        return { success: false, error: err.message || 'System health check failed' };
+      }
+    }
+
+    if (action === 'system-cleanup') {
+      try {
+        const resp = await fetchWithRetry(`${baseUrl}/api/system/cleanup`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body || {}),
+          signal: AbortSignal.timeout(60000),
+        });
+        return await resp.json();
+      } catch (err: any) {
+        console.error('[proxy-api] system-cleanup error:', err.message);
+        return { success: false, error: err.message || 'System cleanup failed' };
       }
     }
 
