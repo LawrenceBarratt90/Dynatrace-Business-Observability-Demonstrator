@@ -266,7 +266,7 @@ export const HomePage = () => {
   const [ghCopilotToken, setGhCopilotToken] = useState('');
   const [ghCopilotSaving, setGhCopilotSaving] = useState(false);
   const [ghCopilotStatus, setGhCopilotStatus] = useState('');
-  const [ghCopilotModel, setGhCopilotModel] = useState('gpt-4o');
+  const [ghCopilotModel, setGhCopilotModel] = useState('gpt-4.1');
   const [ghAvailableModels, setGhAvailableModels] = useState<Array<{ id: string; name: string; owned_by: string }>>([]);
   const [ghGenerating1, setGhGenerating1] = useState(false);
   const [ghGenerating2, setGhGenerating2] = useState(false);
@@ -340,7 +340,7 @@ export const HomePage = () => {
     { key: 'openpipeline-routing', label: 'OpenPipeline Routing Configured', section: 'config' },
     { key: 'biz-events', label: 'Business Event Capture Rule', section: 'config' },
     { key: 'feature-flags', label: 'OneAgent Feature Flag Enabled', section: 'config' },
-    { key: 'outbound-github-models', label: 'GitHub Models Outbound Allowed', section: 'config' },
+    { key: 'outbound-github-models', label: 'GitHub Copilot Outbound Allowed', section: 'config' },
     { key: 'automation-workflow', label: 'Fix-It Agent Workflow Deployed', section: 'config' },
   ];
 
@@ -2446,7 +2446,7 @@ export const HomePage = () => {
                       ? ghAvailableModels.map(m => (
                           <option key={m.id} value={m.id}>{m.id}</option>
                         ))
-                      : ['gpt-4o', 'gpt-4o-mini', 'o3-mini'].map(id => (
+                      : ['gpt-4.1', 'gpt-4.1-mini', 'gpt-4.1-nano', 'gpt-4o', 'o4-mini', 'claude-sonnet-4'].map(id => (
                           <option key={id} value={id}>{id}</option>
                         ))
                     }
@@ -3586,15 +3586,15 @@ export const HomePage = () => {
                     ? ghAvailableModels.map(m => (
                         <option key={m.id} value={m.id}>{m.id}{m.owned_by ? ` (${m.owned_by})` : ''}</option>
                       ))
-                    : ['gpt-4o', 'gpt-4o-mini', 'o3-mini'].map(id => (
+                    : ['gpt-4.1', 'gpt-4.1-mini', 'gpt-4.1-nano', 'gpt-4o', 'o4-mini', 'claude-sonnet-4'].map(id => (
                         <option key={id} value={id}>{id}</option>
                       ))
                   }
                 </select>
                 <Paragraph style={{ fontSize: 11, marginTop: 4, marginBottom: 0, opacity: 0.6 }}>
                   {ghAvailableModels.length > 0
-                    ? `${ghAvailableModels.length} models available from GitHub Models API`
-                    : 'Save a valid PAT to populate models from GitHub Models API'}
+                    ? `${ghAvailableModels.length} models available via GitHub Copilot`
+                    : 'Save a valid PAT with copilot scope to enable AI generation'}
                 </Paragraph>
               </div>
             </div>
@@ -5360,15 +5360,15 @@ export const HomePage = () => {
                   </Flex>
                 </div>
 
-                {/* Step: GitHub Models Outbound Allowlist */}
+                {/* Step: GitHub Copilot Outbound Allowlist */}
                 <div onClick={() => toggleCheck('outbound-github-models')} style={{ padding: '12px 14px', borderRadius: 10, border: `1px solid ${isStepComplete('outbound-github-models') ? 'rgba(0,180,0,0.3)' : Colors.Border.Neutral.Default}`, background: isStepComplete('outbound-github-models') ? 'rgba(0,180,0,0.04)' : 'transparent', cursor: 'pointer', marginBottom: 8, transition: 'all 0.2s' }}>
                   <Flex alignItems="center" gap={12}>
                     <div style={{ width: 24, height: 24, borderRadius: 6, border: `2px solid ${isStepComplete('outbound-github-models') ? '#2e7d32' : Colors.Border.Neutral.Default}`, background: isStepComplete('outbound-github-models') ? '#2e7d32' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'all 0.2s' }}>
                       {isStepComplete('outbound-github-models') && <span style={{ color: 'white', fontSize: 14, fontWeight: 700 }}>✓</span>}
                     </div>
                     <div style={{ flex: 1 }}>
-                      <Strong style={{ fontSize: 13, textDecoration: isStepComplete('outbound-github-models') ? 'line-through' : 'none', opacity: isStepComplete('outbound-github-models') ? 0.6 : 1 }}>GitHub Models Outbound Allowed</Strong>
-                      <div style={{ fontSize: 11, opacity: 0.6, marginTop: 2 }}>Allow models.inference.ai.azure.com in AppEngine outbound connections for AI generation</div>
+                      <Strong style={{ fontSize: 13, textDecoration: isStepComplete('outbound-github-models') ? 'line-through' : 'none', opacity: isStepComplete('outbound-github-models') ? 0.6 : 1 }}>GitHub Copilot Outbound Allowed</Strong>
+                      <div style={{ fontSize: 11, opacity: 0.6, marginTop: 2 }}>Allow api.githubcopilot.com & api.github.com in AppEngine outbound connections for AI generation</div>
                       {isStepComplete('outbound-github-models') && <div style={{ fontSize: 10, marginTop: 3, color: '#2e7d32' }}>✅ Detected</div>}
                     </div>
                     {!isStepComplete('outbound-github-models') ? (

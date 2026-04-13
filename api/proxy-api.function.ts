@@ -538,7 +538,7 @@ export default async function (payload: ProxyPayload) {
         detected['automation-workflow'] = false;
       }
 
-      // 9. Outbound connections allowlist — check if models.inference.ai.azure.com is allowed
+      // 9. Outbound connections allowlist — check if Copilot hosts are allowed
       try {
         const result = await settingsObjectsClient.getSettingsObjects({
           schemaIds: 'builtin:dt-javascript-runtime.allowed-outbound-connections',
@@ -547,13 +547,14 @@ export default async function (payload: ProxyPayload) {
         });
         const item = result.items?.[0];
         const aoc = (item?.value as any)?.allowedOutboundConnections;
+        const COPILOT_HOSTS = ['api.githubcopilot.com', 'api.github.com'];
         if (aoc) {
           // If enforcement is disabled, all hosts are allowed
           if (aoc.enforced === false) {
             detected['outbound-github-models'] = true;
           } else {
             const hostList: string[] = aoc.hostList || [];
-            detected['outbound-github-models'] = hostList.includes('models.inference.ai.azure.com');
+            detected['outbound-github-models'] = COPILOT_HOSTS.every(h => hostList.includes(h));
           }
         } else {
           detected['outbound-github-models'] = false;
@@ -1034,7 +1035,8 @@ export default async function (payload: ProxyPayload) {
               results['feature-flags'] = { success: true };
             }
           } else if (configKey === 'outbound-github-models') {
-            // Add models.inference.ai.azure.com to the outbound connections allowlist
+            // Add Copilot hosts to the outbound connections allowlist
+            const COPILOT_HOSTS = ['api.githubcopilot.com', 'api.github.com'];
             const existing = await settingsObjectsClient.getSettingsObjects({
               schemaIds: 'builtin:dt-javascript-runtime.allowed-outbound-connections',
               fields: 'objectId,value',
@@ -1045,17 +1047,18 @@ export default async function (payload: ProxyPayload) {
 
             if (aoc) {
               const hostList: string[] = aoc.hostList || [];
-              if (hostList.includes('models.inference.ai.azure.com')) {
+              const missing = COPILOT_HOSTS.filter(h => !hostList.includes(h));
+              if (missing.length === 0) {
                 results['outbound-github-models'] = { success: true, error: 'Already in allowlist — no changes needed' };
               } else {
-                // Update existing object — add host to the list
+                // Update existing object — add missing hosts to the list
                 await settingsObjectsClient.putSettingsObjectByObjectId({
                   objectId: item!.objectId,
                   body: {
                     value: {
                       allowedOutboundConnections: {
                         enforced: aoc.enforced !== false,
-                        hostList: [...hostList, 'models.inference.ai.azure.com'],
+                        hostList: [...hostList, ...missing],
                       },
                     },
                   },
@@ -1071,7 +1074,7 @@ export default async function (payload: ProxyPayload) {
                   value: {
                     allowedOutboundConnections: {
                       enforced: true,
-                      hostList: ['models.inference.ai.azure.com'],
+                      hostList: COPILOT_HOSTS,
                     },
                   },
                 }],
@@ -2153,7 +2156,7 @@ export default async function (payload: ProxyPayload) {
 
     if (action === 'github-copilot-list-models') {
       try {
-        // Retrieve the GitHub PAT from credential vault
+        // Check if credential is configured
         const creds = await credentialVaultClient.listCredentials({ type: 'TOKEN' });
         const existing = (creds.credentials || []).find(
           (c: any) => c.name === GITHUB_CREDENTIAL_NAME
@@ -2161,37 +2164,21 @@ export default async function (payload: ProxyPayload) {
         if (!existing) {
           return { success: true, data: { models: [], configured: false } };
         }
-        const details = await credentialVaultClient.getCredentialsDetails({ id: existing.id });
-        const ghToken = (details as any).token;
-        if (!ghToken) {
-          return { success: true, data: { models: [], configured: false } };
-        }
 
-        // Call GitHub Models API to list available models
-        const resp = await fetch('https://models.inference.ai.azure.com/models', {
-          method: 'GET',
-          headers: { 'Authorization': `Bearer ${ghToken}` },
-          signal: AbortSignal.timeout(15000),
-        });
-        if (!resp.ok) {
-          if (resp.status === 401) {
-            return { success: false, error: 'GitHub token is invalid or expired.', code: 'AUTH_FAILED' };
-          }
-          return { success: true, data: { models: [], configured: true, error: `API returned ${resp.status}` } };
-        }
+        // Return hardcoded GitHub Copilot models (Copilot API doesn't have a public models listing endpoint)
+        const copilotModels = [
+          { id: 'gpt-4.1', name: 'GPT-4.1', owned_by: 'OpenAI' },
+          { id: 'gpt-4.1-mini', name: 'GPT-4.1 Mini', owned_by: 'OpenAI' },
+          { id: 'gpt-4.1-nano', name: 'GPT-4.1 Nano', owned_by: 'OpenAI' },
+          { id: 'gpt-4o', name: 'GPT-4o', owned_by: 'OpenAI' },
+          { id: 'gpt-4o-mini', name: 'GPT-4o Mini', owned_by: 'OpenAI' },
+          { id: 'o4-mini', name: 'o4-mini', owned_by: 'OpenAI' },
+          { id: 'o3-mini', name: 'o3-mini', owned_by: 'OpenAI' },
+          { id: 'claude-sonnet-4', name: 'Claude Sonnet 4', owned_by: 'Anthropic' },
+          { id: 'claude-3.5-sonnet', name: 'Claude 3.5 Sonnet', owned_by: 'Anthropic' },
+        ];
 
-        const result = await resp.json();
-        // Filter to chat/completion models and extract useful info
-        const models = (result.data || result || [])
-          .filter((m: any) => m.id && (m.task === 'chat-completion' || !m.task))
-          .map((m: any) => ({
-            id: m.id,
-            name: m.name || m.id,
-            owned_by: m.owned_by || m.publisher || '',
-          }))
-          .sort((a: any, b: any) => a.id.localeCompare(b.id));
-
-        return { success: true, data: { models, configured: true } };
+        return { success: true, data: { models: copilotModels, configured: true } };
       } catch (err: any) {
         console.error('[proxy-api] github-copilot-list-models error:', err.message);
         return { success: true, data: { models: [], configured: true, error: err.message } };
@@ -2218,13 +2205,42 @@ export default async function (payload: ProxyPayload) {
           return { success: false, error: 'Could not retrieve token from credential vault.', code: 'TOKEN_EMPTY' };
         }
 
-        // 2. Call GitHub Models API (OpenAI-compatible)
-        const selectedModel = model || 'gpt-4o';
-        const resp = await fetch('https://models.inference.ai.azure.com/chat/completions', {
+        // 2. Exchange PAT for Copilot token
+        const tokenResp = await fetch('https://api.github.com/copilot_internal/v2/token', {
+          method: 'GET',
+          headers: {
+            'Authorization': `token ${ghToken}`,
+            'User-Agent': 'BizObs-Demonstrator/2.35',
+          },
+          signal: AbortSignal.timeout(15000),
+        });
+        if (!tokenResp.ok) {
+          const errText = await tokenResp.text();
+          if (tokenResp.status === 401) {
+            return { success: false, error: 'GitHub PAT is invalid or expired. Update it in Settings → GitHub Copilot.', code: 'AUTH_FAILED' };
+          }
+          if (tokenResp.status === 403) {
+            return { success: false, error: 'GitHub Copilot access denied. Ensure your account has an active Copilot subscription and the PAT has the copilot scope.', code: 'COPILOT_NO_ACCESS' };
+          }
+          return { success: false, error: `Copilot token exchange failed (${tokenResp.status}): ${errText.slice(0, 200)}` };
+        }
+        const tokenData = await tokenResp.json();
+        const copilotToken = tokenData.token;
+        if (!copilotToken) {
+          return { success: false, error: 'Copilot token exchange returned empty token. Check Copilot subscription.' };
+        }
+
+        // 3. Call GitHub Copilot Chat Completions API
+        const selectedModel = model || 'gpt-4.1';
+        const resp = await fetch('https://api.githubcopilot.com/chat/completions', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${ghToken}`,
+            'Authorization': `Bearer ${copilotToken}`,
+            'Editor-Version': 'vscode/1.100.0',
+            'Editor-Plugin-Version': 'copilot/1.0.0',
+            'Copilot-Integration-Id': 'vscode-chat',
+            'Openai-Intent': 'conversation-panel',
           },
           body: JSON.stringify({
             model: selectedModel,
@@ -2241,12 +2257,12 @@ export default async function (payload: ProxyPayload) {
         if (!resp.ok) {
           const errText = await resp.text();
           if (resp.status === 401) {
-            return { success: false, error: 'GitHub token is invalid or expired. Update it in Settings → GitHub Copilot.', code: 'AUTH_FAILED' };
+            return { success: false, error: 'Copilot token expired mid-request. Try again.', code: 'AUTH_FAILED' };
           }
           if (resp.status === 429) {
-            return { success: false, error: 'GitHub Models rate limit reached. Try again in a few minutes.', code: 'RATE_LIMITED' };
+            return { success: false, error: 'GitHub Copilot rate limit reached. Try again in a few minutes.', code: 'RATE_LIMITED' };
           }
-          return { success: false, error: `GitHub Models API error (${resp.status}): ${errText.slice(0, 200)}` };
+          return { success: false, error: `GitHub Copilot API error (${resp.status}): ${errText.slice(0, 200)}` };
         }
 
         const result = await resp.json();
