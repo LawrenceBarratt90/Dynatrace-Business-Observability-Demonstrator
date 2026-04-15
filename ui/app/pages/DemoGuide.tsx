@@ -373,9 +373,246 @@ const DEMO_PATHS: DemoPath[] = [
       },
     ],
   },
+  {
+    id: 'slo-reliability',
+    icon: '🎯',
+    title: 'SLOs & Site Reliability Guardian',
+    subtitle: 'Define Service Level Objectives, track error budgets, and validate releases with Guardian',
+    color: '#06b6d4',
+    steps: [
+      {
+        title: 'Understand what SLOs you can create',
+        action: 'The generated services produce real traffic with measurable success rates and latency. You can create SLOs for availability (% of successful requests) and performance (% of requests under a latency threshold). Open Services to see the metrics flowing.',
+        where: 'Dynatrace',
+        dtLink: { label: 'Services', url: `${TENANT_URL}/ui/apps/dynatrace.services` },
+        tip: 'Every service the Demonstrator creates sends real HTTP requests with OpenTelemetry instrumentation — the same metrics you\'d use for production SLOs.',
+      },
+      {
+        title: 'Create an Availability SLO',
+        action: 'Navigate to the SLO app in Dynatrace. Click "Create SLO". Choose a service from the generated journey (e.g. the payment service). Set the SLI to "Availability" — percentage of successful requests. Set a target of 99.5% and a warning at 99.8%. Save it.',
+        where: 'Dynatrace',
+        dtLink: { label: 'SLOs', url: `${TENANT_URL}/ui/apps/dynatrace.slo` },
+        tip: 'With auto-load running, you\'ll see the SLO immediately start tracking. The error budget shows how much "failure" you can tolerate before breaching.',
+      },
+      {
+        title: 'Create a Performance SLO',
+        action: 'Create a second SLO — this time for performance. Set the SLI to "Latency" — percentage of requests completing under 500ms. Target: 95%. This gives you the two golden SLOs: availability AND performance.',
+        where: 'Dynatrace',
+        dtLink: { label: 'SLOs', url: `${TENANT_URL}/ui/apps/dynatrace.slo` },
+      },
+      {
+        title: 'Burn the error budget with chaos',
+        action: 'Go to Chaos Control and inject 30% errors on the service you created SLOs for. Watch the SLO page update — the error budget starts burning. This is exactly how you\'d catch a production issue eating through your reliability budget.',
+        where: 'This app → Chaos Control + Dynatrace SLOs',
+        dtLink: { label: 'SLOs', url: `${TENANT_URL}/ui/apps/dynatrace.slo` },
+        tip: 'With 30% errors and a 99.5% SLO, the error budget burns fast. In production, you\'d get alerted when the burn rate exceeds a threshold — driving automated rollback.',
+      },
+      {
+        title: 'Open Site Reliability Guardian',
+        action: 'Navigate to the Automations app and find Site Reliability Guardian. Create a new Guardian — add your SLOs as validation objectives. This is Dynatrace\'s quality gate for releases and deployments.',
+        where: 'Dynatrace',
+        dtLink: { label: 'Automations', url: `${TENANT_URL}/ui/apps/dynatrace.automations` },
+        tip: 'Site Reliability Guardian is the "go/no-go" gate. In a CI/CD pipeline, it validates SLOs, error rates, and performance after a deployment — automatically rolling back if thresholds are breached.',
+      },
+      {
+        title: 'Validate with Guardian',
+        action: 'Run a Guardian validation against your services. It evaluates all the objectives you added — SLOs, error rates, latency — and returns a pass/warning/fail verdict. Revert the chaos, run Guardian again, and show the "pass" result.',
+        where: 'Dynatrace → Automations → Site Reliability Guardian',
+        dtLink: { label: 'Automations', url: `${TENANT_URL}/ui/apps/dynatrace.automations` },
+        tip: 'This is the story: inject chaos → Guardian fails → fix the issue → Guardian passes. It\'s the validation loop that proves Dynatrace can gate deployments automatically.',
+      },
+      {
+        title: 'View the SRE Dashboard preset',
+        action: 'Open the BizObs Demonstrator Dashboards page and select the "SRE / Reliability" preset. This shows live DQL-powered tiles for availability, error budgets, latency percentiles (p50/p90/p99), HTTP status breakdowns, and service reliability rankings.',
+        where: 'This app → Demonstrator Dashboards → SRE preset',
+      },
+    ],
+  },
+  {
+    id: 'log-biz-events',
+    icon: '📊',
+    title: 'Logs & Business Events',
+    subtitle: 'Analyze logs from services, explore business events, and build DQL-powered analytics',
+    color: '#8b5cf6',
+    steps: [
+      {
+        title: 'View logs from generated services',
+        action: 'With services running, open the Logs app in Dynatrace. You\'ll see log entries from the Node.js processes — request logs, error logs, and application events. Filter by service name to see logs from specific journey steps.',
+        where: 'Dynatrace',
+        dtLink: { label: 'Logs', url: `${TENANT_URL}/ui/apps/dynatrace.logs` },
+        tip: 'OneAgent automatically captures stdout/stderr from the Node.js processes. No log shipping config needed — it\'s immediate.',
+      },
+      {
+        title: 'Explore business events',
+        action: 'The Demonstrator sends business events for every journey transaction — each step (Browse, Add to Cart, Checkout, Payment, etc.) emits an event with company name, journey type, step name, status, and processing time. Open the Biz Events app or query with DQL.',
+        where: 'Dynatrace',
+        dtLink: { label: 'Notebooks', url: `${TENANT_URL}/ui/apps/dynatrace.notebooks` },
+        tip: 'Business events are the bridge between technical observability and business value. They let you answer "how many orders failed?" not just "which HTTP calls returned 500?".',
+      },
+      {
+        title: 'Query business events with DQL',
+        action: 'Open a Notebook and run: fetch bizevents | summarize count(), by:{event.type} — this shows all the business event types flowing through the system. Try: fetch bizevents | filter event.type == "bizobs.journey.step" | summarize count(), by:{step_name, status} — to see step-by-step conversion and failure rates.',
+        where: 'Dynatrace',
+        dtLink: { label: 'Notebooks', url: `${TENANT_URL}/ui/apps/dynatrace.notebooks` },
+      },
+      {
+        title: 'Correlate logs with traces',
+        action: 'Find an error log entry (or inject chaos to create errors). Click the log entry to see correlated traces — Dynatrace automatically links logs to the distributed trace that produced them using trace context.',
+        where: 'Dynatrace → Logs → click an entry',
+        tip: 'This is the "three pillars" story: metrics → traces → logs, all correlated automatically by Dynatrace. No manual correlation IDs needed.',
+      },
+      {
+        title: 'View the Biz Events Dashboard preset',
+        action: 'Open the BizObs Demonstrator Dashboards page and select the "Biz Events" preset. This shows live DQL-powered tiles for event volume, types, error rates by service/journey/company, and a full event detail table.',
+        where: 'This app → Demonstrator Dashboards → Biz Events preset',
+      },
+    ],
+  },
+  {
+    id: 'security',
+    icon: '🔒',
+    title: 'Security & Vulnerability Management',
+    subtitle: 'Runtime Application Protection, vulnerability detection, and security event monitoring',
+    color: '#f59e0b',
+    steps: [
+      {
+        title: 'Open Application Security',
+        action: 'Navigate to the Application Security overview in Dynatrace. This is where all security findings are aggregated — runtime vulnerabilities, third-party library risks, and security events detected by OneAgent.',
+        where: 'Dynatrace',
+        dtLink: { label: 'Application Security', url: `${TENANT_URL}/ui/apps/dynatrace.classic.security.overview` },
+        tip: 'No separate scanner or agent needed — OneAgent monitors the running Node.js processes and detects vulnerabilities in real-time from the actual code execution path.',
+      },
+      {
+        title: 'Check for vulnerabilities',
+        action: 'Open the Vulnerabilities view. OneAgent scans the Node.js dependencies (npm packages) used by the BizObs server and generated services. You\'ll see CVEs, severity ratings, affected libraries, and which processes load the vulnerable code.',
+        where: 'Dynatrace',
+        dtLink: { label: 'Vulnerabilities', url: `${TENANT_URL}/ui/apps/dynatrace.classic.vulnerabilities` },
+        tip: 'Dynatrace shows runtime-reachable vulnerabilities — not just "this library is installed" but "this vulnerable code path is actually executed." This massively reduces false positives.',
+      },
+      {
+        title: 'View security events',
+        action: 'Check for Runtime Application Protection events. If OneAgent detects suspicious activity (SQL injection attempts, path traversal, etc.) on the running services, it logs security events you can analyze.',
+        where: 'Dynatrace → Application Security → Attacks',
+        dtLink: { label: 'Attacks', url: `${TENANT_URL}/ui/apps/dynatrace.classic.attacks` },
+      },
+      {
+        title: 'Connect security to services',
+        action: 'In the vulnerability view, click through to see which services are affected. Dynatrace maps vulnerabilities to the specific service and process — so you know exactly which part of your architecture has the risk.',
+        where: 'Dynatrace → Vulnerabilities → click a vulnerability',
+        tip: 'This is the power of having security AND observability in one platform — you see the vulnerability, the affected service, its traffic volume, and whether it\'s in a critical path. Risk-based prioritization, not just severity.',
+      },
+      {
+        title: 'Query security data with DQL',
+        action: 'Open a Notebook and run: fetch events | filter event.kind == "SECURITY_EVENT" | summarize count(), by:{event.category} — this shows security event categories. You can also query: fetch entities | filter type == "dt.entity.process_group_instance" | filter isNotNull(securityProblem) — to find processes with security issues.',
+        where: 'Dynatrace',
+        dtLink: { label: 'Notebooks', url: `${TENANT_URL}/ui/apps/dynatrace.notebooks` },
+      },
+      {
+        title: 'View the Security Dashboard preset',
+        action: 'Open the BizObs Demonstrator Dashboards page and select the "Security" preset. This shows live DQL-powered tiles for security event volume, attack detection, event categories, trends, and affected entities.',
+        where: 'This app → Demonstrator Dashboards → Security preset',
+      },
+    ],
+  },
+  {
+    id: 'davis-ai',
+    icon: '🧠',
+    title: 'Davis AI Deep Dive',
+    subtitle: 'Anomaly detection, root cause analysis, impact analysis, and AI-powered problem resolution',
+    color: '#e74c3c',
+    steps: [
+      {
+        title: 'Understand what Davis monitors',
+        action: 'Davis AI automatically baselines every metric on every entity — services, hosts, processes. It detects anomalies without any manual thresholds. With the BizObs services running, Davis is already watching error rates, response times, throughput, and infrastructure metrics.',
+        where: 'Conceptual overview',
+        tip: 'Davis uses deterministic AI, not LLMs. It gives precise, explainable root cause analysis — not probabilistic guesses. This is the key differentiator.',
+      },
+      {
+        title: 'Create a problem for Davis to detect',
+        action: 'Go to Chaos Control and inject a fault — try 40% errors on a payment service, or 2000ms latency on a checkout service. Davis needs sustained anomalous traffic to trigger, so keep auto-load running and wait 2-3 minutes.',
+        where: 'This app → Chaos Control',
+        tip: 'Higher error rates (40%+) trigger faster. Latency injection at 2000ms+ is also very visible. The key is sustained traffic through the affected service.',
+      },
+      {
+        title: 'Watch the problem card appear',
+        action: 'Open the Problems view. Within minutes, Davis creates a problem card with: (1) the root cause entity, (2) the impacted services/entities, (3) the anomaly type (error rate increase, response time degradation), and (4) the precise time it started.',
+        where: 'Dynatrace',
+        dtLink: { label: 'Problems', url: `${TENANT_URL}/ui/apps/dynatrace.davis.problems/` },
+      },
+      {
+        title: 'Analyze root cause',
+        action: 'Click into the problem card. Davis shows the root cause entity and the full dependency chain. It traces the problem from the point of impact through the topology to the originating entity. The "Related events" section shows what changed.',
+        where: 'Dynatrace → Problems → click a problem',
+        tip: 'Davis uses SmartScape topology (which services call which) to determine causality, not just correlation. This is why it pinpoints root cause, not just symptoms.',
+      },
+      {
+        title: 'Check the impact analysis',
+        action: 'In the problem card, look at the "Impact" section. Davis shows which services, hosts, and application components are affected. With the BizObs journey services, you\'ll see the downstream cascade — e.g. a payment error impacts checkout, which impacts the overall journey.',
+        where: 'Dynatrace → Problems → Impact tab',
+      },
+      {
+        title: 'View the anomaly timeline',
+        action: 'In the problem card, check the event timeline. It shows the sequence: when the anomaly started, when Davis correlated it, which entities were added to the problem. This tells the story of the incident.',
+        where: 'Dynatrace → Problems → Events tab',
+      },
+      {
+        title: 'Fix and watch the problem close',
+        action: 'Go to Chaos Control and revert the fault (or use Fix-It to auto-remediate). Watch the problem card in Dynatrace — Davis will close it automatically when metrics return to baseline. The resolution time is tracked.',
+        where: 'This app → Chaos Control + Dynatrace Problems',
+        dtLink: { label: 'Problems', url: `${TENANT_URL}/ui/apps/dynatrace.davis.problems/` },
+        tip: 'The full cycle — fault → detection → analysis → resolution → closure — is the core Dynatrace story. MTTD (mean time to detect) and MTTR (mean time to resolve) are both visible in the timeline.',
+      },
+      {
+        title: 'View the Dynatrace Intelligence Dashboard preset',
+        action: 'Open the BizObs Demonstrator Dashboards page and select the "Dynatrace Intelligence" preset. This shows live tiles for active problems, root cause analysis, anomaly detection, impact mapping, and MTTD/MTTR tracking.',
+        where: 'This app → Demonstrator Dashboards → Intelligence preset',
+      },
+    ],
+  },
+  {
+    id: 'notebooks-dql',
+    icon: '📓',
+    title: 'Notebooks & DQL Mastery',
+    subtitle: 'Query everything with DQL — spans, events, logs, metrics, entities — all in collaborative Notebooks',
+    color: '#2563eb',
+    steps: [
+      {
+        title: 'Open a Dynatrace Notebook',
+        action: 'Navigate to Notebooks and create a new one. Notebooks are Dynatrace\'s collaborative analysis environment — you can write DQL queries, add markdown sections, create visualizations, and share with your team.',
+        where: 'Dynatrace',
+        dtLink: { label: 'Notebooks', url: `${TENANT_URL}/ui/apps/dynatrace.notebooks` },
+      },
+      {
+        title: 'Query distributed traces',
+        action: 'Add a DQL section and run: fetch spans | filter dt.entity.service != "" | summarize count(), avgDuration = avg(duration), errorCount = countIf(otel.status_code == "ERROR"), by:{dt.entity.service} | sort count() desc — this gives you a service health overview from trace data.',
+        where: 'Dynatrace → Notebook',
+        tip: 'DQL (Dynatrace Query Language) queries Grail — the unified data lakehouse. Every data type (spans, metrics, logs, events, entities) uses the same query language.',
+      },
+      {
+        title: 'Query business events',
+        action: 'Run: fetch bizevents | filter event.type == "bizobs.journey.step" | summarize successes = countIf(status == "success"), failures = countIf(status == "error"), by:{step_name} | fieldsAdd successRate = round(successes * 100.0 / (successes + failures), decimals:1) — shows conversion rate per journey step.',
+        where: 'Dynatrace → Notebook',
+      },
+      {
+        title: 'Query problems and events',
+        action: 'Run: fetch events | filter event.kind == "DAVIS_PROBLEM" | fields timestamp, display_id, title, event.status, root_cause_entity_name, affected_entity_ids | sort timestamp desc — this shows all Davis-detected problems with root cause.',
+        where: 'Dynatrace → Notebook',
+      },
+      {
+        title: 'Build a custom visualization',
+        action: 'Take any query result and switch the visualization type — table, time series, bar chart, pie chart, single value. DQL results are immediately visualizable without any extra configuration. Try a timeseries query: fetch spans | makeTimeseries count(), by:{dt.entity.service}.',
+        where: 'Dynatrace → Notebook',
+        tip: 'Notebooks support mixing DQL sections, markdown commentary, and visualizations. They\'re great for incident postmortems, capacity reviews, and executive reports.',
+      },
+      {
+        title: 'Export tiles to a Notebook',
+        action: 'Go to the Demonstrator Dashboards page in this app. Select any preset (Developer, SRE, etc.) and click "Export to Notebook". This creates a Notebook with all the DQL queries from that preset — ready to customize.',
+        where: 'This app → Demonstrator Dashboards → Export to Notebook',
+        tip: 'This shows how DQL queries are composable and portable — generate them in the app, export to a Notebook, customize for your specific analysis, share with the team.',
+      },
+    ],
+  },
 ];
-
-// ── Persona Demos ──────────────────────────────────────────
 const PERSONAS: Persona[] = [
   {
     id: 'cto',
@@ -403,7 +640,7 @@ const PERSONAS: Persona[] = [
       { step: 'Auto-remediate with Fix-It', detail: 'Let AI fix the problem — emphasize speed and zero manual intervention.' },
       { step: 'Show the AppEngine app itself', detail: 'Point out this is a Dynatrace-native app — Strato components, EdgeConnect, serverless functions.' },
     ],
-    suggestedPaths: ['quick-start', 'demonstrator-dashboards', 'chaos-and-fix'],
+    suggestedPaths: ['quick-start', 'demonstrator-dashboards', 'davis-ai', 'chaos-and-fix'],
   },
   {
     id: 'sre',
@@ -432,7 +669,7 @@ const PERSONAS: Persona[] = [
       { step: 'Verify in Dynatrace', detail: 'Show error rates dropping, problem closing. Highlight zero human intervention.', dtLink: { label: 'Services', url: `${TENANT_URL}/ui/apps/dynatrace.services` } },
       { step: 'Show golden signals on Demonstrator Dashboards', detail: 'Open Demonstrator Dashboards → Developer preset. Show traffic, latency (p50/p90/p99), errors, and service health tiles with RED metrics table.' },
     ],
-    suggestedPaths: ['chaos-and-fix', 'autonomous-ops', 'quick-start'],
+    suggestedPaths: ['chaos-and-fix', 'slo-reliability', 'autonomous-ops', 'davis-ai'],
   },
   {
     id: 'developer',
@@ -444,6 +681,7 @@ const PERSONAS: Persona[] = [
     focusAreas: [
       'Distributed tracing across microservices',
       'OpenTelemetry instrumentation (auto + manual)',
+      'Log correlation with traces',
       'DQL for custom trace queries',
     ],
     talkingPoints: [
@@ -458,7 +696,7 @@ const PERSONAS: Persona[] = [
       { step: 'Drill into a trace waterfall', detail: 'Click a trace. Walk through the spans — show HTTP calls, durations, status codes.' },
       { step: 'Query with DQL in Notebooks', detail: 'Open a notebook. Use DQL to query and filter traces.', dtLink: { label: 'Notebooks', url: `${TENANT_URL}/ui/apps/dynatrace.notebooks` } },
     ],
-    suggestedPaths: ['traces-and-otel', 'live-debugger', 'autonomous-ops'],
+    suggestedPaths: ['traces-and-otel', 'live-debugger', 'log-biz-events', 'notebooks-dql'],
   },
   {
     id: 'business-analyst',
@@ -486,7 +724,7 @@ const PERSONAS: Persona[] = [
       { step: 'Switch to Developer preset', detail: 'Show the Developer view: service health RED table, latency percentiles, error trends, traces & exceptions, and log analysis.' },
       { step: 'Break something and show impact', detail: 'Inject chaos on a payment service. Switch to the Executive preset and show revenue impact, error trends, and IT problems climbing.' },
     ],
-    suggestedPaths: ['quick-start', 'demonstrator-dashboards', 'chaos-and-fix'],
+    suggestedPaths: ['quick-start', 'demonstrator-dashboards', 'log-biz-events', 'chaos-and-fix'],
   },
   {
     id: 'devops',
@@ -514,7 +752,7 @@ const PERSONAS: Persona[] = [
       { step: 'View technologies/processes', detail: 'Show the Node.js processes — main server, generated services. All auto-discovered.', dtLink: { label: 'Technologies', url: `${TENANT_URL}/ui/apps/dynatrace.technologies` } },
       { step: 'Generate services and show discovery', detail: 'Create a journey. Watch new processes appear in Technologies within minutes.' },
     ],
-    suggestedPaths: ['platform', 'quick-start'],
+    suggestedPaths: ['platform', 'security', 'quick-start'],
   },
   {
     id: 'sales-engineer',
@@ -546,7 +784,7 @@ const PERSONAS: Persona[] = [
       { step: '8. LiveDebugger deep-dive (optional, 2 min)', detail: 'Open LiveDebugger on a service process. Set breakpoints on lines 697 (error injection), 708 (full error object), and 996 (service chain call) in dynamic-step-service.js. Capture snapshots showing injected errors, customer data, and trace context.', dtLink: { label: 'LiveDebugger', url: `${TENANT_URL}/ui/apps/dynatrace.devobs.debugger/debugger` } },
       { step: '9. Platform story close (30 sec)', detail: 'Remind them: this is an AppEngine app. Built with React + Strato. Deployed to Dynatrace. Customers can build their own.' },
     ],
-    suggestedPaths: ['quick-start', 'chaos-and-fix', 'demonstrator-dashboards', 'live-debugger'],
+    suggestedPaths: ['quick-start', 'chaos-and-fix', 'demonstrator-dashboards', 'live-debugger', 'slo-reliability', 'davis-ai'],
   },
   {
     id: 'product-manager',
@@ -574,7 +812,64 @@ const PERSONAS: Persona[] = [
       { step: 'Break a step and show business impact', detail: 'Inject errors on "Add to Cart". Show how downstream steps (Checkout, Payment) are affected.' },
       { step: 'Query journey data with DQL', detail: 'In a Notebook, show a custom query filtering by journey step and status.', dtLink: { label: 'Notebooks', url: `${TENANT_URL}/ui/apps/dynatrace.notebooks` } },
     ],
-    suggestedPaths: ['quick-start', 'demonstrator-dashboards', 'chaos-and-fix'],
+    suggestedPaths: ['quick-start', 'demonstrator-dashboards', 'log-biz-events', 'chaos-and-fix'],
+  },
+  {
+    id: 'security-analyst',
+    icon: '🛡️',
+    role: 'Security / Compliance Analyst',
+    title: 'Security Posture & Vulnerabilities',
+    color: '#f59e0b',
+    audience: 'CISOs, security engineers, compliance officers, and risk managers',
+    focusAreas: [
+      'Runtime Application Protection with OneAgent',
+      'Vulnerability detection in running code and dependencies',
+      'Security event monitoring and attack detection',
+      'Risk-based prioritization — reachable vs. installed vulnerabilities',
+    ],
+    talkingPoints: [
+      'OneAgent monitors the running Node.js processes and detects vulnerabilities in real-time — not just installed packages, but actually executed code paths. This eliminates false positives.',
+      'Runtime Application Protection detects and blocks attacks (SQL injection, path traversal, command injection) at the application layer — no WAF configuration needed.',
+      'The Demonstrator Dashboards Security preset shows live DQL-powered tiles: security event volume, attack categories, trends, and affected entities — all queryable with DQL.',
+      'Vulnerabilities are mapped to services and infrastructure via SmartScape topology — so you know the risk context, not just the CVE severity score.',
+    ],
+    demoFlow: [
+      { step: 'Open Application Security overview', detail: 'Navigate to Application Security in Dynatrace. Show the summary: third-party vulnerabilities, runtime vulnerabilities, and attack events detected on the BizObs services.', dtLink: { label: 'Application Security', url: `${TENANT_URL}/ui/apps/dynatrace.classic.security.overview` } },
+      { step: 'Check Node.js vulnerabilities', detail: 'Open the Vulnerabilities view. Show the CVEs detected in npm packages used by the BizObs server. Highlight which are runtime-reachable vs. just installed.', dtLink: { label: 'Vulnerabilities', url: `${TENANT_URL}/ui/apps/dynatrace.classic.vulnerabilities` } },
+      { step: 'Map vulnerability to service topology', detail: 'Click a vulnerability. Show which specific services and processes are affected. Trace it through the SmartScape dependency graph.', dtLink: { label: 'Vulnerabilities', url: `${TENANT_URL}/ui/apps/dynatrace.classic.vulnerabilities` } },
+      { step: 'View the Security Dashboard preset', detail: 'Open Demonstrator Dashboards and select the Security preset. Show security event tiles, attack trends, and affected entity mapping — all live DQL queries.' },
+      { step: 'Query security data with DQL', detail: 'Open a Notebook. Run: fetch events | filter event.kind == "SECURITY_EVENT" | summarize count(), by:{event.category} | sort count() desc — shows security event breakdown.', dtLink: { label: 'Notebooks', url: `${TENANT_URL}/ui/apps/dynatrace.notebooks` } },
+    ],
+    suggestedPaths: ['security', 'platform', 'demonstrator-dashboards'],
+  },
+  {
+    id: 'data-analyst',
+    icon: '📊',
+    role: 'Data Engineer / DQL Analyst',
+    title: 'DQL, Notebooks & Custom Analytics',
+    color: '#2563eb',
+    audience: 'Data engineers, analytics teams, observability platform engineers, and anyone who loves querying data',
+    focusAreas: [
+      'DQL (Dynatrace Query Language) across all data types',
+      'Grail unified data lakehouse — spans, metrics, logs, events, entities',
+      'Notebooks for collaborative analysis and reporting',
+      'Custom dashboard creation from live DQL queries',
+    ],
+    talkingPoints: [
+      'DQL queries every data type in Dynatrace from a single language: fetch spans, fetch bizevents, fetch events, fetch logs, fetch metrics, fetch entities. No tool switching.',
+      'Grail is the unified data lakehouse — all observability signals land in one place. Cross-correlate traces with logs with business events in a single query.',
+      'The Demonstrator generates rich data across all types: distributed traces from services, business events from journeys, Davis problems from chaos, logs from processes, and host metrics from OneAgent.',
+      'Notebooks combine DQL queries, markdown documentation, and visualizations in a shareable document — ideal for incident postmortems, capacity reviews, and custom reports.',
+    ],
+    demoFlow: [
+      { step: 'Create a Notebook', detail: 'Open Notebooks and create a new one. Add a title like "BizObs Data Analysis — [date]".', dtLink: { label: 'Notebooks', url: `${TENANT_URL}/ui/apps/dynatrace.notebooks` } },
+      { step: 'Query spans (traces)', detail: 'Add a DQL section: fetch spans | filter dt.entity.service != "" | summarize count(), avgDuration = avg(duration), by:{dt.entity.service} | sort count() desc — service health overview.' },
+      { step: 'Query business events', detail: 'Add another section: fetch bizevents | filter event.type == "bizobs.journey.step" | summarize count(), by:{step_name, status} — journey step conversion analysis.' },
+      { step: 'Query Davis problems', detail: 'Run: fetch events | filter event.kind == "DAVIS_PROBLEM" | fields timestamp, display_id, title, event.status — problem history.' },
+      { step: 'Build a time series', detail: 'Run: fetch spans | makeTimeseries count(), by:{dt.entity.service} — shows request volume over time per service. Switch to chart view.' },
+      { step: 'Export a dashboard preset to Notebook', detail: 'Go to Demonstrator Dashboards, select Developer preset, click "Export to Notebook". Show how all DQL tiles become Notebook sections ready to customize.' },
+    ],
+    suggestedPaths: ['notebooks-dql', 'demonstrator-dashboards', 'traces-and-otel', 'log-biz-events'],
   },
 ];
 
@@ -665,9 +960,9 @@ export const DemoGuide = () => {
               title="📖 Demo Guide"
               description="Interactive walkthrough for demoing the BizObs Demonstrator to different audiences."
               sections={[
-                { label: '🗺️ Guided Paths', detail: '7 step-by-step walkthroughs: Quick Start, Demonstrator Dashboards, Chaos & Fix-It, Autonomous Ops, Traces, LiveDebugger, Platform' },
-                { label: '👥 Persona Demos', detail: '8 persona-tailored demo flows with talking points, focus areas, and suggested paths' },
-                { label: '🔗 Dynatrace Links', detail: 'Quick links to Services, Problems, Traces, Dashboards, Notebooks, and LiveDebugger' },
+                { label: '🗺️ Guided Paths', detail: '12 step-by-step walkthroughs: Quick Start, Dashboards, Chaos & Fix-It, Autonomous Ops, Traces, LiveDebugger, Platform, SLOs & Guardian, Logs & Biz Events, Security, Davis AI, Notebooks & DQL' },
+                { label: '👥 Persona Demos', detail: '9 persona-tailored demo flows with talking points, focus areas, and suggested paths' },
+                { label: '🔗 Dynatrace Links', detail: 'Quick links to Services, Problems, Traces, SLOs, Application Security, Dashboards, Notebooks, and LiveDebugger' },
                 { label: 'Expand steps', detail: 'Click any step to see detailed actions, tips, and direct links to Dynatrace apps' },
               ]}
               footer="Switch between Guided Paths and Persona Demos using the toggle in the header."
@@ -776,9 +1071,13 @@ export const DemoGuide = () => {
                 { label: 'Services', url: `${TENANT_URL}/ui/apps/dynatrace.services` },
                 { label: 'Problems', url: `${TENANT_URL}/ui/apps/dynatrace.davis.problems/` },
                 { label: 'Traces', url: `${TENANT_URL}/ui/apps/dynatrace.distributedtracing/` },
+                { label: 'SLOs', url: `${TENANT_URL}/ui/apps/dynatrace.slo` },
+                { label: 'Application Security', url: `${TENANT_URL}/ui/apps/dynatrace.classic.security.overview` },
+                { label: 'Logs', url: `${TENANT_URL}/ui/apps/dynatrace.logs` },
                 { label: 'Dashboards', url: `${TENANT_URL}/ui/apps/dynatrace.dashboards` },
                 { label: 'Demonstrator Dashboards', url: `${TENANT_URL}/ui/apps/my.bizobs.generator.master/ui/demonstrator-dashboards` },
                 { label: 'Notebooks', url: `${TENANT_URL}/ui/apps/dynatrace.notebooks` },
+                { label: 'Automations', url: `${TENANT_URL}/ui/apps/dynatrace.automations` },
                 { label: 'LiveDebugger', url: `${TENANT_URL}/ui/apps/dynatrace.devobs.debugger/debugger` },
               ].map((link, i) => (
                 <a key={i} href={link.url} target="_blank" rel="noopener noreferrer" style={{
@@ -822,13 +1121,18 @@ export const DemoGuide = () => {
                   fontSize: 12, color: Colors.Text.Neutral.Subdued, lineHeight: 1.6,
                 }}>
                   <strong>What next?</strong> After completing {currentPath.title}, try the other paths.
-                  {selectedPath === 'quick-start' && ' "Demonstrator Dashboards Deep Dive" explores all 4 preset dashboards, or try "Chaos & Fix-It" once your services are running.'}
-                  {selectedPath === 'demonstrator-dashboards' && ' "Chaos & Fix-It" to break things and watch the dashboards react, or "Autonomous Operations" to see AI-powered features.'}
-                  {selectedPath === 'chaos-and-fix' && ' "Autonomous Operations" shows the full closed loop with AI memory, or "Traces & OpenTelemetry" shows what\'s happening under the hood.'}
-                  {selectedPath === 'autonomous-ops' && ' "Traces & OpenTelemetry" for a deep dive into distributed traces, or try "Demonstrator Dashboards" to see all dashboard presets.'}
-                  {selectedPath === 'traces-and-otel' && ' Try "LiveDebugger" for code-level debugging, or "Autonomous Operations" to see the full AI operations loop.'}
-                  {selectedPath === 'live-debugger' && ' "Platform & Architecture" covers how the whole system connects — AppEngine, EdgeConnect, and OneAgent.'}
-                  {selectedPath === 'platform' && ' Try "LiveDebugger" for code-level debugging, or "Autonomous Operations" to see the full AI operations loop.'}
+                  {selectedPath === 'quick-start' && ' "Demonstrator Dashboards Deep Dive" explores all preset dashboards, or try "Chaos & Fix-It" once your services are running.'}
+                  {selectedPath === 'demonstrator-dashboards' && ' "Chaos & Fix-It" to break things and watch the dashboards react, or "SLOs & Site Reliability Guardian" to set quality gates.'}
+                  {selectedPath === 'chaos-and-fix' && ' "Davis AI Deep Dive" to analyze the problem in depth, or "Autonomous Operations" for the full closed loop.'}
+                  {selectedPath === 'autonomous-ops' && ' "Traces & OpenTelemetry" for a deep dive into distributed traces, or "SLOs & Site Reliability Guardian" to set quality gates on the services.'}
+                  {selectedPath === 'traces-and-otel' && ' Try "Logs & Business Events" to analyze the other data types, or "LiveDebugger" for code-level debugging.'}
+                  {selectedPath === 'live-debugger' && ' "Platform & Architecture" covers how the whole system connects, or "Notebooks & DQL" for custom analysis.'}
+                  {selectedPath === 'platform' && ' Try "Security & Vulnerability Management" to see the security posture, or "SLOs & Site Reliability Guardian" for reliability gates.'}
+                  {selectedPath === 'slo-reliability' && ' "Davis AI Deep Dive" to see how Dynatrace detects and analyzes problems, or "Chaos & Fix-It" to test your SLOs against real faults.'}
+                  {selectedPath === 'log-biz-events' && ' "Notebooks & DQL Mastery" to build custom analysis, or "Traces & OpenTelemetry" to see the distributed traces behind the events.'}
+                  {selectedPath === 'security' && ' "Platform & Architecture" to understand the infrastructure being secured, or "Davis AI Deep Dive" for problem detection.'}
+                  {selectedPath === 'davis-ai' && ' "SLOs & Site Reliability Guardian" to set quality gates, or "Chaos & Fix-It" to auto-remediate the problems Davis finds.'}
+                  {selectedPath === 'notebooks-dql' && ' "Logs & Business Events" to explore more data types, or "Demonstrator Dashboards" to see pre-built DQL dashboards.'}
                 </div>
               </>
             ) : (
