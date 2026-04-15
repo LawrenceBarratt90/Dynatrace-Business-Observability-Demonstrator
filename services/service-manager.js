@@ -559,9 +559,10 @@ export async function ensureServiceRunning(stepName, companyContext = {}) {
         }
         // Write a per-service package.json — OneAgent reads this for Web application id
         // Also sets "type": "commonjs" so .js wrappers work with require() and Dynatrace LiveDebugger
+        // IMPORTANT: name MUST match DT_APPLICATION_ID (PascalCase) to avoid duplicate services in Dynatrace
         const wrapperPath = path.join(serviceDir, 'index.js');
         // Ensure runner directory has commonjs package.json for LiveDebugger .js support
-        const runnerPkgJson = JSON.stringify({ name: dynatraceServiceName.toLowerCase(), version: '1.0.0', private: true, type: 'commonjs' }, null, 2);
+        const runnerPkgJson = JSON.stringify({ name: dynatraceServiceName, version: '1.0.0', private: true, type: 'commonjs' }, null, 2);
         fs.writeFileSync(path.join(serviceDir, 'package.json'), runnerPkgJson, 'utf-8');
         const wrapperSource = `// Auto-generated wrapper for ${dynatraceServiceName}\n` +
 `process.env.SERVICE_NAME = ${JSON.stringify(dynatraceServiceName)};\n` +
