@@ -822,7 +822,10 @@ function createStepService(serviceName, stepName) {
           'journey.company': processedPayload.companyName || 'unknown',
           'journey.domain': processedPayload.domain || 'unknown',
           'journey.industryType': processedPayload.industryType || 'unknown',
-          'journey.processingTime': processingTime
+          'journey.processingTime': processingTime,
+          // Chain context — shows caller/callee relationships in Dynatrace
+          ...(payload.parentService ? { 'journey.parentService': payload.parentService } : {}),
+          ...(payload.parentStep ? { 'journey.parentStep': payload.parentStep } : {})
         };
         
         addCustomAttributes(customAttributes);
@@ -899,41 +902,55 @@ function createStepService(serviceName, stepName) {
         if (nextStepName && nextServiceName) {
           try {
             await new Promise(r => setTimeout(r, thinkTimeMs));
-            // Ask main server to ensure next service is running and get its port
+            // Use pre-computed port map for direct service-to-service calls
+            // This avoids calling back to the main server, creating clean distributed traces:
+            // ServiceA → ServiceB → ServiceC (not ServiceA → MainServer → ServiceB → MainServer → ...)
             let nextServicePort = null;
-            try {
-              const adminPort = process.env.MAIN_SERVER_PORT || '4000';
-              nextServicePort = await new Promise((resolve, reject) => {
-                const req = http.request({ hostname: '127.0.0.1', port: adminPort, path: '/api/admin/ensure-service', method: 'POST', headers: { 'Content-Type': 'application/json' } }, (res) => { 
-                  let data = '';
-                  res.on('data', chunk => data += chunk);
-                  res.on('end', () => {
-                    try {
-                      const parsed = JSON.parse(data);
-                      resolve(parsed.port || null);
-                    } catch {
-                      resolve(null);
-                    }
+            
+            // Priority 1: Use servicePortMap from orchestrator payload (no HTTP call needed)
+            if (payload.servicePortMap) {
+              nextServicePort = payload.servicePortMap[nextServiceName] || payload.servicePortMap[nextStepName] || null;
+              if (nextServicePort) {
+                console.log(`[${properServiceName}] 🗺️  Using port map: ${nextServiceName} → port ${nextServicePort} (direct service-to-service)`);
+              }
+            }
+            
+            // Priority 2: Fallback to main server ensure-service call (legacy path)
+            if (!nextServicePort) {
+              try {
+                const adminPort = process.env.MAIN_SERVER_PORT || '8080';
+                nextServicePort = await new Promise((resolve, reject) => {
+                  const req = http.request({ hostname: '127.0.0.1', port: adminPort, path: '/api/admin/ensure-service', method: 'POST', headers: { 'Content-Type': 'application/json' } }, (res) => { 
+                    let data = '';
+                    res.on('data', chunk => data += chunk);
+                    res.on('end', () => {
+                      try {
+                        const parsed = JSON.parse(data);
+                        resolve(parsed.port || null);
+                      } catch {
+                        resolve(null);
+                      }
+                    });
                   });
-                });
-                req.on('error', () => resolve(null));
-                req.end(JSON.stringify({ 
-                  stepName: nextStepName, 
-                  serviceName: nextServiceName,
-                  context: {
-                    companyName: payload.companyName,
-                    domain: payload.domain,
-                    industryType: payload.industryType,
-                    journeyType: payload.journeyType,
-                    stepName: nextStepName,
+                  req.on('error', () => resolve(null));
+                  req.end(JSON.stringify({ 
+                    stepName: nextStepName, 
                     serviceName: nextServiceName,
-                    category: nextStepData?.category || ''
-                  }
-                }));
-              });
-              console.log(`[${properServiceName}] Next service ${nextServiceName} allocated on port ${nextServicePort}`);
-            } catch (e) {
-              console.error(`[${properServiceName}] Failed to get next service port:`, e.message);
+                    context: {
+                      companyName: payload.companyName,
+                      domain: payload.domain,
+                      industryType: payload.industryType,
+                      journeyType: payload.journeyType,
+                      stepName: nextStepName,
+                      serviceName: nextServiceName,
+                      category: nextStepData?.category || ''
+                    }
+                  }));
+                });
+                console.log(`[${properServiceName}] Next service ${nextServiceName} allocated on port ${nextServicePort} (via ensure-service)`);
+              } catch (e) {
+                console.error(`[${properServiceName}] Failed to get next service port:`, e.message);
+              }
             }
             // Look up next step's specific data
             let nextStepData = null;
@@ -958,6 +975,7 @@ function createStepService(serviceName, stepName) {
               estimatedDurationMs: nextStepData?.estimatedDuration ? nextStepData.estimatedDuration * 60 * 1000 : null,
               action: 'auto_chained',
               parentStep: currentStepName,
+              parentService: properServiceName,
               correlationId,
               journeyId: payload.journeyId,
               domain: payload.domain,
@@ -966,15 +984,21 @@ function createStepService(serviceName, stepName) {
               journeyType: payload.journeyType,
               thinkTimeMs,
               steps: payload.steps,
+              servicePortMap: payload.servicePortMap,  // Pass port map for downstream chaining
               traceId,
               spanId, // pass as parentSpanId to next
               journeyTrace
             };
             
             // Build proper trace headers for service-to-service call
+            // Note: OTel HttpInstrumentation will inject its own traceparent for proper
+            // distributed trace propagation. These manual headers serve as business context.
             const traceHeaders = { 
               'x-correlation-id': correlationId,
-              // W3C Trace Context format
+              'x-journey-id': payload.journeyId || '',
+              'x-parent-service': properServiceName,
+              'x-parent-step': currentStepName,
+              // W3C Trace Context format (OTel may override with its own context)
               'traceparent': `00-${traceId.padEnd(32, '0')}-${spanId.padEnd(16, '0')}-01`,
               // Dynatrace specific headers
               'x-dynatrace-trace-id': traceId,

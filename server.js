@@ -2474,7 +2474,7 @@ app.post('/api/remediation/feature-flag', async (req, res) => {
       entitySelector: entitySelectorForEvent,
       keepOpen: isConfigTriggered,
       properties: {
-        'dt.event.description': `Feature flag '${flag}' changed from ${previousValue} to ${value}. Reason: ${reason || 'Not specified'}. Triggered by ${triggeredBy} for problem ${problemId || 'N/A'}.`,
+        'dt.event.description': `Feature flag '${flag}' changed from ${previousValue} to ${value}. Reason: ${reason || 'Not specified'}. Triggered by ${triggeredBy}${problemId && problemId !== 'N/A' ? ` for problem ${problemId}` : ''}.`,
         'deployment.name': `Remediation: ${flag}`,
         'deployment.project': 'BizObs Feature Flags',
         'deployment.version': `remediation-${Date.now()}`,
@@ -2483,7 +2483,7 @@ app.post('/api/remediation/feature-flag', async (req, res) => {
         'new.value': String(value),
         'change.reason': reason || 'Not specified',
         'triggered.by': triggeredBy,
-        'problem.id': problemId || 'N/A',
+        ...(problemId && problemId !== 'N/A' ? { 'problem.id': problemId } : {}),
         'remediation.type': 'feature_flag_toggle',
         'application': 'BizObs',
         'change.type': isConfigTriggered ? 'configuration-change' : 'remediation',

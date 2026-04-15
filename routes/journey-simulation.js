@@ -1231,9 +1231,13 @@ router.post('/simulate-journey', async (req, res) => {
     // Multi-tenant: Services keep running, no cleanup on journey start
     console.log(`[journey-sim] ✅ Services will continue running for ${companyContext.companyName} (multi-tenant mode)`);
 
+    // Pre-start ALL services and build a port map so services can call each other directly
+    // without needing to call back to the main server (eliminates noisy ensure-service spans
+    // from distributed traces, giving clean Service A → Service B → Service C chains)
+    const servicePortMap = {};
     for (const stepInfo of errorPlannedSteps) {
       const { stepName, serviceName, description, category } = stepInfo;
-      await ensureServiceRunning(stepName, { 
+      const port = await ensureServiceRunning(stepName, { 
         ...companyContext, 
         stepName, 
         serviceName,
@@ -1241,7 +1245,14 @@ router.post('/simulate-journey', async (req, res) => {
         category,
         type: category
       });
+      // Map both step name and service name to the port for easy lookup
+      const resolvedServiceName = serviceName || getServiceNameFromStep(stepName);
+      if (port) {
+        servicePortMap[stepName] = port;
+        if (resolvedServiceName) servicePortMap[resolvedServiceName] = port;
+      }
     }
+    console.log(`[journey-sim] 🗺️  Service port map:`, JSON.stringify(servicePortMap));
 
     await new Promise(resolve => setTimeout(resolve, 5000));  // Wait for services to fully start
 
@@ -1293,6 +1304,10 @@ router.post('/simulate-journey', async (req, res) => {
         
         // CRITICAL: Full steps array for service-to-service chaining
         steps: stepData,
+        
+        // Pre-computed port map for direct service-to-service calls
+        // Eliminates need for each service to call back to main server
+        servicePortMap,
         
         // Chain configuration
         thinkTimeMs,

@@ -65,6 +65,10 @@ function callService(serviceName, payload, headers = {}, overridePort) {
       if (payload.stepName) requestHeaders['x-journey-step'] = payload.stepName;
       if (payload.domain) requestHeaders['x-customer-segment'] = payload.domain;
       if (payload.correlationId) requestHeaders['x-correlation-id'] = payload.correlationId;
+      if (payload.companyName) requestHeaders['x-business-company'] = payload.companyName;
+      if (payload.industryType) requestHeaders['x-business-industry'] = payload.industryType;
+      if (payload.parentService) requestHeaders['x-parent-service'] = payload.parentService;
+      if (payload.parentStep) requestHeaders['x-parent-step'] = payload.parentStep;
     }
     
     // CRITICAL: Add Dynatrace trace propagation headers
