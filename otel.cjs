@@ -4,7 +4,7 @@
  * Follows the official Dynatrace walkthrough:
  * https://docs.dynatrace.com/docs/shortlink/otel-wt-nodejs
  *
- * Automatically instruments HTTP calls (including Ollama requests)
+ * Automatically instruments HTTP calls
  * and exports traces + metrics + logs to Dynatrace via OTLP.
  *
  * Token scopes required (stored in .dt-credentials.json → otelToken):
@@ -98,52 +98,12 @@ const AUTH_HEADER = { Authorization: "Api-Token " + DT_API_TOKEN };
 
 // ===== GENERAL SETUP =====
 
-// Helper to tag Ollama-bound requests with GenAI attributes
-function tagOllamaSpan(span, url, host) {
-  if (
-    String(host).includes("11434") ||
-    url.includes("/api/generate") ||
-    url.includes("/api/chat") ||
-    url.includes("/api/embeddings")
-  ) {
-    const model = process.env.OLLAMA_MODEL || "llama3.2";
-    span.setAttribute("gen_ai.system", "ollama");
-    span.setAttribute("gen_ai.operation.name", "chat");
-    span.setAttribute("gen_ai.request.model", model);
-    span.setAttribute("gen_ai.response.model", model);
-    span.setAttribute("llm.request.type", "completion");
-    span.setAttribute("ai.agent.framework", "bizobs-engine");
-    span.setAttribute("server.address", "localhost");
-    span.setAttribute("server.port", 11434);
-    span.updateName(`chat ${model}`);
-  }
-}
-
 registerInstrumentations({
   instrumentations: [
     // Instruments http/https module (legacy requests)
-    new HttpInstrumentation({
-      requestHook: (span, request) => {
-        const url =
-          typeof request.path === "string"
-            ? request.path
-            : String(request.path || "");
-        const host =
-          (request.headers && request.headers.host) ||
-          (request.getHeader && request.getHeader("host")) ||
-          "";
-        tagOllamaSpan(span, url, host);
-      },
-    }),
+    new HttpInstrumentation(),
     // Instruments native fetch() (undici) — required for Node >= 18
-    // All Ollama calls use native fetch()
-    new UndiciInstrumentation({
-      requestHook: (span, request) => {
-        const url = String(request.path || request.origin || "");
-        const host = String(request.origin || "");
-        tagOllamaSpan(span, url, host);
-      },
-    }),
+    new UndiciInstrumentation(),
   ],
 });
 
@@ -185,7 +145,6 @@ const resource = defaultResource()
       [ATTR_SERVICE_VERSION]: "2.9.10",
       "deployment.environment": process.env.NODE_ENV || "production",
       "service.namespace": "bizobs",
-      "ai.engine.type": "ollama-agent-framework",
     })
   )
   .merge(dtmetadata);

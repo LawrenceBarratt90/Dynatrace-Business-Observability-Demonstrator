@@ -48,7 +48,7 @@ interface FieldProfile {
   allFieldNames: string[];         // all field keys found
 }
 
-type DashboardPreset = 'developer' | 'operations' | 'executive' | 'intelligence' | 'genai' | 'security' | 'sre' | 'logs' | 'vcarb';
+type DashboardPreset = 'developer' | 'operations' | 'executive' | 'intelligence' | 'security' | 'sre' | 'logs' | 'vcarb';
 
 type Timeframe = 'now()-30m' | 'now()-1h' | 'now()-2h' | 'now()-6h' | 'now()-12h' | 'now()-24h' | 'now()-3d' | 'now()-7d';
 
@@ -68,7 +68,6 @@ const PRESET_META: Record<DashboardPreset, { label: string; icon: string; color:
   operations:   { label: 'Operations',             icon: '⚙️', color: '#3498db', desc: 'CPU · Memory · Hosts · Processes · Network · Availability · Saturation' },
   executive:    { label: 'Executive',              icon: '👔', color: '#a78bfa', desc: 'Revenue · Customers · Orders · Trends · Impact' },
   intelligence: { label: 'Dynatrace Intelligence', icon: '🧠', color: '#e74c3c', desc: 'Problems · Root Cause · Anomalies · Impact · Resolution' },
-  genai:        { label: 'GenAI Observability',    icon: '🤖', color: '#10b981', desc: 'LLM Calls · Tokens · Latency · Models · Embeddings · Errors' },
   security:     { label: 'Security',               icon: '🔒', color: '#f59e0b', desc: 'Security Events · Attacks · Categories · Trends · Affected Entities' },
   sre:          { label: 'SRE / Reliability',      icon: '📋', color: '#06b6d4', desc: 'Availability · Error Budget · SLOs · Percentiles · Deployments' },
   logs:         { label: 'Biz Events',             icon: '📝', color: '#8b5cf6', desc: 'Event Volume · Types · Errors · Journeys · Services · Companies' },
@@ -116,16 +115,6 @@ const PRESET_OVERVIEW: Record<DashboardPreset, { headline: string; bullets: stri
       'Davis event timeline combining anomaly detection, problem correlation, and deployment tracking',
     ],
     poweredBy: 'Davis AI, Smartscape Topology, Grail Problem Store, Anomaly Detection',
-  },
-  genai: {
-    headline: 'End-to-end LLM observability — monitor every AI call, token, and model response across your GenAI stack.',
-    bullets: [
-      'Total LLM call volume, latency, and error tracking surfaced from OpenTelemetry gen_ai spans in Grail',
-      'Token usage analytics (input/output) broken down by model and operation for cost optimization',
-      'Model performance comparison with latency percentiles and per-operation breakdowns',
-      'Full call detail table with deep links to Dynatrace Distributed Traces for each LLM interaction',
-    ],
-    poweredBy: 'OpenTelemetry GenAI Spans, Grail, Distributed Tracing, DPS',
   },
   security: {
     headline: 'Security posture monitoring — track security events, attack patterns, and affected entities in real-time.',
@@ -981,52 +970,6 @@ function getCandidates(companyName: string, journeyType: string, preset: Dashboa
         dql: `fetch events, from:${timeframe}\n| filter event.kind == "DAVIS_EVENT" or event.kind == "DAVIS_PROBLEM"\n| summarize count = count(), by:{event.category}\n| sort count desc\n| limit 10` },
       { id: 'di-recent-events', title: 'Recent Anomaly Events', vizType: 'table', width: 3, icon: '📡', accent: '#4fc3f7', desc: 'Latest anomaly events with category, affected entity, and status — your real-time intelligence feed.',
         dql: `fetch events, from:${timeframe}\n| filter event.kind == "DAVIS_EVENT"\n| fieldsAdd AffectedEntity = affected_entity_ids[0]\n| fields Time = timestamp, Category = event.category, Name = event.name, Status = event.status, AffectedEntity\n| sort Time desc\n| limit 50` },
-    ];
-
-    /* ══════════════════════════════════════════════════════════════
-       GENAI OBSERVABILITY — LLM Calls · Tokens · Latency · Models ·
-                             Embeddings · Errors
-       ══════════════════════════════════════════════════════════════ */
-    case 'genai': return [
-      // ── LLM OVERVIEW ──
-      { id: 'ai-overview-banner', title: 'LLM OVERVIEW', vizType: 'sectionBanner', width: 3, icon: '🤖', accent: '#10b981', dql: '' },
-      { id: 'ai-total-calls', title: 'Total LLM Calls', vizType: 'heroMetric', width: 1, icon: '📞', accent: '#10b981', desc: 'Total number of LLM API invocations in the period — the primary throughput measure for your AI workloads.',
-        dql: `fetch spans, from:${timeframe}\n| filter isNotNull(gen_ai.system)\n| summarize totalCalls = count()` },
-      { id: 'ai-avg-latency', title: 'Avg LLM Latency', vizType: 'heroMetric', width: 1, icon: '⏱️', accent: '#f59e0b', desc: 'Average end-to-end LLM call duration — high latency degrades the user experience of AI-powered features.',
-        dql: `fetch spans, from:${timeframe}\n| filter isNotNull(gen_ai.system)\n| summarize avgLatency = round(avg(duration), decimals:0)` },
-      { id: 'ai-error-count', title: 'LLM Errors', vizType: 'heroMetric', width: 1, icon: '❌', accent: '#e74c3c', desc: 'Failed LLM calls (error finish reason or error.type) — each error is a degraded user experience or fallback invocation.',
-        dql: `fetch spans, from:${timeframe}\n| filter isNotNull(gen_ai.system)\n| filter gen_ai.response.finish_reason == "error" or isNotNull(error.type)\n| summarize errors = count()` },
-
-      // ── LLM ACTIVITY ──
-      { id: 'ai-activity-banner', title: 'LLM ACTIVITY', vizType: 'sectionBanner', width: 3, icon: '📊', accent: '#10b981', dql: '' },
-      { id: 'ai-calls-ts', title: 'LLM Calls Over Time', vizType: 'timeseries', width: 2, icon: '📈', accent: '#10b981', desc: 'LLM call volume trend — correlate with feature launches and user activity to understand AI adoption.',
-        dql: `fetch spans, from:${timeframe}\n| filter isNotNull(gen_ai.system)\n| makeTimeseries calls = count()` },
-      { id: 'ai-latency-ts', title: 'LLM Latency Over Time', vizType: 'timeseries', width: 1, icon: '⏱️', accent: '#f59e0b', desc: 'Latency trend over time — watch for provider throttling or model degradation patterns.',
-        dql: `fetch spans, from:${timeframe}\n| filter isNotNull(gen_ai.system)\n| makeTimeseries avgLatency = avg(duration)` },
-      { id: 'ai-by-model', title: 'Calls by Model', vizType: 'categoricalBar', width: 2, icon: '🧠', accent: '#10b981', desc: 'Call volume per LLM model — understand which models handle the most traffic and plan capacity accordingly.',
-        dql: `fetch spans, from:${timeframe}\n| filter isNotNull(gen_ai.system)\n| summarize count = count(), by:{gen_ai.request.model}\n| sort count desc\n| limit 15` },
-      { id: 'ai-by-operation', title: 'Calls by Operation', vizType: 'donut', width: 1, icon: '🎯', accent: '#06b6d4', desc: 'LLM call distribution by operation type (chat, completion, embedding) — reveals your AI usage patterns.',
-        dql: `fetch spans, from:${timeframe}\n| filter isNotNull(gen_ai.system)\n| summarize count = count(), by:{gen_ai.operation.name}\n| sort count desc\n| limit 10` },
-
-      // ── TOKEN USAGE ──
-      { id: 'ai-tokens-banner', title: 'TOKEN USAGE', vizType: 'sectionBanner', width: 3, icon: '🔢', accent: '#8b5cf6', dql: '' },
-      { id: 'ai-total-tokens', title: 'Total Tokens', vizType: 'heroMetric', width: 1, icon: '🔢', accent: '#8b5cf6', desc: 'Aggregate token consumption (input + output) — directly correlates with your LLM provider costs.',
-        dql: `fetch spans, from:${timeframe}\n| filter isNotNull(gen_ai.system)\n| summarize totalTokens = sum(gen_ai.usage.output_tokens) + sum(gen_ai.usage.input_tokens)` },
-      { id: 'ai-tokens-ts', title: 'Token Usage Over Time', vizType: 'timeseries', width: 2, icon: '📈', accent: '#8b5cf6', desc: 'Input vs output token trend — output-heavy patterns drive higher costs; monitor for unexpected spikes.',
-        dql: `fetch spans, from:${timeframe}\n| filter isNotNull(gen_ai.system)\n| makeTimeseries inputTokens = sum(gen_ai.usage.input_tokens), outputTokens = sum(gen_ai.usage.output_tokens)` },
-      { id: 'ai-tokens-by-model', title: 'Tokens by Model', vizType: 'categoricalBar', width: 2, icon: '🧠', accent: '#8b5cf6', desc: 'Token consumption per model — identifies which models are the most expensive from a token perspective.',
-        dql: `fetch spans, from:${timeframe}\n| filter isNotNull(gen_ai.system)\n| summarize tokens = sum(gen_ai.usage.output_tokens) + sum(gen_ai.usage.input_tokens), by:{gen_ai.request.model}\n| sort tokens desc\n| limit 10` },
-      { id: 'ai-avg-tokens', title: 'Avg Tokens per Call', vizType: 'heroMetric', width: 1, icon: '📊', accent: '#06b6d4', desc: 'Average token payload per LLM call — large averages may indicate unoptimised prompts or excessive context windows.',
-        dql: `fetch spans, from:${timeframe}\n| filter isNotNull(gen_ai.system)\n| fieldsAdd total_tokens = gen_ai.usage.output_tokens + gen_ai.usage.input_tokens\n| summarize avgTokens = round(avg(total_tokens), decimals:0)` },
-
-      // ── MODEL PERFORMANCE ──
-      { id: 'ai-perf-banner', title: 'MODEL PERFORMANCE', vizType: 'sectionBanner', width: 3, icon: '⚡', accent: '#f59e0b', dql: '' },
-      { id: 'ai-latency-by-model', title: 'Latency by Model', vizType: 'categoricalBar', width: 2, icon: '⏱️', accent: '#f59e0b', desc: 'Average, p90, and max latency per model — compare models to choose the best speed/quality trade-off.',
-        dql: `fetch spans, from:${timeframe}\n| filter isNotNull(gen_ai.system)\n| summarize avgLatency = round(avg(duration), decimals:0), p90 = round(percentile(duration, 90), decimals:0), maxLatency = round(max(duration), decimals:0), by:{gen_ai.request.model}\n| sort avgLatency desc\n| limit 10` },
-      { id: 'ai-latency-by-op', title: 'Latency by Operation', vizType: 'categoricalBar', width: 1, icon: '🎯', accent: '#f59e0b', desc: 'Latency breakdown by operation type — embeddings are typically fast; completions are slower.',
-        dql: `fetch spans, from:${timeframe}\n| filter isNotNull(gen_ai.system)\n| summarize avgLatency = round(avg(duration), decimals:0), calls = count(), by:{gen_ai.operation.name}\n| sort avgLatency desc\n| limit 10` },
-      { id: 'ai-detail-table', title: 'LLM Call Details', vizType: 'table', width: 3, icon: '📋', accent: '#10b981', desc: 'Individual LLM calls with service, model, tokens, duration, and trace links — your GenAI observability audit trail.',
-        dql: `fetch spans, from:${timeframe}\n| filter isNotNull(gen_ai.system)\n| fieldsAdd ServiceName = entityName(dt.entity.service)\n| fieldsAdd Service = concat("[", ServiceName, "](${TENANT_BASE}/ui/apps/dynatrace.services/explorer?detailsId=", dt.entity.service, ")")\n| fieldsAdd Trace = concat("[", trace_id, "](${TENANT_BASE}/ui/apps/dynatrace.distributedtracing/explorer?traceId=", trace_id, ")")\n| fields Time = start_time, Service, Model = gen_ai.request.model, Operation = gen_ai.operation.name, InputTokens = gen_ai.usage.input_tokens, OutputTokens = gen_ai.usage.output_tokens, Duration = duration, Trace\n| sort Time desc\n| limit 100` },
     ];
 
     /* ══════════════════════════════════════════════════════════════
@@ -2084,7 +2027,7 @@ function FieldProfileBadge({ profile, discovering }: { profile: FieldProfile | n
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   AI TILES HOOK — calls Ollama via proxy to generate DQL tiles
+   AI TILES HOOK — calls AI via proxy to generate DQL tiles
    ═══════════════════════════════════════════════════════════════ */
 
 interface LibrarianInsight {
@@ -2149,7 +2092,7 @@ function useLibrarian() {
 
       setState(prev => ({ ...prev, events, stats, open: true }));
 
-      // Now call Ollama analysis
+      // Now call AI analysis
       setState(prev => ({ ...prev, loading: true, error: null }));
       const analyzeRes = await functions.call('proxy-api', { data: { action: 'librarian-analyze' as const, ...connSettings } });
       const analyzeData = (await analyzeRes.json()) as any;
@@ -2272,14 +2215,13 @@ export const DemonstratorDashboardsPage = () => {
               { label: '⚙️ Operations', detail: '~26 tiles: host health, CPU/memory, processes, network, availability' },
               { label: '👔 Executive', detail: '~38 tiles: revenue, SLA, journey funnel, customer churn, IT impact' },
               { label: '🧠 Intelligence', detail: '~19 tiles: problems, root cause, anomalies, MTTD/MTTR' },
-              { label: '🤖 GenAI', detail: '~20 tiles: LLM calls, tokens, model latency, embeddings, operation breakdown' },
               { label: '🔒 Security', detail: '~18 tiles: security events, attacks, categories, trends, affected entities' },
               { label: '📋 SRE', detail: '~22 tiles: availability, error budget, latency percentiles, HTTP status codes' },
               { label: '📝 Biz Events', detail: '~22 tiles: event volume, types, errors by service/journey/company, details' },
               { label: '🏎️ VCARB Race Ops', detail: '~40 tiles: lap times, tyres, ERS, pit stops, positions, weather, telemetry' },
               { label: '🔄 Refresh', detail: 'Re-run all DQL queries with current filters' },
               { label: '📓 Export to Notebook', detail: 'Export all tiles as a Dynatrace Notebook with DQL sections' },
-              { label: '📚 Librarian', detail: 'View operational history, chaos events, fixes, and AI-powered incident analysis via Ollama' },
+              { label: '📚 Librarian', detail: 'View operational history, chaos events, fixes, and incident analysis' },
             ]}
             footer="Filter dropdowns scope all tiles dynamically. Every tile runs a live DQL query."
             color="#a78bfa"
@@ -2478,7 +2420,7 @@ export const DemonstratorDashboardsPage = () => {
                 <div>
                   <div style={{ color: '#f5a623', fontWeight: 700, fontSize: 16 }}>Librarian — Operational Memory</div>
                   <div style={{ color: '#8899cc', fontSize: 11, marginTop: 2 }}>
-                    {librarian.loading ? 'Ollama is analyzing history…' :
+                    {librarian.loading ? 'Analyzing history…' :
                      librarian.stats ? `${librarian.stats.totalEvents} events · ${librarian.stats.vectorEntries} embeddings` : 'AI-powered incident analysis'}
                   </div>
                 </div>
@@ -2507,7 +2449,7 @@ export const DemonstratorDashboardsPage = () => {
                   color: '#f5a623', fontSize: 14,
                 }}>
                   <div style={{ fontSize: 36, marginBottom: 14, animation: 'spin 2s linear infinite', display: 'inline-block' }}>📚</div>
-                  <div>Ollama is analyzing operational history…</div>
+                  <div>Analyzing operational history…</div>
                   <div style={{ color: '#8899aa', fontSize: 11, marginTop: 8 }}>Reviewing chaos events, fixes, and incident patterns</div>
                 </div>
               )}

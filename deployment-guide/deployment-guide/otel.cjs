@@ -4,7 +4,7 @@
  * Follows the official Dynatrace walkthrough:
  * https://docs.dynatrace.com/docs/shortlink/otel-wt-nodejs
  *
- * Automatically instruments HTTP calls (including Ollama requests)
+ * Automatically instruments HTTP calls
  * and exports traces + metrics + logs to Dynatrace via OTLP.
  *
  * Token scopes required (stored in .dt-credentials.json → otelToken):
@@ -94,31 +94,7 @@ const AUTH_HEADER = { Authorization: "Api-Token " + DT_API_TOKEN };
 
 registerInstrumentations({
   instrumentations: [
-    new HttpInstrumentation({
-      // Tag outbound Ollama HTTP calls with GenAI attributes
-      requestHook: (span, request) => {
-        const url =
-          typeof request.path === "string"
-            ? request.path
-            : String(request.path || "");
-        const host =
-          (request.headers && request.headers.host) ||
-          (request.getHeader && request.getHeader("host")) ||
-          "";
-        if (
-          String(host).includes("11434") ||
-          url.includes("/api/generate") ||
-          url.includes("/api/chat")
-        ) {
-          span.setAttribute("gen_ai.system", "ollama");
-          span.setAttribute(
-            "gen_ai.request.model",
-            process.env.OLLAMA_MODEL || "llama3.2"
-          );
-          span.setAttribute("ai.agent.framework", "bizobs-engine");
-        }
-      },
-    }),
+    new HttpInstrumentation(),
   ],
 });
 
@@ -157,7 +133,6 @@ const resource = defaultResource()
       [ATTR_SERVICE_VERSION]: "2.9.10",
       "deployment.environment": process.env.NODE_ENV || "production",
       "service.namespace": "bizobs",
-      "ai.engine.type": "ollama-agent-framework",
     })
   )
   .merge(dtmetadata);
