@@ -45,7 +45,9 @@ Return a structured analysis focusing on:
 - Realistic conversion rates and transaction values for their industry
 - Key performance indicators that matter for their business model
 
-Base your analysis on publicly available information about ${companyName}'s business model, but focus on practical observability scenarios rather than generic business strategy.`;
+Base your analysis on publicly available information about ${companyName}'s business model, but focus on practical observability scenarios rather than generic business strategy.
+
+⚠️ IMPORTANT: Respond in natural language prose — use clear headings, bullet points, and readable paragraphs. Do NOT return JSON. This analysis will be read by executives and stakeholders, so make it professional and easy to understand.`;
 };
 
 export const generateJourneyPrompt = (variables: PromptVariables): string => {
@@ -149,7 +151,9 @@ Requirements:
 
 Return the response in JSON code format that can be copied from this UI
 
-⚠️ BUSINESS EVENT TRACKING REQUIRED: Each step must produce measurable business outcomes ⚠️`;
+⚠️ BUSINESS EVENT TRACKING REQUIRED: Each step must produce measurable business outcomes ⚠️
+
+⚠️ RESPONSE FORMAT: Return ONLY raw JSON — no markdown code fences, no \`\`\`json blocks, no explanation text before or after. The response must start with { and end with }. It will be parsed directly by JSON.parse().`;
 };
 
 export const PROMPT_DESCRIPTIONS = {

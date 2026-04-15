@@ -1468,7 +1468,12 @@ export const HomePage = () => {
     }
     
     try {
-      const parsedResponse = JSON.parse(copilotResponse);
+      // Strip markdown code fences if present
+      let cleanResponse = copilotResponse.trim();
+      if (cleanResponse.startsWith('```')) {
+        cleanResponse = cleanResponse.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '');
+      }
+      const parsedResponse = JSON.parse(cleanResponse);
       setGenerationStatus('✅ JSON validated successfully');
       
       // Check if it looks like a journey config
@@ -1532,7 +1537,12 @@ export const HomePage = () => {
       setIsGeneratingServices(true);
       setGenerationStatus('🔄 Parsing journey data...');
       
-      const parsedResponse = JSON.parse(copilotResponse);
+      // Strip markdown code fences if present
+      let cleanResponse = copilotResponse.trim();
+      if (cleanResponse.startsWith('```')) {
+        cleanResponse = cleanResponse.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '');
+      }
+      const parsedResponse = JSON.parse(cleanResponse);
       
       // Validate journey structure
       if (!parsedResponse.journey && !parsedResponse.steps) {
@@ -2517,7 +2527,12 @@ export const HomePage = () => {
                       showToast(`✅ Journey config generated — auto-loading response`, 'success');
 
                       // Auto-load the journey response and advance to paste/validate step
-                      setCopilotResponse(res2.data.content);
+                      // Strip markdown code fences if present (AI sometimes wraps JSON in ```json...```)
+                      let cleanJson = res2.data.content.trim();
+                      if (cleanJson.startsWith('```')) {
+                        cleanJson = cleanJson.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '');
+                      }
+                      setCopilotResponse(cleanJson);
                       setStep2Phase('response');
                     } catch (err: any) {
                       setGhGenerating1(false);
@@ -2866,7 +2881,12 @@ export const HomePage = () => {
                         variant="emphasized"
                         style={{ fontSize: 11 }}
                         onClick={() => {
-                          setCopilotResponse(ghResult2);
+                          // Strip markdown code fences if present
+                          let cleanJson = ghResult2.trim();
+                          if (cleanJson.startsWith('```')) {
+                            cleanJson = cleanJson.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '');
+                          }
+                          setCopilotResponse(cleanJson);
                           setStep2Phase('response');
                           showToast('✅ AI response loaded into paste area — click Validate', 'success');
                         }}

@@ -2214,7 +2214,7 @@ export default async function (payload: ProxyPayload) {
           body: JSON.stringify({
             model: selectedModel,
             messages: [
-              { role: 'system', content: 'You are a business analyst AI assistant. Respond with well-structured, actionable JSON when the prompt requests it. Otherwise respond with clear, professional text.' },
+              { role: 'system', content: 'You are a business analyst AI assistant. Follow the output format instructions in the user prompt exactly. When asked for JSON, return raw JSON only (no markdown fences). When asked for natural language, respond with clear professional prose using headings and bullet points.' },
               { role: 'user', content: prompt },
             ],
             temperature: 0.7,
