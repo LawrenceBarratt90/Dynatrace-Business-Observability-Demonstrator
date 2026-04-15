@@ -261,8 +261,6 @@ const DEMO_PATHS: DemoPath[] = [
         action: 'Click any trace to see the waterfall view — each span shows the service, duration, and status. HTTP calls between services are visible.',
         where: 'Dynatrace → Distributed Traces → click a trace',
       },
-      {
-
     ],
   },
   {
