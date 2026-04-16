@@ -2719,7 +2719,7 @@ export const HomePage = () => {
               <Heading level={4} style={{ marginBottom: 4 }}>Generate with GitHub Copilot AI</Heading>
               <Paragraph style={{ fontSize: 12, opacity: 0.7, marginBottom: 0 }}>Fully automated — AI generates everything</Paragraph>
             </div>
-            <Flex flexDirection="column" gap={10}>
+            <Flex flexDirection="column" gap={8}>
               <Flex alignItems="center" gap={8}>
                 <div style={{ fontSize: 14, width: 24, textAlign: 'center' }}>1️⃣</div>
                 <Paragraph style={{ fontSize: 13, marginBottom: 0 }}>Enter company name &amp; domain</Paragraph>
@@ -2767,7 +2767,7 @@ export const HomePage = () => {
               <Heading level={4} style={{ marginBottom: 4 }}>Use Your Own AI Prompt</Heading>
               <Paragraph style={{ fontSize: 12, opacity: 0.7, marginBottom: 0 }}>Already have a GenAI analysis? Paste it here</Paragraph>
             </div>
-            <Flex flexDirection="column" gap={10}>
+            <Flex flexDirection="column" gap={8}>
               <Flex alignItems="center" gap={8}>
                 <div style={{ fontSize: 14, width: 24, textAlign: 'center' }}>1️⃣</div>
                 <Paragraph style={{ fontSize: 13, marginBottom: 0 }}>Enter company name &amp; domain</Paragraph>
@@ -3015,7 +3015,7 @@ export const HomePage = () => {
                         transition: 'all 0.15s ease',
                       }}
                     >
-                      <Flex alignItems="center" gap={10}>
+                      <Flex alignItems="center" gap={8}>
                         <div style={{
                           width: 24, height: 24, borderRadius: '50%',
                           border: `2px solid ${selectedJourneyName === j ? 'rgba(108,44,156,0.8)' : Colors.Border.Neutral.Default}`,
@@ -3098,7 +3098,7 @@ export const HomePage = () => {
           </div>
           <div style={{ flex: 2, padding: 20, background: Colors.Background.Surface.Default, borderRadius: 12, boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
             <Heading level={4} style={{ marginBottom: 12 }}>📋 Summary</Heading>
-            <Flex flexDirection="column" gap={10}>
+            <Flex flexDirection="column" gap={8}>
               <div style={{ padding: 12, background: 'rgba(0,161,201,0.1)', borderRadius: 8 }}>
                 <Paragraph style={{ fontSize: 11, marginBottom: 4, opacity: 0.7 }}>Company</Paragraph>
                 <Strong style={{ fontSize: 14 }}>{companyName}</Strong>
