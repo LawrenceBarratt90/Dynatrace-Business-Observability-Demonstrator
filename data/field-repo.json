@@ -16914,17 +16914,17 @@
       {
         "name": "Productname",
         "type": "string",
-        "sampleValue": "Premium Product"
+        "sampleValue": "Standard Product"
       },
       {
         "name": "ProductId",
         "type": "string",
-        "sampleValue": "SKU1001"
+        "sampleValue": "SKU1002"
       },
       {
         "name": "ProductType",
         "type": "string",
-        "sampleValue": "Electronics"
+        "sampleValue": "Clothing"
       },
       {
         "name": "Price",
@@ -16934,12 +16934,12 @@
       {
         "name": "transactionValue",
         "type": "numeric",
-        "sampleValue": 131.67
+        "sampleValue": 186.61
       },
       {
         "name": "orderTotal",
         "type": "numeric",
-        "sampleValue": 295.27
+        "sampleValue": 329.42
       },
       {
         "name": "averageOrderValue",
@@ -16949,7 +16949,7 @@
       {
         "name": "customerLifetimeValue",
         "type": "numeric",
-        "sampleValue": 502.42
+        "sampleValue": 588.89
       },
       {
         "name": "revenuePerCustomer",
@@ -16964,17 +16964,17 @@
       {
         "name": "discountApplied",
         "type": "numeric",
-        "sampleValue": 14.35
+        "sampleValue": 7.87
       },
       {
         "name": "taxAmount",
         "type": "numeric",
-        "sampleValue": 23.62
+        "sampleValue": 26.35
       },
       {
         "name": "shippingCost",
         "type": "numeric",
-        "sampleValue": 12.25
+        "sampleValue": 12.82
       },
       {
         "name": "pricingTier",
@@ -16994,17 +16994,17 @@
       {
         "name": "contractValue",
         "type": "numeric",
-        "sampleValue": 2330.23
+        "sampleValue": 4278.85
       },
       {
         "name": "annualRevenue",
         "type": "numeric",
-        "sampleValue": 1256.05
+        "sampleValue": 1472.23
       },
       {
         "name": "acquisitionCost",
         "type": "numeric",
-        "sampleValue": 28.83
+        "sampleValue": 40.35
       },
       {
         "name": "retentionProbability",
@@ -17019,7 +17019,7 @@
       {
         "name": "upsellPotential",
         "type": "numeric",
-        "sampleValue": 150.73
+        "sampleValue": 176.67
       },
       {
         "name": "crossSellOpportunity",
@@ -17044,7 +17044,7 @@
       {
         "name": "engagementScore",
         "type": "numeric",
-        "sampleValue": 63.24
+        "sampleValue": 75.88
       },
       {
         "name": "satisfactionRating",
@@ -17064,7 +17064,7 @@
       {
         "name": "timeToConversion",
         "type": "numeric",
-        "sampleValue": 6.14
+        "sampleValue": 13.53
       },
       {
         "name": "competitiveAdvantage",
@@ -17089,7 +17089,7 @@
       {
         "name": "processingTime",
         "type": "numeric",
-        "sampleValue": 18.45
+        "sampleValue": 27.27
       },
       {
         "name": "operationalCost",
@@ -17109,7 +17109,7 @@
       {
         "name": "costPerAcquisition",
         "type": "numeric",
-        "sampleValue": 34.6
+        "sampleValue": 48.42
       },
       {
         "name": "riskLevel",
@@ -17134,12 +17134,12 @@
       {
         "name": "growthPotential",
         "type": "numeric",
-        "sampleValue": 125.61
+        "sampleValue": 147.22
       },
       {
         "name": "futureValue",
         "type": "numeric",
-        "sampleValue": 753.63
+        "sampleValue": 883.34
       },
       {
         "name": "expansionOpportunity",
@@ -17199,7 +17199,7 @@
       {
         "name": "paymentMethod",
         "type": "string",
-        "sampleValue": "Mastercard"
+        "sampleValue": "card"
       },
       {
         "name": "orderCompletionRate",
@@ -17239,22 +17239,22 @@
       {
         "name": "productName",
         "type": "string",
-        "sampleValue": "Asda Organic Milk 2L"
+        "sampleValue": "George Boys' Fleece Hoodie"
       },
       {
         "name": "productSKU",
         "type": "string",
-        "sampleValue": "SKU-CH-400"
+        "sampleValue": "SKU-SP-MILK-002"
       },
       {
         "name": "productPrice",
         "type": "numeric",
-        "sampleValue": 15
+        "sampleValue": 1.25
       },
       {
         "name": "productCategory",
         "type": "string",
-        "sampleValue": "Cheese"
+        "sampleValue": "Meat & Fish"
       },
       {
         "name": "productQuantity",
@@ -17384,7 +17384,7 @@
       {
         "name": "cartAbandonmentRate",
         "type": "numeric",
-        "sampleValue": 0.19
+        "sampleValue": 0.67
       },
       {
         "name": "averagePageLoadTime",
@@ -17524,7 +17524,7 @@
       {
         "name": "orderModificationAllowed",
         "type": "string",
-        "sampleValue": "true"
+        "sampleValue": "yes"
       },
       {
         "name": "postOrderSurveySent",
@@ -17550,6 +17550,186 @@
         "name": "repeatBasketUsed",
         "type": "string",
         "sampleValue": "true"
+      },
+      {
+        "name": "averageBasketValue",
+        "type": "numeric",
+        "sampleValue": 68.45
+      },
+      {
+        "name": "orderConversionRate",
+        "type": "numeric",
+        "sampleValue": 0.052
+      },
+      {
+        "name": "paymentErrorRate",
+        "type": "numeric",
+        "sampleValue": 0.009
+      },
+      {
+        "name": "deliverySlotBookingSuccessRate",
+        "type": "numeric",
+        "sampleValue": 0.93
+      },
+      {
+        "name": "subscriptionUpsellOffered",
+        "type": "string",
+        "sampleValue": "yes"
+      },
+      {
+        "name": "deliverySlotTime",
+        "type": "string",
+        "sampleValue": "2025-11-23T17:00:00.000Z"
+      },
+      {
+        "name": "deliveryUpgradeChosen",
+        "type": "string",
+        "sampleValue": "no"
+      },
+      {
+        "name": "totalItems",
+        "type": "numeric",
+        "sampleValue": 6
+      },
+      {
+        "name": "uniqueProductCount",
+        "type": "numeric",
+        "sampleValue": 3
+      },
+      {
+        "name": "paymentGateway",
+        "type": "string",
+        "sampleValue": "Worldpay"
+      },
+      {
+        "name": "checkoutCompletionTimeSeconds",
+        "type": "numeric",
+        "sampleValue": 179
+      },
+      {
+        "name": "timeToInteractiveSeconds",
+        "type": "numeric",
+        "sampleValue": 2.7
+      },
+      {
+        "name": "orderSubmissionStatus",
+        "type": "string",
+        "sampleValue": "success"
+      },
+      {
+        "name": "orderId",
+        "type": "string",
+        "sampleValue": "ORD20251121001"
+      },
+      {
+        "name": "customerNPS",
+        "type": "numeric",
+        "sampleValue": 64
+      },
+      {
+        "name": "refundEligibility",
+        "type": "string",
+        "sampleValue": "eligible"
+      },
+      {
+        "name": "supportContactInitiated",
+        "type": "string",
+        "sampleValue": "no"
+      },
+      {
+        "name": "promoCodeUsed",
+        "type": "string",
+        "sampleValue": "AUTUMN10"
+      },
+      {
+        "name": "promoDiscountValue",
+        "type": "numeric",
+        "sampleValue": 6
+      },
+      {
+        "name": "thirdPartyMarketplaceOrder",
+        "type": "string",
+        "sampleValue": "no"
+      },
+      {
+        "name": "siteRegion",
+        "type": "string",
+        "sampleValue": "UK"
+      },
+      {
+        "name": "sessionDurationSeconds",
+        "type": "numeric",
+        "sampleValue": 1232
+      },
+      {
+        "name": "personalisationEngineTriggered",
+        "type": "string",
+        "sampleValue": "yes"
+      },
+      {
+        "name": "inventorySyncLatencyMs",
+        "type": "numeric",
+        "sampleValue": 210
+      },
+      {
+        "name": "outOfStockItems",
+        "type": "numeric",
+        "sampleValue": 0
+      },
+      {
+        "name": "accountCreationInJourney",
+        "type": "string",
+        "sampleValue": "no"
+      },
+      {
+        "name": "returnCustomer",
+        "type": "string",
+        "sampleValue": "yes"
+      },
+      {
+        "name": "deliveryPassPrompted",
+        "type": "string",
+        "sampleValue": "yes"
+      },
+      {
+        "name": "deliveryPassSignup",
+        "type": "string",
+        "sampleValue": "no"
+      },
+      {
+        "name": "customerSatisfactionSurveySent",
+        "type": "string",
+        "sampleValue": "yes"
+      },
+      {
+        "name": "orderCancellationWindowMinutes",
+        "type": "numeric",
+        "sampleValue": 60
+      },
+      {
+        "name": "fraudScreeningScore",
+        "type": "numeric",
+        "sampleValue": 0.03
+      },
+      {
+        "name": "basketEditCount",
+        "type": "numeric",
+        "sampleValue": 2
+      },
+      {
+        "name": "mobilePushNotificationSent",
+        "type": "string",
+        "sampleValue": "no"
+      },
+      {
+        "name": "averagePageLoadTimeSeconds",
+        "type": "numeric",
+        "sampleValue": 1.9
+      },
+      {
+        "name": "paymentRetryCount",
+        "type": "numeric",
+        "sampleValue": 0
       }
     ],
     "services": [
@@ -17563,7 +17743,10 @@
       "ProductBrowsingService",
       "AddToCartService",
       "SlotBookingService",
-      "CheckoutAndPaymentService"
+      "CheckoutAndPaymentService",
+      "CartReviewService",
+      "CheckoutService",
+      "PaymentService"
     ],
     "steps": [
       "BrowseProducts",
@@ -17576,10 +17759,13 @@
       "ProductBrowsing",
       "AddToCart",
       "SlotBooking",
-      "CheckoutAndPayment"
+      "CheckoutAndPayment",
+      "CartReview",
+      "Checkout",
+      "Payment"
     ],
-    "lastUpdated": "2026-04-15T15:07:15.581Z",
-    "runCount": 16972
+    "lastUpdated": "2026-04-16T20:03:37.639Z",
+    "runCount": 17847
   },
   "testchain corp|chain_test": {
     "companyName": "TestChain Corp",

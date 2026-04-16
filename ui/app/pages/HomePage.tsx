@@ -93,6 +93,7 @@ const TEMPLATES_STORAGE_KEY = 'bizobs_prompt_templates';
 
 export const HomePage = () => {
   const [activeTab, setActiveTab] = useState('welcome');
+  const [selectedPathway, setSelectedPathway] = useState<'ai' | 'manual' | null>(null);
   const [companyName, setCompanyName] = useState('');
   const [domain, setDomain] = useState('');
   const [requirements, setRequirements] = useState('');
@@ -286,6 +287,10 @@ export const HomePage = () => {
   const [extractedJourneys, setExtractedJourneys] = useState<string[]>([]);
   const [selectedJourneyName, setSelectedJourneyName] = useState('');
   const [ownAiPhase, setOwnAiPhase] = useState<'details' | 'paste' | 'generate'>('details');
+
+  // Journey picker modal state (shown after prompt 1 when requirements blank)
+  const [showJourneyPickerModal, setShowJourneyPickerModal] = useState(false);
+  const [journeyPickerResolve, setJourneyPickerResolve] = useState<((journey: string) => void) | null>(null);
 
   // Toast notification state
   const [toastMessage, setToastMessage] = useState('');
@@ -1640,8 +1645,10 @@ export const HomePage = () => {
   // ── Full AI Generation Pipeline (modal flow) ─────────────
   const runAiGenerationPipeline = async () => {
     type StepObj = { label: string; status: 'pending' | 'running' | 'done' | 'error'; detail?: string };
+    const needsJourneyPick = !requirements.trim();
     const steps: StepObj[] = [
       { label: 'Generating C-Suite Analysis', status: 'pending' },
+      ...(needsJourneyPick ? [{ label: 'Select Journey from Analysis', status: 'pending' as const }] : []),
       { label: 'Generating Journey Config', status: 'pending' },
       { label: 'Validating JSON', status: 'pending' },
       { label: 'Creating Services', status: 'pending' },
@@ -1651,6 +1658,7 @@ export const HomePage = () => {
     setAiGenComplete(false);
     setAiGenError('');
     setShowAiGenModal(true);
+    let stepIdx = 0;
 
     const updateStep = (idx: number, update: Partial<StepObj>) => {
       steps[idx] = { ...steps[idx], ...update };
@@ -1658,16 +1666,12 @@ export const HomePage = () => {
     };
 
     try {
-      // Build prompts
-      const csuite = generateCsuitePrompt({ companyName, domain, requirements });
-      const journey = generateJourneyPrompt({ companyName, domain, requirements });
-      setPrompt1(csuite);
-      setPrompt2(journey);
-
       // Step 1: Generate C-Suite Analysis
-      updateStep(0, { status: 'running' });
+      updateStep(stepIdx, { status: 'running' });
       setGhGenerating1(true);
       setGhResult1('');
+      const csuite = generateCsuitePrompt({ companyName, domain, requirements });
+      setPrompt1(csuite);
       const res1 = await callProxyWithRetry({
         action: 'github-copilot-generate',
         apiHost: apiSettings.host, apiPort: apiSettings.port, apiProtocol: apiSettings.protocol,
@@ -1679,13 +1683,36 @@ export const HomePage = () => {
       }
       setGhResult1(res1.data.content);
       const g1 = res1.data.genai;
-      updateStep(0, { status: 'done', detail: g1 ? `${g1.model} · ${g1.totalTokens} tokens · ${(g1.durationMs / 1000).toFixed(1)}s` : `Model: ${res1.data.model}` });
+      updateStep(stepIdx, { status: 'done', detail: g1 ? `${g1.model} · ${g1.totalTokens} tokens · ${(g1.durationMs / 1000).toFixed(1)}s` : `Model: ${res1.data.model}` });
+      stepIdx++;
 
-      // Step 2: Generate Journey Config
-      updateStep(1, { status: 'running' });
+      // If no requirements were given, extract journeys and ask user to pick one
+      let journeyReqs = requirements;
+      if (needsJourneyPick) {
+        updateStep(stepIdx, { status: 'running' });
+        const foundJourneys = extractJourneysFromText(res1.data.content);
+        setExtractedJourneys(foundJourneys);
+        setSelectedJourneyName(foundJourneys[0] || '');
+
+        // Show journey picker modal and wait for user selection
+        const chosenJourney = await new Promise<string>((resolve) => {
+          setJourneyPickerResolve(() => resolve);
+          setShowJourneyPickerModal(true);
+        });
+        setShowJourneyPickerModal(false);
+        setJourneyPickerResolve(null);
+        journeyReqs = chosenJourney;
+        updateStep(stepIdx, { status: 'done', detail: `Selected: "${chosenJourney}"` });
+        stepIdx++;
+      }
+
+      // Generate Journey Config
+      updateStep(stepIdx, { status: 'running' });
       setGhGenerating2(true);
       setGhResult2('');
-      const contextPrefix = `Here is the C-suite analysis from the previous step:\n\n${res1.data.content}\n\nNow, based on that context:\n\n`;
+      const journey = generateJourneyPrompt({ companyName, domain, requirements: journeyReqs });
+      setPrompt2(journey);
+      const contextPrefix = `Here is the C-suite analysis from the previous step:\n\n${res1.data.content}\n\nNow, based on that context, generate the "${journeyReqs}" journey:\n\n`;
       const res2 = await callProxyWithRetry({
         action: 'github-copilot-generate',
         apiHost: apiSettings.host, apiPort: apiSettings.port, apiProtocol: apiSettings.protocol,
@@ -1697,10 +1724,11 @@ export const HomePage = () => {
       }
       setGhResult2(res2.data.content);
       const g2 = res2.data.genai;
-      updateStep(1, { status: 'done', detail: g2 ? `${g2.model} · ${g2.totalTokens} tokens · ${(g2.durationMs / 1000).toFixed(1)}s` : `Model: ${res2.data.model}` });
+      updateStep(stepIdx, { status: 'done', detail: g2 ? `${g2.model} · ${g2.totalTokens} tokens · ${(g2.durationMs / 1000).toFixed(1)}s` : `Model: ${res2.data.model}` });
+      stepIdx++;
 
-      // Step 3: Validate JSON
-      updateStep(2, { status: 'running' });
+      // Validate JSON
+      updateStep(stepIdx, { status: 'running' });
       let cleanJson = res2.data.content.trim();
       if (cleanJson.startsWith('```')) {
         cleanJson = cleanJson.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '');
@@ -1713,10 +1741,11 @@ export const HomePage = () => {
       const journeyConfig = parsedResponse.journey || parsedResponse;
       const jType = journeyConfig.journeyType || parsedResponse.journey?.journeyType || domain;
       const stepCount = (journeyConfig.steps || parsedResponse.steps || []).length;
-      updateStep(2, { status: 'done', detail: `${stepCount} steps · ${jType}` });
+      updateStep(stepIdx, { status: 'done', detail: `${stepCount} steps · ${jType}` });
+      stepIdx++;
 
-      // Step 4: Generate Services
-      updateStep(3, { status: 'running' });
+      // Generate Services
+      updateStep(stepIdx, { status: 'running' });
       setIsGeneratingServices(true);
       const result = await callProxyWithRetry({
         action: 'simulate-journey',
@@ -1733,7 +1762,8 @@ export const HomePage = () => {
       const jObj = data?.journey;
       const jId = jObj?.journeyId || data?.journeyId || 'N/A';
       const jCompany = jObj?.steps?.[0]?.companyName || data?.companyName || companyName;
-      updateStep(3, { status: 'done', detail: `Journey: ${jId}` });
+      updateStep(stepIdx, { status: 'done', detail: `Journey: ${jId}` });
+      stepIdx++;
 
       // Auto-deploy Business Flow
       const fullSteps = (journeyConfig.steps || parsedResponse.steps || []).map((s: any) => ({
@@ -1744,15 +1774,15 @@ export const HomePage = () => {
       }));
       autoDeployBusinessFlow(jCompany, jType, fullSteps);
 
-      // Step 5: Auto-save to My Templates
-      updateStep(4, { status: 'running' });
+      // Auto-save to My Templates
+      updateStep(stepIdx, { status: 'running' });
       const autoTemplateName = `${companyName} - ${jType}`;
       const newTemplate: PromptTemplate = {
         id: `template_${Date.now()}`,
         name: autoTemplateName,
         companyName,
         domain,
-        requirements,
+        requirements: journeyReqs || requirements,
         csuitePrompt: csuite,
         journeyPrompt: journey,
         response: cleanJson,
@@ -1763,7 +1793,7 @@ export const HomePage = () => {
       setSavedTemplates(updated);
       localStorage.setItem(TEMPLATES_STORAGE_KEY, JSON.stringify(updated));
       saveTenantField({ promptTemplates: JSON.stringify(updated) });
-      updateStep(4, { status: 'done', detail: `Saved as "${autoTemplateName}"` });
+      updateStep(stepIdx, { status: 'done', detail: `Saved as "${autoTemplateName}"` });
 
       setAiGenComplete(true);
       setGenerationStatus(`✅ Services created successfully! Journey ID: ${jId}`);
@@ -1773,6 +1803,8 @@ export const HomePage = () => {
       setGhGenerating1(false);
       setGhGenerating2(false);
       setIsGeneratingServices(false);
+      setShowJourneyPickerModal(false);
+      setJourneyPickerResolve(null);
       const failedIdx = steps.findIndex(s => s.status === 'running');
       if (failedIdx >= 0) updateStep(failedIdx, { status: 'error', detail: err.message });
       setAiGenError(err.message);
@@ -1973,7 +2005,15 @@ export const HomePage = () => {
         setCopilotResponse('');
       }
       setSelectedTemplate(templateId);
-      setActiveTab('step1'); // Navigate to step 1 to see the loaded data
+      // If the template already has a response, go straight to step2 (generate services)
+      if (template.response || template.originalConfig) {
+        setSelectedPathway('ai');
+        setStep2Phase('generate');
+        setActiveTab('step2');
+      } else {
+        setSelectedPathway('ai');
+        setActiveTab('step1');
+      }
     }
   };
 
@@ -2698,7 +2738,7 @@ export const HomePage = () => {
         <Flex gap={20}>
           {/* Pathway 1: Generate with GitHub Copilot AI */}
           <div
-            onClick={() => setActiveTab('step1')}
+            onClick={() => { setSelectedPathway('ai'); setActiveTab('step1'); }}
             style={{
               flex: 1, padding: 24, borderRadius: 16, cursor: 'pointer',
               background: 'linear-gradient(135deg, rgba(115,190,40,0.08), rgba(0,161,201,0.08))',
@@ -2744,9 +2784,9 @@ export const HomePage = () => {
             </div>
           </div>
 
-          {/* Pathway 2: Use Your Own AI Prompt */}
+          {/* Pathway 2: Use Copilot Prompts (Manual) */}
           <div
-            onClick={() => { setOwnAiPhase('details'); setPastedAiResponse(''); setExtractedJourneys([]); setSelectedJourneyName(''); setActiveTab('ownai'); }}
+            onClick={() => { setSelectedPathway('manual'); setActiveTab('step1'); }}
             style={{
               flex: 1, padding: 24, borderRadius: 16, cursor: 'pointer',
               background: 'linear-gradient(135deg, rgba(108,44,156,0.08), rgba(0,161,201,0.08))',
@@ -2764,8 +2804,8 @@ export const HomePage = () => {
                 border: '2px solid rgba(108,44,156,0.5)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 32,
               }}>📋</div>
-              <Heading level={4} style={{ marginBottom: 4 }}>Use Your Own AI Prompt</Heading>
-              <Paragraph style={{ fontSize: 12, opacity: 0.7, marginBottom: 0 }}>Already have a GenAI analysis? Paste it here</Paragraph>
+              <Heading level={4} style={{ marginBottom: 4 }}>Use Copilot Prompts Manually</Heading>
+              <Paragraph style={{ fontSize: 12, opacity: 0.7, marginBottom: 0 }}>Copy prompts to your own AI — ChatGPT, Gemini, Claude etc.</Paragraph>
             </div>
             <Flex flexDirection="column" gap={8}>
               <Flex alignItems="center" gap={8}>
@@ -2774,11 +2814,11 @@ export const HomePage = () => {
               </Flex>
               <Flex alignItems="center" gap={8}>
                 <div style={{ fontSize: 14, width: 24, textAlign: 'center' }}>2️⃣</div>
-                <Paragraph style={{ fontSize: 13, marginBottom: 0 }}>Paste your ChatGPT / Gemini / Claude response</Paragraph>
+                <Paragraph style={{ fontSize: 13, marginBottom: 0 }}>Copy generated prompts to your AI tool</Paragraph>
               </Flex>
               <Flex alignItems="center" gap={8}>
                 <div style={{ fontSize: 14, width: 24, textAlign: 'center' }}>3️⃣</div>
-                <Paragraph style={{ fontSize: 13, marginBottom: 0 }}>Pick a journey &amp; AI generates the config</Paragraph>
+                <Paragraph style={{ fontSize: 13, marginBottom: 0 }}>Paste the AI response back &amp; generate config</Paragraph>
               </Flex>
             </Flex>
             <div style={{ marginTop: 16, textAlign: 'center' }}>
@@ -2787,7 +2827,7 @@ export const HomePage = () => {
                 background: 'linear-gradient(135deg, rgba(108,44,156,0.9), rgba(0,161,201,0.9))',
                 color: 'white',
               }}>
-                Paste Your Analysis →
+                Use Your Own AI →
               </div>
             </div>
           </div>
@@ -2796,15 +2836,14 @@ export const HomePage = () => {
     </Flex>
   );
 
-  // ── "Use Your Own AI Prompt" stepped flow ─────────────
+  // ── "Use Copilot Prompts Manually" stepped flow ─────────────
   const renderOwnAiTab = () => (
     <Flex flexDirection="column" gap={20}>
       {/* Phase indicator */}
       <Flex justifyContent="center" alignItems="center" gap={0}>
         {[
-          { id: 'details' as const, label: 'Company Details', icon: '👤', num: 1 },
-          { id: 'paste' as const, label: 'Paste AI Analysis', icon: '📋', num: 2 },
-          { id: 'generate' as const, label: 'Pick Journey & Generate', icon: '🚀', num: 3 },
+          { id: 'paste' as const, label: 'Paste AI Analysis', icon: '📋', num: 1 },
+          { id: 'generate' as const, label: 'Pick Journey & Generate', icon: '🚀', num: 2 },
         ].map((phase, index) => (
           <React.Fragment key={phase.id}>
             <Flex
@@ -2818,8 +2857,7 @@ export const HomePage = () => {
                 cursor: 'pointer',
               }}
               onClick={() => {
-                if (phase.id === 'details') setOwnAiPhase('details');
-                else if (phase.id === 'paste' && companyName && domain) setOwnAiPhase('paste');
+                if (phase.id === 'paste') setOwnAiPhase('paste');
                 else if (phase.id === 'generate' && pastedAiResponse.length > 50 && selectedJourneyName) setOwnAiPhase('generate');
               }}
             >
@@ -2828,10 +2866,10 @@ export const HomePage = () => {
                 {phase.label}
               </Strong>
             </Flex>
-            {index < 2 && (
+            {index < 1 && (
               <div style={{
                 width: 40, height: 2, margin: '0 4px',
-                background: ['details', 'paste', 'generate'].indexOf(ownAiPhase) > index
+                background: ownAiPhase === 'generate'
                   ? 'rgba(108,44,156,0.7)' : Colors.Border.Neutral.Default,
               }} />
             )}
@@ -2839,83 +2877,14 @@ export const HomePage = () => {
         ))}
       </Flex>
 
-      {/* Phase 1: Company Details */}
-      {ownAiPhase === 'details' && (
-        <Flex gap={24}>
-          <div style={{ flex: 3, padding: 20, background: Colors.Background.Surface.Default, borderRadius: 12, boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
-            <Flex alignItems="center" gap={12} style={{ marginBottom: 20 }}>
-              <div style={{ fontSize: 28 }}>📋</div>
-              <div>
-                <Heading level={3} style={{ marginBottom: 0 }}>Step 1 — Company Details</Heading>
-                <Paragraph style={{ fontSize: 12, marginBottom: 0, marginTop: 4, opacity: 0.7 }}>Enter the company you've already analysed with your own AI</Paragraph>
-              </div>
-            </Flex>
-            <Flex flexDirection="column" gap={16}>
-              <div>
-                <Heading level={5} style={{ marginBottom: 8 }}>🏢 Company Name</Heading>
-                <TextInput
-                  value={companyName}
-                  onChange={(value) => setCompanyName(value)}
-                  placeholder="e.g., BMW, ShopMart, HealthPlus"
-                  style={{ width: '100%' }}
-                />
-              </div>
-              <div>
-                <Heading level={5} style={{ marginBottom: 8 }}>🌐 Website Domain</Heading>
-                <TextInput
-                  value={domain}
-                  onChange={(value) => setDomain(value)}
-                  placeholder="e.g., bmw.co.uk, shopmart.com"
-                  style={{ width: '100%' }}
-                />
-              </div>
-              <Flex justifyContent="space-between" alignItems="center" style={{ marginTop: 16 }}>
-                <Button onClick={() => setActiveTab('welcome')} style={{ padding: '8px 16px' }}>← Back</Button>
-                <Button
-                  variant="accent"
-                  disabled={!companyName || !domain}
-                  onClick={() => setOwnAiPhase('paste')}
-                  style={{
-                    padding: '10px 24px', fontWeight: 700, fontSize: 14, borderRadius: 10,
-                    background: companyName && domain ? 'linear-gradient(135deg, rgba(108,44,156,0.9), rgba(0,161,201,0.9))' : undefined,
-                    color: companyName && domain ? 'white' : undefined,
-                    border: companyName && domain ? 'none' : undefined,
-                  }}
-                >
-                  Next: Paste AI Analysis →
-                </Button>
-              </Flex>
-            </Flex>
-          </div>
-          <div style={{ flex: 2, padding: 20, background: Colors.Background.Surface.Default, borderRadius: 12, boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
-            <Heading level={4} style={{ marginBottom: 12 }}>💡 How This Works</Heading>
-            <Flex flexDirection="column" gap={12}>
-              <div style={{ padding: 14, background: 'rgba(108,44,156,0.1)', borderRadius: 8, border: '1px solid rgba(108,44,156,0.3)' }}>
-                <Strong style={{ fontSize: 13 }}>Already used ChatGPT, Gemini, or Claude?</Strong>
-                <Paragraph style={{ fontSize: 12, marginBottom: 0, marginTop: 6, lineHeight: 1.5 }}>
-                  If you've generated a C-Suite business analysis with any AI tool, paste it in the next step.
-                  We'll extract the journey names and let you pick which one to build.
-                </Paragraph>
-              </div>
-              <div style={{ padding: 14, background: 'rgba(0,161,201,0.1)', borderRadius: 8, border: '1px solid rgba(0,161,201,0.3)' }}>
-                <Strong style={{ fontSize: 13 }}>What happens next?</Strong>
-                <Paragraph style={{ fontSize: 12, marginBottom: 0, marginTop: 6, lineHeight: 1.5 }}>
-                  GitHub Copilot AI reads your pasted analysis and generates the journey configuration JSON — then automatically deploys the services.
-                </Paragraph>
-              </div>
-            </Flex>
-          </div>
-        </Flex>
-      )}
-
-      {/* Phase 2: Paste AI Analysis */}
+      {/* Phase 1: Paste AI Analysis */}
       {ownAiPhase === 'paste' && (
         <Flex gap={24}>
           <div style={{ flex: 3, padding: 20, background: Colors.Background.Surface.Default, borderRadius: 12, boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
             <Flex alignItems="center" gap={12} style={{ marginBottom: 20 }}>
               <div style={{ fontSize: 28 }}>📋</div>
               <div>
-                <Heading level={3} style={{ marginBottom: 0 }}>Step 2 — Paste Your AI Analysis</Heading>
+                <Heading level={3} style={{ marginBottom: 0 }}>Paste Your AI Analysis</Heading>
                 <Paragraph style={{ fontSize: 12, marginBottom: 0, marginTop: 4, opacity: 0.7 }}>
                   Paste the C-Suite / business analysis from your AI tool below
                 </Paragraph>
@@ -2940,7 +2909,7 @@ export const HomePage = () => {
               }}
             />
             <Flex justifyContent="space-between" alignItems="center" style={{ marginTop: 16 }}>
-              <Button onClick={() => setOwnAiPhase('details')} style={{ padding: '8px 16px' }}>← Back</Button>
+              <Button onClick={() => setActiveTab('step1')} style={{ padding: '8px 16px' }}>← Back</Button>
               <Button
                 variant="accent"
                 disabled={pastedAiResponse.length < 50}
@@ -2990,7 +2959,7 @@ export const HomePage = () => {
             <Flex alignItems="center" gap={12} style={{ marginBottom: 20 }}>
               <div style={{ fontSize: 28 }}>🚀</div>
               <div>
-                <Heading level={3} style={{ marginBottom: 0 }}>Step 3 — Pick Journey &amp; Generate</Heading>
+                <Heading level={3} style={{ marginBottom: 0 }}>Pick Journey &amp; Generate</Heading>
                 <Paragraph style={{ fontSize: 12, marginBottom: 0, marginTop: 4, opacity: 0.7 }}>
                   Select which journey to build, then let AI generate the full configuration
                 </Paragraph>
@@ -3181,6 +3150,9 @@ export const HomePage = () => {
                   resize: 'vertical'
                 }}
               />
+              <Paragraph style={{ fontSize: 11, marginTop: 6, opacity: 0.6, lineHeight: 1.4, fontStyle: 'italic' }}>
+                💡 Leave blank and AI will analyse the company then suggest journeys for you to choose from
+              </Paragraph>
             </div>
 
             <Flex justifyContent="space-between" alignItems="center" gap={12} style={{ marginTop: 16 }}>
@@ -3188,8 +3160,8 @@ export const HomePage = () => {
                 ← Back
               </Button>
               <Flex alignItems="center" gap={12}>
-                {/* Model dropdown — only shown when PAT is configured */}
-                {ghCopilotConfigured && (
+                {/* Model dropdown — only shown for AI pathway when PAT is configured */}
+                {selectedPathway === 'ai' && ghCopilotConfigured && (
                   <select
                     value={ghCopilotModel}
                     onChange={(e: any) => setGhCopilotModel(e.target.value)}
@@ -3211,7 +3183,8 @@ export const HomePage = () => {
                     }
                   </select>
                 )}
-                {/* Generate with AI button — opens automated pipeline modal */}
+                {/* Generate with AI button — AI pathway only */}
+                {selectedPathway === 'ai' && (
                 <Button
                   variant="accent"
                   disabled={!companyName || !domain || !ghCopilotConfigured || ghGeneratingAll}
@@ -3229,33 +3202,19 @@ export const HomePage = () => {
                 >
                   ✨ Generate with AI
                 </Button>
-                {/* Use Your Own AI Prompt — paste from external GenAI */}
-                <Button
-                  disabled={!companyName || !domain || !ghCopilotConfigured}
-                  onClick={() => { setPastedAiResponse(''); setExtractedJourneys([]); setSelectedJourneyName(''); setShowPasteAiModal(true); }}
-                  title={!ghCopilotConfigured ? 'Configure GitHub PAT in Settings first' : 'Paste a C-Suite analysis from ChatGPT, Gemini, Claude, etc.'}
-                  style={{
-                    padding: '10px 20px', opacity: !ghCopilotConfigured ? 0.4 : 1,
-                    fontWeight: 700, fontSize: 14,
-                    background: ghCopilotConfigured ? 'linear-gradient(135deg, rgba(108,44,156,0.9), rgba(0,161,201,0.9))' : undefined,
-                    color: ghCopilotConfigured ? 'white' : undefined,
-                    border: ghCopilotConfigured ? 'none' : undefined,
-                    borderRadius: 10,
-                    boxShadow: ghCopilotConfigured ? '0 4px 16px rgba(108,44,156,0.3)' : undefined,
-                  }}
-                >
-                  📋 Use Your Own AI Prompt
-                </Button>
-                {/* Manual path */}
-                <Button 
-                  color="primary"
-                  variant="emphasized"
-                  onClick={() => setActiveTab('step2')}
-                  disabled={!companyName || !domain}
-                  style={{ padding: '8px 20px' }}
-                >
-                  Next: Generate Prompts →
-                </Button>
+                )}
+                {/* Manual pathway: show "Next: Generate Prompts →" instead */}
+                {selectedPathway === 'manual' && (
+                  <Button 
+                    color="primary"
+                    variant="emphasized"
+                    onClick={() => { setStep2Phase('prompts'); setActiveTab('step2'); }}
+                    disabled={!companyName || !domain}
+                    style={{ padding: '8px 20px' }}
+                  >
+                    Next: Generate Prompts →
+                  </Button>
+                )}
               </Flex>
             </Flex>
           </Flex>
@@ -3989,12 +3948,21 @@ export const HomePage = () => {
             borderBottom: `1px solid ${Colors.Border.Neutral.Default}`
           }}>
             <Flex justifyContent="center" alignItems="center" gap={0}>
-              {[
-                { id: 'welcome', label: 'Welcome', icon: '🏠', step: 0 },
-                { id: 'step1', label: 'AI Generate', icon: '✨', step: 1 },
-                { id: 'ownai', label: 'Own AI Prompt', icon: '📋', step: 1 },
-                { id: 'step2', label: 'Generate Prompts', icon: '🤖', step: 2 }
-              ].map((item, index, arr) => (
+              {(selectedPathway === 'ai'
+                ? [
+                    { id: 'welcome', label: 'Welcome', icon: '🏠', step: 0 },
+                    { id: 'step1', label: 'Customer Details', icon: '📝', step: 1 },
+                  ]
+                : selectedPathway === 'manual'
+                ? [
+                    { id: 'welcome', label: 'Welcome', icon: '🏠', step: 0 },
+                    { id: 'step1', label: 'Customer Details', icon: '📝', step: 1 },
+                    { id: 'step2', label: 'Generate Prompts', icon: '📋', step: 2 },
+                  ]
+                : [
+                    { id: 'welcome', label: 'Welcome', icon: '🏠', step: 0 },
+                  ]
+              ).map((item, index, arr) => (
                 <React.Fragment key={item.id}>
                   <Flex 
                     alignItems="center" 
@@ -4027,7 +3995,7 @@ export const HomePage = () => {
                     <div style={{ 
                       width: 40, 
                       height: 2, 
-                      background: index < (['welcome', 'step1', 'ownai', 'step2'].indexOf(activeTab)) 
+                      background: index < arr.findIndex(t => t.id === activeTab)
                         ? Colors.Theme.Primary['70'] 
                         : Colors.Border.Neutral.Default,
                       margin: '0 4px',
@@ -6330,6 +6298,89 @@ export const HomePage = () => {
                   Close
                 </Button>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Journey Picker Modal (AI pipeline — no requirements) ─────── */}
+      {showJourneyPickerModal && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 10004, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.65)' }} />
+          <div style={{
+            position: 'relative', width: 560, maxHeight: '80vh', background: Colors.Background.Surface.Default,
+            borderRadius: 20, border: '2px solid rgba(115,190,40,0.5)',
+            boxShadow: '0 24px 64px rgba(0,0,0,0.4)', overflow: 'hidden', display: 'flex', flexDirection: 'column',
+          }}>
+            {/* Header */}
+            <div style={{
+              padding: '20px 24px',
+              background: 'linear-gradient(135deg, rgba(115,190,40,0.9), rgba(0,161,201,0.9))',
+            }}>
+              <Strong style={{ color: 'white', fontSize: 18 }}>Select a Journey</Strong>
+              <Paragraph style={{ color: 'rgba(255,255,255,0.85)', fontSize: 12, marginBottom: 0, marginTop: 4 }}>
+                AI analysed the company and found these journeys — pick one to generate
+              </Paragraph>
+            </div>
+            {/* Journey List */}
+            <div style={{ padding: 20, overflow: 'auto', flex: 1 }}>
+              <Flex flexDirection="column" gap={8}>
+                {extractedJourneys.map((j, i) => (
+                  <div
+                    key={i}
+                    onClick={() => setSelectedJourneyName(j)}
+                    style={{
+                      padding: '14px 16px', borderRadius: 10, cursor: 'pointer',
+                      background: selectedJourneyName === j
+                        ? 'linear-gradient(135deg, rgba(115,190,40,0.15), rgba(0,161,201,0.1))'
+                        : Colors.Background.Base.Default,
+                      border: selectedJourneyName === j
+                        ? '2px solid rgba(115,190,40,0.7)'
+                        : `1px solid ${Colors.Border.Neutral.Default}`,
+                      transition: 'all 0.15s ease',
+                    }}
+                  >
+                    <Flex alignItems="center" gap={12}>
+                      <div style={{
+                        width: 28, height: 28, borderRadius: '50%', flexShrink: 0,
+                        background: selectedJourneyName === j
+                          ? 'linear-gradient(135deg, rgba(115,190,40,0.9), rgba(0,161,201,0.9))'
+                          : Colors.Background.Surface.Default,
+                        border: selectedJourneyName === j ? 'none' : `2px solid ${Colors.Border.Neutral.Default}`,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontSize: 14, color: 'white',
+                      }}>
+                        {selectedJourneyName === j ? '✓' : ''}
+                      </div>
+                      <Strong style={{ fontSize: 14 }}>{j}</Strong>
+                    </Flex>
+                  </div>
+                ))}
+              </Flex>
+              {extractedJourneys.length === 0 && (
+                <Paragraph style={{ textAlign: 'center', opacity: 0.5, marginTop: 20 }}>No journeys found in the analysis.</Paragraph>
+              )}
+            </div>
+            {/* Footer */}
+            <div style={{ padding: '16px 20px', borderTop: `1px solid ${Colors.Border.Neutral.Default}`, display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
+              <Button
+                variant="accent"
+                disabled={!selectedJourneyName}
+                onClick={() => {
+                  if (journeyPickerResolve && selectedJourneyName) {
+                    journeyPickerResolve(selectedJourneyName);
+                  }
+                }}
+                style={{
+                  padding: '10px 28px', fontWeight: 700, fontSize: 14,
+                  background: selectedJourneyName ? 'linear-gradient(135deg, rgba(115,190,40,0.9), rgba(0,161,201,0.9))' : undefined,
+                  color: selectedJourneyName ? 'white' : undefined,
+                  border: selectedJourneyName ? 'none' : undefined,
+                  borderRadius: 10,
+                }}
+              >
+                Generate "{selectedJourneyName}" →
+              </Button>
             </div>
           </div>
         </div>
