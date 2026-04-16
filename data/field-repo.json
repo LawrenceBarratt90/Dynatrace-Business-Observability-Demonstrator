@@ -17961,22 +17961,22 @@
       {
         "name": "ProductType",
         "type": "string",
-        "sampleValue": "Home & Garden"
+        "sampleValue": "Electronics"
       },
       {
         "name": "Price",
         "type": "numeric",
-        "sampleValue": 49.99
+        "sampleValue": 29.99
       },
       {
         "name": "transactionValue",
         "type": "numeric",
-        "sampleValue": 101.02
+        "sampleValue": 119.16
       },
       {
         "name": "orderTotal",
         "type": "numeric",
-        "sampleValue": 215.26
+        "sampleValue": 364.26
       },
       {
         "name": "averageOrderValue",
@@ -17986,7 +17986,7 @@
       {
         "name": "customerLifetimeValue",
         "type": "numeric",
-        "sampleValue": 758.74
+        "sampleValue": 717.69
       },
       {
         "name": "revenuePerCustomer",
@@ -18001,17 +18001,17 @@
       {
         "name": "discountApplied",
         "type": "numeric",
-        "sampleValue": 18.21
+        "sampleValue": 5.68
       },
       {
         "name": "taxAmount",
         "type": "numeric",
-        "sampleValue": 17.22
+        "sampleValue": 29.14
       },
       {
         "name": "shippingCost",
         "type": "numeric",
-        "sampleValue": 5.24
+        "sampleValue": 15.27
       },
       {
         "name": "pricingTier",
@@ -18031,17 +18031,17 @@
       {
         "name": "contractValue",
         "type": "numeric",
-        "sampleValue": 2147.82
+        "sampleValue": 5166.03
       },
       {
         "name": "annualRevenue",
         "type": "numeric",
-        "sampleValue": 1896.85
+        "sampleValue": 1794.23
       },
       {
         "name": "acquisitionCost",
         "type": "numeric",
-        "sampleValue": 40.11
+        "sampleValue": 49.52
       },
       {
         "name": "retentionProbability",
@@ -18056,7 +18056,7 @@
       {
         "name": "upsellPotential",
         "type": "numeric",
-        "sampleValue": 227.62
+        "sampleValue": 215.31
       },
       {
         "name": "crossSellOpportunity",
@@ -18081,7 +18081,7 @@
       {
         "name": "engagementScore",
         "type": "numeric",
-        "sampleValue": 76.82
+        "sampleValue": 67.17
       },
       {
         "name": "satisfactionRating",
@@ -18101,7 +18101,7 @@
       {
         "name": "timeToConversion",
         "type": "numeric",
-        "sampleValue": 13.24
+        "sampleValue": 5.22
       },
       {
         "name": "competitiveAdvantage",
@@ -18126,7 +18126,7 @@
       {
         "name": "processingTime",
         "type": "numeric",
-        "sampleValue": 12.54
+        "sampleValue": 11.26
       },
       {
         "name": "operationalCost",
@@ -18146,7 +18146,7 @@
       {
         "name": "costPerAcquisition",
         "type": "numeric",
-        "sampleValue": 48.13
+        "sampleValue": 59.42
       },
       {
         "name": "riskLevel",
@@ -18171,12 +18171,12 @@
       {
         "name": "growthPotential",
         "type": "numeric",
-        "sampleValue": 189.69
+        "sampleValue": 179.42
       },
       {
         "name": "futureValue",
         "type": "numeric",
-        "sampleValue": 1138.11
+        "sampleValue": 1076.54
       },
       {
         "name": "expansionOpportunity",
@@ -18311,22 +18311,22 @@
       {
         "name": "productName",
         "type": "string",
-        "sampleValue": "BMW M Performance Accessories"
+        "sampleValue": "BMW Roof Box"
       },
       {
         "name": "productSKU",
         "type": "string",
-        "sampleValue": "SKU-BMW3T-2025"
+        "sampleValue": "BM-CDS-001"
       },
       {
         "name": "productPrice",
         "type": "numeric",
-        "sampleValue": 58000
+        "sampleValue": 48200
       },
       {
         "name": "productCategory",
         "type": "string",
-        "sampleValue": "Vehicle"
+        "sampleValue": "Accessory"
       },
       {
         "name": "productColor",
@@ -18406,7 +18406,7 @@
       {
         "name": "paymentStatus",
         "type": "string",
-        "sampleValue": "Completed"
+        "sampleValue": "successful"
       },
       {
         "name": "upsellAccepted",
@@ -18431,12 +18431,12 @@
       {
         "name": "customerSatisfactionScore",
         "type": "numeric",
-        "sampleValue": 8.6
+        "sampleValue": 8.7
       },
       {
         "name": "averageTransactionValue",
         "type": "numeric",
-        "sampleValue": 28700
+        "sampleValue": 58600
       },
       {
         "name": "depositAmount",
@@ -18481,7 +18481,7 @@
       {
         "name": "browserType",
         "type": "string",
-        "sampleValue": "Chrome"
+        "sampleValue": "Safari"
       },
       {
         "name": "configuratorCompletionRate",
@@ -18651,7 +18651,7 @@
       {
         "name": "financeApplicationCompletionRate",
         "type": "numeric",
-        "sampleValue": 0.68
+        "sampleValue": 0.38
       },
       {
         "name": "serviceBookingConversionRate",
@@ -18866,7 +18866,7 @@
       {
         "name": "accountCreationDuration",
         "type": "numeric",
-        "sampleValue": 3
+        "sampleValue": 5
       },
       {
         "name": "accountAuthenticationSuccessRate",
@@ -18971,7 +18971,7 @@
       {
         "name": "userEngagementScore",
         "type": "numeric",
-        "sampleValue": 0.82
+        "sampleValue": 9.1
       },
       {
         "name": "postTransactionSurveyScore",
@@ -18987,6 +18987,181 @@
         "name": "channelType",
         "type": "string",
         "sampleValue": "web"
+      },
+      {
+        "name": "vehicleConfiguratorLatency",
+        "type": "numeric",
+        "sampleValue": 1.2
+      },
+      {
+        "name": "checkoutErrorRate",
+        "type": "numeric",
+        "sampleValue": 0.011
+      },
+      {
+        "name": "leadToSaleRatio",
+        "type": "numeric",
+        "sampleValue": 0.67
+      },
+      {
+        "name": "paymentGatewayUptime",
+        "type": "numeric",
+        "sampleValue": 0.999
+      },
+      {
+        "name": "dropOffRateConfigurator",
+        "type": "numeric",
+        "sampleValue": 0.28
+      },
+      {
+        "name": "dropOffRateFinance",
+        "type": "numeric",
+        "sampleValue": 0.19
+      },
+      {
+        "name": "formValidationErrorRate",
+        "type": "numeric",
+        "sampleValue": 0.045
+      },
+      {
+        "name": "loginSuccessRate",
+        "type": "numeric",
+        "sampleValue": 0.97
+      },
+      {
+        "name": "userAccountStatus",
+        "type": "string",
+        "sampleValue": "active"
+      },
+      {
+        "name": "preferredPaymentMethod",
+        "type": "string",
+        "sampleValue": "credit_card"
+      },
+      {
+        "name": "aftersalesPurchaseConversion",
+        "type": "numeric",
+        "sampleValue": 0.08
+      },
+      {
+        "name": "connectedDriveSubscriptionRate",
+        "type": "numeric",
+        "sampleValue": 0.16
+      },
+      {
+        "name": "orderStatus",
+        "type": "string",
+        "sampleValue": "completed"
+      },
+      {
+        "name": "financeApprovalStatus",
+        "type": "string",
+        "sampleValue": "approved"
+      },
+      {
+        "name": "subscriptionAction",
+        "type": "string",
+        "sampleValue": "upgrade"
+      },
+      {
+        "name": "subscriptionDurationMonths",
+        "type": "numeric",
+        "sampleValue": 12
+      },
+      {
+        "name": "accessoryDeliveryOption",
+        "type": "string",
+        "sampleValue": "express"
+      },
+      {
+        "name": "cartTotalValue",
+        "type": "numeric",
+        "sampleValue": 60898
+      },
+      {
+        "name": "activeConnectedServices",
+        "type": "string",
+        "sampleValue": "Remote Services"
+      },
+      {
+        "name": "dealershipFollowUpStatus",
+        "type": "string",
+        "sampleValue": "in_progress"
+      },
+      {
+        "name": "authenticationMethod",
+        "type": "string",
+        "sampleValue": "BMW ID"
+      },
+      {
+        "name": "crmRecordUpdateStatus",
+        "type": "string",
+        "sampleValue": "success"
+      },
+      {
+        "name": "apiResponseTimeFinance",
+        "type": "numeric",
+        "sampleValue": 1.8
+      },
+      {
+        "name": "apiResponseTimeConfigurator",
+        "type": "numeric",
+        "sampleValue": 1.3
+      },
+      {
+        "name": "paymentProcessingTime",
+        "type": "numeric",
+        "sampleValue": 2.4
+      },
+      {
+        "name": "searchRefinementCount",
+        "type": "numeric",
+        "sampleValue": 3
+      },
+      {
+        "name": "financeDocumentUploadSuccess",
+        "type": "string",
+        "sampleValue": "true"
+      },
+      {
+        "name": "sessionStartSource",
+        "type": "string",
+        "sampleValue": "homepage"
+      },
+      {
+        "name": "errorMessageCount",
+        "type": "numeric",
+        "sampleValue": 0
+      },
+      {
+        "name": "lifetimeValueEstimate",
+        "type": "numeric",
+        "sampleValue": 52000
+      },
+      {
+        "name": "servicePackagePurchased",
+        "type": "string",
+        "sampleValue": "BMW Service Inclusive"
+      },
+      {
+        "name": "servicePackagePrice",
+        "type": "numeric",
+        "sampleValue": 899
+      },
+      {
+        "name": "vehicleReservationDeposit",
+        "type": "numeric",
+        "sampleValue": 1500
+      },
+      {
+        "name": "subscriptionRevenueAnnual",
+        "type": "numeric",
+        "sampleValue": 360
+      },
+      {
+        "name": "accessoryOrderRevenue",
+        "type": "numeric",
+        "sampleValue": 638
       }
     ],
     "services": [
@@ -19007,7 +19182,11 @@
       "QuoteRequestSubmissionService",
       "ReservationOrPurchaseInitiationService",
       "FinanceApplicationSubmissionService",
-      "DigitalServicesAndAccountCreationService"
+      "DigitalServicesAndAccountCreationService",
+      "QuoteOrTestDriveRequestService",
+      "OnlineReservationDepositService",
+      "AftersalesAccessoriesPurchaseService",
+      "ConnectedDriveSubscriptionService"
     ],
     "steps": [
       "VehicleSearch",
@@ -19027,9 +19206,13 @@
       "QuoteRequestSubmission",
       "ReservationOrPurchaseInitiation",
       "FinanceApplicationSubmission",
-      "DigitalServicesAndAccountCreation"
+      "DigitalServicesAndAccountCreation",
+      "QuoteOrTestDriveRequest",
+      "OnlineReservationDeposit",
+      "AftersalesAccessoriesPurchase",
+      "ConnectedDriveSubscription"
     ],
-    "lastUpdated": "2026-04-16T10:32:56.931Z",
-    "runCount": 1079
+    "lastUpdated": "2026-04-16T10:50:33.696Z",
+    "runCount": 1288
   }
 }
