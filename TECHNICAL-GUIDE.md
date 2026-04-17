@@ -76,7 +76,7 @@ The Demonstrator runs on your host (EC2, VM, Codespace). The Demonstrator UI run
 <details>
 <summary><h2>Prerequisites</h2></summary>
 
-Before you start, make sure you have **all of these** ready:
+Before you start, make sure you have **all of these** ready. Items marked with ⚙️ are **installed automatically** by `sudo ./setup.sh` — you don't need to install them yourself.
 
 | # | Component | Version | Why You Need It | How To Check |
 |---|-----------|---------|-----------------|--------------|
@@ -85,13 +85,15 @@ Before you start, make sure you have **all of these** ready:
 | 3 | **EdgeConnect OAuth Client** | — | Authenticates the EdgeConnect tunnel | Create in DT: Settings → General → External Requests → Add EdgeConnect. DT generates the OAuth client ID, secret, and resource. |
 | 4 | **AppEngine Deploy OAuth Client** | — | Deploys the Demonstrator UI to Dynatrace AppEngine | Create in Account Management → IAM → OAuth clients. Scopes: `app-engine:apps:install`, `app-engine:apps:run`. Can reuse the EdgeConnect client if you add these scopes to it. |
 | 5 | **EC2 / VM / Host** | Linux recommended | Runs the Demonstrator server | SSH access, ports 8080–8200 open in Security Group (inbound not strictly required — EdgeConnect tunnels inbound) |
-| 6 | **Node.js** | v22+ (v24 recommended) | Server runtime | `node --version` → should show v22.x+ |
-| 7 | **Docker** | Latest | Runs EdgeConnect | `docker --version` |
+| 6 | ⚙️ **Node.js** | v22+ | Server runtime — **installed by setup.sh** | `node --version` |
+| 7 | ⚙️ **Docker** | Latest | Runs EdgeConnect — **installed by setup.sh** | `docker --version` |
 | 8 | **Dynatrace OneAgent** | Latest | Auto-instruments every child service | `sudo systemctl status oneagent` or check Hosts in DT UI |
 | 9 | **Ollama** | Latest | Powers AI agents (Nemesis, Fix-It, Librarian) and dashboard generation | `ollama list` → should show `llama3.2:1b` |
 | 10 | **GitHub PAT** | — | Powers AI journey generation (GitHub Models) | Configure in Demonstrator UI → Settings → Copilot tab |
 
 > **Don't have a Dynatrace API Token yet?** Stop here and create one. Nothing will work without it.
+>
+> ⚙️ = Automatically installed/configured by `sudo ./setup.sh`. You only need to prepare items 1–5, 8–10 before running setup.
 
 </details>
 
