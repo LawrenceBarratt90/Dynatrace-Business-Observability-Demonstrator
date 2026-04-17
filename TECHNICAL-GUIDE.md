@@ -134,15 +134,13 @@ The `setup.sh` script will walk you through 6 guided prompts and handle everythi
 
 ### Step 2: Create Dynatrace Credentials
 
-You need **2–3 credentials** — an API Token, an EdgeConnect OAuth Client, and optionally a separate Deploy OAuth Client:
+You need **2–3 credentials** — an API Token, an EdgeConnect OAuth Client, and a separate Deploy OAuth Client:
 
 | # | Credential | Type | Where To Create | What Uses It |
 |---|-----------|------|----------------|---------------|
 | A | **API Token** | `dt0c01.*` | Dynatrace tenant → Settings → Access Tokens | The **Demonstrator server** uses this to send events/metrics to Dynatrace |
 | B | **EdgeConnect OAuth** | `dt0s10.*` or `dt0s02.*` | Dynatrace tenant → Settings → General → External Requests → EdgeConnect | **EdgeConnect** (tunnel). Can also be used for deploy if you add the right scopes. |
 | C | **Deploy OAuth**  | `dt0s10.*` or `dt0s02.*` | Separate client from Account Management → IAM → OAuth clients | **`dt-app deploy`** (app deployment to Dynatrace AppEngine) |
-
-> **Simplest setup:** Use **one OAuth client** (B) for both EdgeConnect and deploy by adding deploy scopes to it. `setup.sh` will ask if you want to use the same or a different client.
 
 ---
 
