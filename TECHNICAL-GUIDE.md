@@ -82,13 +82,14 @@ Before you start, make sure you have **all of these** ready:
 |---|-----------|---------|-----------------|--------------|
 | 1 | **Dynatrace Tenant** | Sprint or Managed | Receives all telemetry | You should have a `*.sprint.dynatracelabs.com` or `*.live.dynatrace.com` URL |
 | 2 | **Dynatrace API Token** | — | Demonstrator server sends events to DT | Create in DT: Settings → Access Tokens → Generate. Scopes: `events.ingest`, `metrics.ingest`, `openTelemetryTrace.ingest`, `entities.read` |
-| 3 | **OAuth Client(s)** | — | EdgeConnect + app deploy | Create in DT: Settings → General → External Requests → Add EdgeConnect. It generates the OAuth creds. Optionally add deploy scopes or use a separate client. |
-| 4 | **EC2 / VM / Host** | Linux recommended | Runs the Demonstrator server | SSH access, ports 8080–8200 open in Security Group (inbound not strictly required — EdgeConnect tunnels inbound) |
-| 5 | **Node.js** | v22+ (v24 recommended) | Server runtime | `node --version` → should show v22.x+ |
-| 6 | **Docker** | Latest | Runs EdgeConnect | `docker --version` |
-| 7 | **Dynatrace OneAgent** | Latest | Auto-instruments every child service | `sudo systemctl status oneagent` or check Hosts in DT UI |
-| 8 | **Ollama** | Latest | Powers AI agents (Nemesis, Fix-It, Librarian) and dashboard generation | `ollama list` → should show `llama3.2:1b` |
-| 9 | **GitHub PAT** | — | Powers AI journey generation (GitHub Models) | Configure in Demonstrator UI → Settings → Copilot tab |
+| 3 | **EdgeConnect OAuth Client** | — | Authenticates the EdgeConnect tunnel | Create in DT: Settings → General → External Requests → Add EdgeConnect. DT generates the OAuth client ID, secret, and resource. |
+| 4 | **AppEngine Deploy OAuth Client** | — | Deploys the Demonstrator UI to Dynatrace AppEngine | Create in Account Management → IAM → OAuth clients. Scopes: `app-engine:apps:install`, `app-engine:apps:run`. Can reuse the EdgeConnect client if you add these scopes to it. |
+| 5 | **EC2 / VM / Host** | Linux recommended | Runs the Demonstrator server | SSH access, ports 8080–8200 open in Security Group (inbound not strictly required — EdgeConnect tunnels inbound) |
+| 6 | **Node.js** | v22+ (v24 recommended) | Server runtime | `node --version` → should show v22.x+ |
+| 7 | **Docker** | Latest | Runs EdgeConnect | `docker --version` |
+| 8 | **Dynatrace OneAgent** | Latest | Auto-instruments every child service | `sudo systemctl status oneagent` or check Hosts in DT UI |
+| 9 | **Ollama** | Latest | Powers AI agents (Nemesis, Fix-It, Librarian) and dashboard generation | `ollama list` → should show `llama3.2:1b` |
+| 10 | **GitHub PAT** | — | Powers AI journey generation (GitHub Models) | Configure in Demonstrator UI → Settings → Copilot tab |
 
 > **Don't have a Dynatrace API Token yet?** Stop here and create one. Nothing will work without it.
 
