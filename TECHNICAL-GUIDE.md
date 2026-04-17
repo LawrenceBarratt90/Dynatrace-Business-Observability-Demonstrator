@@ -45,7 +45,7 @@ The Demonstrator runs on your host (EC2, VM, Codespace). The Demonstrator UI run
 │  │  ├── AI Agents: Nemesis (chaos), Fix-It (remediation),   │    │
 │  │  │     Librarian (memory/audit), Dashboard (BI deploy)   │    │
 │  │  ├── Feature Flag Manager (per-service isolation)        │    │
-│  │  ├── Journey Simulation Engine                           │    │
+│  │  ├── Journey Simulation Module                           │    │
 │  │  ├── MCP Server + PDF Export + Workflow Webhooks         │    │
 │  │  └── Dynatrace Event Ingestion + DT API Proxy            │    │
 │  └──────────────────────────────────────────────────────────┘    │
@@ -81,7 +81,7 @@ Before you start, make sure you have **all of these** ready:
 | # | Component | Version | Why You Need It | How To Check |
 |---|-----------|---------|-----------------|--------------|
 | 1 | **Dynatrace Tenant** | Sprint or Managed | Receives all telemetry | You should have a `*.sprint.dynatracelabs.com` or `*.live.dynatrace.com` URL |
-| 2 | **Dynatrace API Token** | — | Engine sends events to DT | Create in DT: Settings → Access Tokens → Generate. Scopes: `events.ingest`, `metrics.ingest`, `openTelemetryTrace.ingest`, `entities.read` |
+| 2 | **Dynatrace API Token** | — | Demonstrator server sends events to DT | Create in DT: Settings → Access Tokens → Generate. Scopes: `events.ingest`, `metrics.ingest`, `openTelemetryTrace.ingest`, `entities.read` |
 | 3 | **OAuth Client(s)** | — | EdgeConnect + app deploy | Create in DT: Settings → General → External Requests → Add EdgeConnect. It generates the OAuth creds. Optionally add deploy scopes or use a separate client. |
 | 4 | **EC2 / VM / Host** | Linux recommended | Runs the Demonstrator server | SSH access, ports 8080–8200 open in Security Group (inbound not strictly required — EdgeConnect tunnels inbound) |
 | 5 | **Node.js** | v22+ (v24 recommended) | Server runtime | `node --version` → should show v22.x+ |
@@ -289,12 +289,12 @@ This is a checklist that auto-detects your setup and lets you deploy Dynatrace c
 
 | Step | What It Does | What To Do |
 |------|-------------|------------|
-| **Configure Server IP** | Set the IP/hostname of your engine server | Should be green if you did 7a |
+| **Configure Server IP** | Set the IP/hostname of your Demonstrator server | Should be green if you did 7a |
 | **Create EdgeConnect** | Registers EdgeConnect config in Dynatrace | Should be green if you did Step 3 |
 | **Deploy EdgeConnect** | Instructions for running EdgeConnect on your host | Should be green if EdgeConnect is up |
 | **Verify EdgeConnect Online** | Polls DT to confirm tunnel is active | Should be green if Step 3c passed |
 | **OneAgent Installed** | Verifies OneAgent is reporting from your host | Green if OneAgent is running |
-| **Test Connection** | Pings the engine through the EdgeConnect tunnel | Click to test — should go green |
+| **Test Connection** | Pings the Demonstrator server through the EdgeConnect tunnel | Click to test — should go green |
 | **OpenPipeline Pipeline** | Creates the BizEvents processing pipeline | Click **Deploy** |
 | **OpenPipeline Routing** | Configures routing rules for business events | Click **Deploy** |
 | **Business Event Capture Rule** | Deploys capture rules for OneAgent | Click **Deploy** |
@@ -319,7 +319,7 @@ Work through from top to bottom. Each green checkmark means that step is configu
    or enters custom company details
                     │
                     ▼
-2. Engine spawns child services (one per journey step)
+2. Demonstrator spawns child services (one per journey step)
    e.g. PatientRegistrationService (port 8081)
         TriageAndAssessmentService (port 8082)
         ClinicalConsultationService (port 8083)
@@ -714,7 +714,7 @@ sudo bash update.sh --no-restart
 
 | Layer | Technology |
 |-------|-----------|
-| Engine Runtime | Node.js v22+ (ESM), Express.js 4, Socket.IO 4 |
+| Server Runtime | Node.js v22+ (ESM), Express.js 4, Socket.IO 4 |
 | AI Generation | GitHub Models API (GPT-4.1, Claude Sonnet 4, o4-mini) via server-side proxy |
 | AI Agents | TypeScript → compiled to `dist/`, LLM via Ollama (llama3.2:1b) with rule-based fallbacks |
 | AppEngine UI | React 18, Dynatrace Strato components, TypeScript |

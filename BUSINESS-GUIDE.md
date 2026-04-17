@@ -47,7 +47,7 @@ Then an AI agent diagnoses and fixes it — automatically, in seconds.
 
 - **Shows value early.** Customers immediately see how Dynatrace aligns to their strategy — not just their infrastructure.
 - **Bridges business and engineering.** The dashboard surfaces shared metrics that resonate across roles.
-- **Tailored, not generic.** Every Engine example is customised to real customer priorities.
+- **Tailored, not generic.** Every Demonstrator example is customised to real customer priorities.
 - **Fast and low effort.** With our AI-driven search scripts and proven playbooks, creating these dashboards requires minimal inputs while delivering maximum impact.
 - **Sets the stage for strategic partnership.** Customers see Dynatrace not as a tooling choice, but as a platform for operational excellence and business transformation.
 
@@ -126,7 +126,7 @@ The Demonstrator runs as an app inside your Dynatrace tenant. Setup takes about 
 
 **You'll need:**
 - A Dynatrace SaaS tenant (Sprint or Live)
-- A server to run the engine (cloud VM or GitHub Codespace)
+- A server to run the Demonstrator (cloud VM or GitHub Codespace)
 
 **Then:**
 1. Clone the repo and run `./setup.sh` — it walks you through 6 guided prompts
