@@ -466,10 +466,20 @@ step "Step 6/6: Starting server"
 echo "  Compiling TypeScript agents..."
 npm run build:agents 2>&1 | tail -1
 
-# Kill any existing server
-if [ -f "$SCRIPT_DIR/server.pid" ]; then
-  kill "$(cat "$SCRIPT_DIR/server.pid")" 2>/dev/null || true
+# Stop existing services for a clean restart without touching templates/config.
+echo "  Stopping existing running services for a clean restart (templates/config are preserved)..."
+
+# Stop systemd-managed service when available.
+if command -v systemctl >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
+  if systemctl list-unit-files 2>/dev/null | grep -q '^bizobs-server.service'; then
+    sudo systemctl stop bizobs-server.service 2>/dev/null || true
+    ok "Stopped existing bizobs-server.service"
+  fi
 fi
+
+# Stop PID-managed/background server and free port 8080.
+bash "$SCRIPT_DIR/stop.sh" >/dev/null 2>&1 || true
+ok "Stopped old runtime processes"
 
 echo "  Starting server in background..."
 mkdir -p "$SCRIPT_DIR/logs"

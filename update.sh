@@ -187,6 +187,8 @@ fi
 # Step 4: Restart server (zero-downtime: stop → start)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 echo -e "\n${CYAN}${BOLD}[4/5]${NC} ${BOLD}Restarting server${NC}"
+echo "  Performing a clean restart: existing running services will be stopped first."
+echo "  Templates, saved settings, and credentials are preserved."
 
 if [[ "$DO_RESTART" == true && "$DO_SERVER" == true ]]; then
   if install_or_refresh_service; then
