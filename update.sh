@@ -4,8 +4,8 @@
 # ============================================================
 #
 #  Usage:
-#    bash update.sh              # Pull + rebuild + restart server + deploy UI
-#    bash update.sh --server     # Server-side only (no AppEngine deploy)
+#    bash update.sh              # Pull + rebuild + restart server + deploy UI (FULL UPDATE)
+#    bash update.sh --skip-ui    # Quick update: server only (no UI deploy)
 #    bash update.sh --ui         # AppEngine UI deploy only (no server restart)
 #    bash update.sh --no-restart # Pull + build but don't restart server
 #
@@ -56,17 +56,28 @@ wait_for_ready() {
 DO_SERVER=true
 DO_UI=true
 DO_RESTART=true
+UI_BACKGROUND=false
+DEPLOY_TIMEOUT=300  # seconds
 
 for arg in "$@"; do
   case "$arg" in
+    --skip-ui)    DO_UI=false ;;
     --server)     DO_UI=false ;;
     --ui)         DO_SERVER=false; DO_RESTART=false ;;
+    --bg-ui)      UI_BACKGROUND=true ;;
     --no-restart) DO_RESTART=false ;;
+    --timeout)    DEPLOY_TIMEOUT="${2:-300}"; shift ;;
     -h|--help)
-      echo "Usage: bash update.sh [--server | --ui | --no-restart]"
-      echo "  --server      Server only (skip AppEngine deploy)"
-      echo "  --ui          AppEngine UI only (skip server restart)"
-      echo "  --no-restart  Pull + build but don't restart the server"
+      echo "Usage: bash update.sh [OPTIONS]"
+      echo ""
+      echo "Default (no args):    Full update — server + UI deploy (recommended for releases)"
+      echo ""
+      echo "Options:"
+      echo "  --skip-ui            Skip UI deploy (quick server-only update)"
+      echo "  --bg-ui              Run UI deploy in background (don't wait)"
+      echo "  --ui                 UI only (no server restart)"
+      echo "  --no-restart         Pull + build, don't restart server"
+      echo "  --timeout SECONDS    Set deploy timeout (default: 300s)"
       exit 0
       ;;
   esac
@@ -247,22 +258,53 @@ if [[ "$DO_UI" == true ]]; then
     export DT_APP_OAUTH_CLIENT_ID="$DEPLOY_ID"
     export DT_APP_OAUTH_CLIENT_SECRET="$DEPLOY_SECRET"
 
-    echo "  Building AppEngine app..."
-    if npx dt-app build 2>&1 | tail -3; then
+    # Function to run UI deploy with timeout
+    run_ui_deploy() {
+      mkdir -p logs
+      local deploy_log="logs/ui-deploy-$(date +%s).log"
+      
+      echo "  Building AppEngine app..." | tee -a "$deploy_log"
+      if ! timeout 120 npx dt-app build >> "$deploy_log" 2>&1; then
+        fail "App build failed — check: $deploy_log"
+      fi
       ok "App built"
-    else
-      fail "App build failed — check TypeScript errors"
-    fi
 
-    echo "  Deploying to ${APPS_URL:-Dynatrace}..."
-    if npx dt-app deploy --non-interactive 2>&1 | tail -5; then
-      ok "AppEngine UI deployed — changes are live immediately (no restart needed)"
+      echo "  Deploying to ${APPS_URL:-Dynatrace}..." | tee -a "$deploy_log"
+      if timeout "$DEPLOY_TIMEOUT" npx dt-app deploy --non-interactive >> "$deploy_log" 2>&1; then
+        ok "AppEngine UI deployed — changes are live immediately (no restart needed)"
+        tail -2 "$deploy_log" | grep -v '^$' || true
+        return 0
+      else
+        local exit_code=$?
+        if [[ $exit_code -eq 124 ]]; then
+          warn "Deploy timed out after ${DEPLOY_TIMEOUT}s — running in background"
+          echo -e "  ${CYAN}Check status: tail -f $deploy_log${NC}"
+          return 0  # Non-fatal — server is already updated
+        else
+          echo "Last 10 lines of deploy log:" >&2
+          tail -10 "$deploy_log" >&2
+          warn "Deploy had issues — retry with: bash update.sh --ui"
+          return 0  # Non-fatal — server is already updated
+        fi
+      fi
+    }
+
+    if [[ "$UI_BACKGROUND" == true ]]; then
+      # Run UI deploy in background, don't wait
+      mkdir -p logs
+      (
+        run_ui_deploy
+      ) >> logs/ui-deploy-bg.log 2>&1 &
+      ok "AppEngine deploy queued in background (check: tail -f logs/ui-deploy-bg.log)"
     else
-      warn "Deploy had issues — retry with: bash update.sh --ui"
+      # Run UI deploy synchronously (blocks until complete or timeout)
+      run_ui_deploy
     fi
   fi
+elif [[ "$DO_SERVER" == true ]]; then
+  echo "  Skipped (--skip-ui mode)"
 else
-  echo "  Skipped (--server mode)"
+  echo "  Skipped (--ui-only mode)"
 fi
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -271,8 +313,10 @@ fi
 echo ""
 echo -e "${GREEN}${BOLD}✅ Update complete!${NC}"
 echo ""
-echo -e "  ${CYAN}Ready:${NC}   $(curl -sf "$READY_URL" | grep -o '"status":"[^"]*"' || echo 'not checked')"
-echo -e "  ${CYAN}Health:${NC}  $(curl -sf "$HEALTH_URL" | grep -o '"status":"[^"]*"' || echo 'not checked')"
-echo -e "  ${CYAN}Commit:${NC}  $(git rev-parse --short HEAD 2>/dev/null || echo 'unknown')"
-echo -e "  ${CYAN}Version:${NC} $(grep '"version"' app.config.json 2>/dev/null | head -1 | grep -o '"[0-9.]*"' || echo 'unknown')"
+echo -e "  ${CYAN}Server Ready:${NC}   $(curl -sf "$READY_URL" 2>/dev/null | grep -o '"status":"[^"]*"' || echo 'checking...')"
+echo -e "  ${CYAN}Commit:${NC}        $(git rev-parse --short HEAD 2>/dev/null || echo 'unknown')"
+echo -e "  ${CYAN}Version:${NC}       $(grep '"version"' app.config.json 2>/dev/null | head -1 | grep -o '"[0-9.]*"' || echo 'unknown')"
+if [[ "$DO_UI" == true ]]; then
+  echo -e "  ${CYAN}UI Status:${NC}      $(grep -l '2>&1' logs/ui-deploy-*.log 2>/dev/null | tail -1 | xargs tail -1 2>/dev/null || echo 'deploying...')"
+fi
 echo ""
