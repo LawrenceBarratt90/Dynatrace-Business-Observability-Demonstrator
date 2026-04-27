@@ -411,6 +411,23 @@ bash update.sh --server   # Pull, rebuild, refresh systemd unit, restart server
 sudo systemctl restart bizobs-server.service
 ```
 
+### One command update (works on any machine/path)
+
+> **No pre-reqs needed.** Just run the update command — you don't need to pre-install Node.js, Docker, or anything else. The script uses whatever's already on your system and pulls the latest code.
+
+```bash
+cd /path/to/Business-Observability-Demonstrator && bash scripts/update-any-machine.sh --ui
+```
+
+Modes:
+
+```bash
+bash scripts/update-any-machine.sh --ui         # AppEngine UI only
+bash scripts/update-any-machine.sh --server     # Server only
+bash scripts/update-any-machine.sh --all        # Server + AppEngine UI
+bash scripts/update-any-machine.sh --no-restart # Pull + build, no restart
+```
+
 ### In-Place Upgrade Script (no fresh install)
 
 ```bash
@@ -423,7 +440,7 @@ cd "$REPO_DIR"
 git fetch origin "$BRANCH"
 git checkout "$BRANCH"
 git pull --ff-only origin "$BRANCH"
-bash update.sh --server
+bash scripts/update-any-machine.sh --server
 ./status.sh
 ```
 

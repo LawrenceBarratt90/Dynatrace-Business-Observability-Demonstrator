@@ -1,4 +1,4 @@
-# Technical Guide — Business Observability Demonstrator (v2.38.7)
+# Technical Guide — Business Observability Demonstrator (v2.38.8)
 
 > A hands-on guide for engineers, SEs, and developers who want to get the platform running and understand what's under the hood.
 
@@ -92,8 +92,18 @@ Before you start, make sure you have **all of these** ready. Items marked with �
 | 10 | **GitHub PAT** | — | Powers AI journey generation (GitHub Models) | Configure in Demonstrator UI → Settings → Copilot tab |
 
 > **Don't have a Dynatrace API Token yet?** Stop here and create one. Nothing will work without it.
->
-> ⚙️ = Automatically installed/configured by `sudo ./setup.sh`. You only need to prepare items 1–5, 8–10 before running setup.
+
+**✅ What you MUST have before setup:**
+- Items 1–5 (Dynatrace tenant, credentials, host with SSH access)
+- Item 8 (OneAgent — usually pre-installed on production hosts, but optional for demos)
+- Items 9–10 (optional — Ollama and GitHub PAT for AI features)
+
+**❌ What you DON'T need to install beforehand (setup.sh handles it):**
+- ⚙️ **Node.js** — setup.sh installs v22+ automatically
+- ⚙️ **Docker** — setup.sh installs automatically  
+- **Don't pre-install these** — setup.sh knows exactly what version to use
+
+Just start with `sudo ./setup.sh` and it will install everything else for you.
 
 </details>
 
@@ -670,6 +680,23 @@ sudo bash scripts/log-cleanup.sh --uninstall
 
 To update the Demonstrator after code changes without a full reinstall, use the included `update.sh` script.
 
+> **Note:** The update commands pull the latest code and redeploy. You don't need to re-install Node.js, Docker, or any dependencies — the update script handles everything. Just run the command and it will use whatever versions and tools are already on your machine.
+
+### Simplest command (any machine/path)
+
+```bash
+cd /path/to/Business-Observability-Demonstrator && bash scripts/update-any-machine.sh --ui
+```
+
+Modes:
+
+```bash
+bash scripts/update-any-machine.sh --ui         # AppEngine UI only
+bash scripts/update-any-machine.sh --server     # Server only
+bash scripts/update-any-machine.sh --all        # Server + AppEngine UI
+bash scripts/update-any-machine.sh --no-restart # Pull + build, no restart
+```
+
 ### In-place upgrade (recommended, no fresh install)
 
 ```bash
@@ -682,7 +709,7 @@ cd "$REPO_DIR"
 git fetch origin "$BRANCH"
 git checkout "$BRANCH"
 git pull --ff-only origin "$BRANCH"
-bash update.sh --server
+bash scripts/update-any-machine.sh --server
 ./status.sh
 ```
 
