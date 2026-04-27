@@ -1648,6 +1648,25 @@ export const HomePage = () => {
         journeyConfig.journeyType || parsedResponse.journey?.journeyType || domain,
         fullSteps
       );
+
+      // Auto-save to My Templates (same as manual path)
+      const autoTemplateName = `${companyName} - ${domain}`;
+      const newTemplate: PromptTemplate = {
+        id: `template_${Date.now()}`,
+        name: autoTemplateName,
+        companyName,
+        domain,
+        requirements,
+        csuitePrompt: prompt1,
+        journeyPrompt: prompt2,
+        response: cleanResponse,
+        createdAt: new Date().toISOString(),
+        isPreloaded: false,
+      };
+      const updated = [...savedTemplates, newTemplate];
+      setSavedTemplates(updated);
+      localStorage.setItem(TEMPLATES_STORAGE_KEY, JSON.stringify(updated));
+      saveTenantField({ promptTemplates: JSON.stringify(updated) });
       
     } catch (error: any) {
       console.error('Service generation error:', error);
