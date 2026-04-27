@@ -91,6 +91,38 @@ interface PromptTemplate {
 
 const TEMPLATES_STORAGE_KEY = 'bizobs_prompt_templates';
 
+function mergePromptTemplates(localTemplates: PromptTemplate[], sharedTemplates: PromptTemplate[]): PromptTemplate[] {
+  const byId = new Map<string, PromptTemplate>();
+
+  for (const t of sharedTemplates) {
+    if (t?.id) byId.set(t.id, t);
+  }
+
+  for (const t of localTemplates) {
+    if (!t?.id) continue;
+    const existing = byId.get(t.id);
+    if (!existing) {
+      byId.set(t.id, t);
+      continue;
+    }
+
+    const localTime = Date.parse(t.createdAt || '');
+    const sharedTime = Date.parse(existing.createdAt || '');
+    const useLocal = Number.isFinite(localTime) && Number.isFinite(sharedTime)
+      ? localTime >= sharedTime
+      : true;
+
+    byId.set(t.id, useLocal ? t : existing);
+  }
+
+  return [...byId.values()].sort((a, b) => {
+    const aTime = Date.parse(a.createdAt || '');
+    const bTime = Date.parse(b.createdAt || '');
+    if (Number.isFinite(aTime) && Number.isFinite(bTime)) return bTime - aTime;
+    return String(b.createdAt || '').localeCompare(String(a.createdAt || ''));
+  });
+}
+
 export const HomePage = () => {
   const [activeTab, setActiveTab] = useState('welcome');
   const [selectedPathway, setSelectedPathway] = useState<'ai' | 'manual' | null>(null);
@@ -456,9 +488,21 @@ export const HomePage = () => {
         try {
           const restoredTemplates = JSON.parse(loaded.promptTemplates);
           if (Array.isArray(restoredTemplates) && restoredTemplates.length > 0) {
-            setSavedTemplates(restoredTemplates);
-            localStorage.setItem(TEMPLATES_STORAGE_KEY, JSON.stringify(restoredTemplates));
-            console.log(`[BizObs] Restored ${restoredTemplates.length} templates from shared doc`);
+            let localTemplates: PromptTemplate[] = [];
+            try {
+              const localRaw = localStorage.getItem(TEMPLATES_STORAGE_KEY);
+              const parsedLocal = localRaw ? JSON.parse(localRaw) : [];
+              if (Array.isArray(parsedLocal)) localTemplates = parsedLocal;
+            } catch { /* ignore */ }
+
+            const mergedTemplates = mergePromptTemplates(localTemplates, restoredTemplates);
+            setSavedTemplates(mergedTemplates);
+            localStorage.setItem(TEMPLATES_STORAGE_KEY, JSON.stringify(mergedTemplates));
+            console.log(`[BizObs] Restored templates from shared doc: shared=${restoredTemplates.length}, merged=${mergedTemplates.length}`);
+
+            if (mergedTemplates.length > restoredTemplates.length) {
+              saveTenantField({ promptTemplates: JSON.stringify(mergedTemplates) }, 0);
+            }
           }
         } catch { /* ignore */ }
       }
