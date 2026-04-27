@@ -670,6 +670,22 @@ sudo bash scripts/log-cleanup.sh --uninstall
 
 To update the Demonstrator after code changes without a full reinstall, use the included `update.sh` script.
 
+### In-place upgrade (recommended, no fresh install)
+
+```bash
+set -euo pipefail
+
+REPO_DIR="/home/ec2-user/Dynatrace-Business-Observability-Forge"
+BRANCH="main"
+
+cd "$REPO_DIR"
+git fetch origin "$BRANCH"
+git checkout "$BRANCH"
+git pull --ff-only origin "$BRANCH"
+bash update.sh --server
+./status.sh
+```
+
 ### Update everything (server + AppEngine UI)
 
 ```bash

@@ -16,11 +16,41 @@
 set -e
 cd "$(dirname "$0")"
 
+SERVICE_NAME="bizobs-server.service"
+READY_URL="http://localhost:8080/api/ready"
+HEALTH_URL="http://localhost:8080/api/health"
+
 # ── Colors ──
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'
 ok()   { echo -e "  ${GREEN}✓ $1${NC}"; }
 warn() { echo -e "  ${YELLOW}⚠ $1${NC}"; }
 fail() { echo -e "  ${RED}✗ $1${NC}"; exit 1; }
+
+install_or_refresh_service() {
+  if command -v systemctl >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
+    bash scripts/install-systemd-service.sh --enable >/dev/null
+    ok "Refreshed systemd service definition"
+    return 0
+  fi
+
+  warn "Skipping systemd refresh (systemctl unavailable or sudo requires a password)"
+  return 1
+}
+
+wait_for_ready() {
+  local url="$1"
+  echo -n "  Waiting for server"
+  for i in {1..30}; do
+    if curl -sf "$url" >/dev/null 2>&1; then
+      echo ""
+      return 0
+    fi
+    echo -n "."
+    sleep 1
+  done
+  echo ""
+  return 1
+}
 
 # ── Parse flags ──
 DO_SERVER=true
@@ -148,53 +178,55 @@ fi
 echo -e "\n${CYAN}${BOLD}[4/5]${NC} ${BOLD}Restarting server${NC}"
 
 if [[ "$DO_RESTART" == true && "$DO_SERVER" == true ]]; then
-  # Stop existing server
-  if [[ -f server.pid ]]; then
-    PID=$(cat server.pid)
-    if kill -0 "$PID" 2>/dev/null; then
-      kill "$PID" 2>/dev/null
-      echo "  Stopped server (PID $PID)"
-      sleep 2
-      kill -0 "$PID" 2>/dev/null && kill -9 "$PID" 2>/dev/null || true
+  if install_or_refresh_service; then
+    sudo systemctl restart "$SERVICE_NAME"
+    if wait_for_ready "$READY_URL"; then
+      ok "Server ready under $SERVICE_NAME"
+    elif curl -sf "$HEALTH_URL" >/dev/null 2>&1; then
+      warn "Server is healthy but not fully ready — check: ./status.sh"
+    else
+      warn "Server still starting — check: ./status.sh or sudo journalctl -u $SERVICE_NAME -f"
     fi
-    rm -f server.pid
-  fi
-  pkill -f "node.*server.js" 2>/dev/null || true
-  sleep 1
-
-  # Rotate log if large
-  if [[ -f logs/server.log ]]; then
-    LOG_SIZE=$(stat -c%s logs/server.log 2>/dev/null || echo 0)
-    if (( LOG_SIZE > 52428800 )); then
-      gzip -c logs/server.log > logs/server.log.1.gz
-      truncate -s 0 logs/server.log
-      ok "Rotated server.log ($(( LOG_SIZE / 1048576 ))MB)"
-    fi
-  fi
-
-  # Start server
-  mkdir -p logs
-  nohup npm start >> logs/server.log 2>&1 &
-  SERVER_PID=$!
-  echo "$SERVER_PID" > server.pid
-
-  # Wait for health
-  echo -n "  Waiting for server"
-  for i in {1..20}; do
-    if curl -sf http://localhost:8080/api/health &>/dev/null; then
-      break
-    fi
-    echo -n "."
-    sleep 1
-  done
-  echo ""
-
-  if curl -sf http://localhost:8080/api/health &>/dev/null; then
-    ok "Server running on port 8080 (PID: $SERVER_PID)"
   else
-    warn "Server still starting — check: tail -f logs/server.log"
+    if [[ -f server.pid ]]; then
+      PID=$(cat server.pid)
+      if kill -0 "$PID" 2>/dev/null; then
+        kill "$PID" 2>/dev/null
+        echo "  Stopped server (PID $PID)"
+        sleep 2
+        kill -0 "$PID" 2>/dev/null && kill -9 "$PID" 2>/dev/null || true
+      fi
+      rm -f server.pid
+    fi
+    pkill -f "node.*server.js" 2>/dev/null || true
+    sleep 1
+
+    if [[ -f logs/server.log ]]; then
+      LOG_SIZE=$(stat -c%s logs/server.log 2>/dev/null || echo 0)
+      if (( LOG_SIZE > 52428800 )); then
+        gzip -c logs/server.log > logs/server.log.1.gz
+        truncate -s 0 logs/server.log
+        ok "Rotated server.log ($(( LOG_SIZE / 1048576 ))MB)"
+      fi
+    fi
+
+    mkdir -p logs
+    nohup npm start >> logs/server.log 2>&1 &
+    SERVER_PID=$!
+    echo "$SERVER_PID" > server.pid
+
+    if wait_for_ready "$READY_URL"; then
+      ok "Server ready on port 8080 (PID: $SERVER_PID)"
+    elif curl -sf "$HEALTH_URL" >/dev/null 2>&1; then
+      warn "Server is healthy but not fully ready — check: ./status.sh"
+    else
+      warn "Server still starting — check: tail -f logs/server.log"
+    fi
   fi
 else
+  if [[ "$DO_SERVER" == true ]]; then
+    install_or_refresh_service || true
+  fi
   echo "  Skipped (--no-restart or --ui mode)"
 fi
 
@@ -239,7 +271,8 @@ fi
 echo ""
 echo -e "${GREEN}${BOLD}✅ Update complete!${NC}"
 echo ""
-echo -e "  ${CYAN}Server:${NC}  $(curl -sf http://localhost:8080/api/health | grep -o '"status":"[^"]*"' || echo 'not checked')"
+echo -e "  ${CYAN}Ready:${NC}   $(curl -sf "$READY_URL" | grep -o '"status":"[^"]*"' || echo 'not checked')"
+echo -e "  ${CYAN}Health:${NC}  $(curl -sf "$HEALTH_URL" | grep -o '"status":"[^"]*"' || echo 'not checked')"
 echo -e "  ${CYAN}Commit:${NC}  $(git rev-parse --short HEAD 2>/dev/null || echo 'unknown')"
 echo -e "  ${CYAN}Version:${NC} $(grep '"version"' app.config.json 2>/dev/null | head -1 | grep -o '"[0-9.]*"' || echo 'unknown')"
 echo ""

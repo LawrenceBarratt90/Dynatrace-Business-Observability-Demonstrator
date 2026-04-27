@@ -4,12 +4,25 @@
 
 set -e
 
-APP_DIR="/home/ec2-user/Business-Observability-Demonstrator"
-NODE="/home/ec2-user/.nvm/versions/node/v24.14.0/bin/node"
-NPX="/home/ec2-user/.nvm/versions/node/v24.14.0/bin/npx"
-LOG="$APP_DIR/server.log"
+APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+NODE="${NODE_BIN:-$(command -v node 2>/dev/null || true)}"
+NPX="${NPX_BIN:-$(command -v npx 2>/dev/null || true)}"
+LOG_DIR="$APP_DIR/logs"
+LOG="$LOG_DIR/server.log"
 
 cd "$APP_DIR"
+
+mkdir -p "$LOG_DIR"
+
+if [ -z "$NODE" ]; then
+  echo "[self-heal] node not found in PATH" | tee -a "$LOG"
+  exit 1
+fi
+
+if [ -z "$NPX" ]; then
+  echo "[self-heal] npx not found in PATH" | tee -a "$LOG"
+  exit 1
+fi
 
 log() {
   echo "[self-heal] $(date '+%Y-%m-%d %H:%M:%S') $*" | tee -a "$LOG"

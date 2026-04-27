@@ -1,26 +1,28 @@
 [Unit]
-Description=BizObs Partner PowerUp Application
-Documentation=https://github.com/LawrenceBarratt90/Dynatrace-Business-Outcome-Engine
-After=network.target
-Wants=network-online.target
+Description=Business Observability Forge Server
+Documentation=https://github.com/lawrobar90/Dynatrace-Business-Observability-Forge
+After=network.target docker.service
+Wants=network-online.target docker.service
+StartLimitIntervalSec=600
+StartLimitBurst=20
 
 [Service]
 Type=simple
 User=ec2-user
 Group=ec2-user
-WorkingDirectory=/home/ec2-user/partner-powerup-bizobs
+WorkingDirectory=/home/ec2-user/Dynatrace-Business-Observability-Forge
 Environment=NODE_ENV=production
-Environment=PORT=4000
-Environment=DEFAULT_COMPANY=DefaultCompany
-Environment=DEFAULT_DOMAIN=default.com
-Environment=DEFAULT_INDUSTRY=general
-ExecStartPre=/bin/bash -c 'cd /home/ec2-user/partner-powerup-bizobs && npm install --production --silent'
-ExecStart=/usr/bin/node server.js
-ExecReload=/bin/kill -HUP $MAINPID
+Environment=PORT=8080
+Environment=HOME=/home/ec2-user
+Environment=PATH=/home/ec2-user/.nvm/versions/node/v24.14.0/bin:/usr/local/bin:/usr/bin:/bin
+EnvironmentFile=-/home/ec2-user/Dynatrace-Business-Observability-Forge/.env
+ExecStartPre=/bin/bash /home/ec2-user/Dynatrace-Business-Observability-Forge/scripts/self-heal.sh
+ExecStart=/home/ec2-user/.nvm/versions/node/v24.14.0/bin/node --require ./otel.cjs server.js
 Restart=always
-RestartSec=10
-StandardOutput=append:/var/log/bizobs.log
-StandardError=append:/var/log/bizobs-error.log
+RestartSec=5
+SyslogIdentifier=bizobs-server
+StandardOutput=journal
+StandardError=journal
 TimeoutStartSec=60
 TimeoutStopSec=30
 
@@ -28,8 +30,8 @@ TimeoutStopSec=30
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
-ReadWritePaths=/home/ec2-user/partner-powerup-bizobs
-ReadWritePaths=/var/log
+ReadWritePaths=/home/ec2-user/Dynatrace-Business-Observability-Forge
+ReadWritePaths=/tmp
 
 [Install]
 WantedBy=multi-user.target

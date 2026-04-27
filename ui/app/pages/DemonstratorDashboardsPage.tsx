@@ -177,7 +177,7 @@ async function proxyDql(query: string, maxRecords = 100): Promise<{ success: boo
    FIELD DISCOVERY — fetches sample records, classifies fields
    ═══════════════════════════════════════════════════════════════ */
 
-function useFieldDiscovery(companyName: string, journeyType: string): { profile: FieldProfile | null; discovering: boolean } {
+function useFieldDiscovery(companyName: string, journeyType: string, refreshTick = 0): { profile: FieldProfile | null; discovering: boolean } {
   const [profile, setProfile] = useState<FieldProfile | null>(null);
   const [discovering, setDiscovering] = useState(false);
 
@@ -225,7 +225,7 @@ function useFieldDiscovery(companyName: string, journeyType: string): { profile:
       }
       setDiscovering(false);
     });
-  }, [companyName, journeyType]);
+  }, [companyName, journeyType, refreshTick]);
 
   return { profile, discovering };
 }
@@ -1883,7 +1883,7 @@ async function exportToNotebook(tiles: TileDefinition[], presetLabel: string) {
    DROPDOWN HOOKS — server-side via proxy
    ═══════════════════════════════════════════════════════════════ */
 
-function useCompanyValues() {
+function useCompanyValues(refreshTick = 0) {
   const [values, setValues] = useState<string[]>([]);
   const [error, setError] = useState('');
   useEffect(() => {
@@ -1895,11 +1895,11 @@ function useCompanyValues() {
       } else { setError(result.error || 'Query failed'); }
     });
     return () => { cancelled = true; };
-  }, []);
+  }, [refreshTick]);
   return { values, error };
 }
 
-function useJourneyValues(companyName: string) {
+function useJourneyValues(companyName: string, refreshTick = 0) {
   const [values, setValues] = useState<string[]>([]);
   const [error, setError] = useState('');
   useEffect(() => {
@@ -1914,11 +1914,11 @@ function useJourneyValues(companyName: string) {
       } else { setError(result.error || 'Query failed'); }
     });
     return () => { cancelled = true; };
-  }, [companyName]);
+  }, [companyName, refreshTick]);
   return { values, error };
 }
 
-function useServiceNames(companyName: string, journeyType: string) {
+function useServiceNames(companyName: string, journeyType: string, refreshTick = 0) {
   const [values, setValues] = useState<string[]>([]);
   useEffect(() => {
     let cancelled = false;
@@ -1943,11 +1943,11 @@ function useServiceNames(companyName: string, journeyType: string) {
       });
     }
     return () => { cancelled = true; };
-  }, [companyName, journeyType]);
+  }, [companyName, journeyType, refreshTick]);
   return { values };
 }
 
-function useEventTypeValues(companyName: string) {
+function useEventTypeValues(companyName: string, refreshTick = 0) {
   const [values, setValues] = useState<string[]>([]);
   useEffect(() => {
     let cancelled = false;
@@ -1961,7 +1961,7 @@ function useEventTypeValues(companyName: string) {
       }
     });
     return () => { cancelled = true; };
-  }, [companyName]);
+  }, [companyName, refreshTick]);
   return { values };
 }
 
@@ -2148,13 +2148,13 @@ export const DemonstratorDashboardsPage = () => {
     loadAppSettings().then(({ settings: s }) => { setSettings(s); setLoading(false); });
   }, []);
 
-  const { values: companyValues, error: companyError } = useCompanyValues();
-  const { values: journeyValues, error: journeyError } = useJourneyValues(companyName);
-  const { values: serviceValues } = useServiceNames(companyName, journeyType);
-  const { values: eventTypeValues } = useEventTypeValues(companyName);
+  const { values: companyValues, error: companyError } = useCompanyValues(refreshKey);
+  const { values: journeyValues, error: journeyError } = useJourneyValues(companyName, refreshKey);
+  const { values: serviceValues } = useServiceNames(companyName, journeyType, refreshKey);
+  const { values: eventTypeValues } = useEventTypeValues(companyName, refreshKey);
 
   // Field discovery — runs when company/journey changes
-  const { profile, discovering } = useFieldDiscovery(companyName, journeyType);
+  const { profile, discovering } = useFieldDiscovery(companyName, journeyType, refreshKey);
 
   // Librarian operational memory dashboard
   const librarian = useLibrarian();
@@ -2267,7 +2267,7 @@ export const DemonstratorDashboardsPage = () => {
           <label style={{ color: companyError ? '#e74c3c' : '#8899cc', fontSize: 11, display: 'block', marginBottom: 4 }}>
             Company {companyError && `⚠ ${companyError}`}
           </label>
-          <select value={companyName} onChange={(e) => { setCompanyName(e.target.value); setJourneyType(''); }} style={{
+          <select value={companyName} onChange={(e) => { setCompanyName(e.target.value); setJourneyType(''); setServiceName(''); setEventType(''); }} style={{
             background: 'rgba(30,30,50,0.8)', border: `1px solid ${companyError ? 'rgba(231,76,60,0.5)' : 'rgba(100,120,200,0.3)'}`,
             borderRadius: 6, color: '#e0e0ff', padding: '6px 12px', fontSize: 12, minWidth: 180,
           }}>
@@ -2279,7 +2279,7 @@ export const DemonstratorDashboardsPage = () => {
           <label style={{ color: journeyError ? '#e74c3c' : '#8899cc', fontSize: 11, display: 'block', marginBottom: 4 }}>
             Journey Type {journeyError && `⚠ ${journeyError}`}
           </label>
-          <select value={journeyType} onChange={(e) => setJourneyType(e.target.value)} style={{
+          <select value={journeyType} onChange={(e) => { setJourneyType(e.target.value); setServiceName(''); setEventType(''); }} style={{
             background: 'rgba(30,30,50,0.8)', border: '1px solid rgba(100,120,200,0.3)',
             borderRadius: 6, color: '#e0e0ff', padding: '6px 12px', fontSize: 12, minWidth: 220,
           }}>

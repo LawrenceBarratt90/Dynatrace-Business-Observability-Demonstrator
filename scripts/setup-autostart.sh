@@ -7,9 +7,7 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BIZOBS_DIR="$(dirname "$SCRIPT_DIR")"
-SERVICE_NAME="bizobs"
-SERVICE_FILE="$SCRIPT_DIR/bizobs.service"
-SYSTEMD_DIR="/etc/systemd/system"
+SERVICE_NAME="bizobs-server.service"
 
 echo "🚀 Setting up BizObs auto-start for EC2 instance..."
 
@@ -48,14 +46,6 @@ fi
 
 echo "✅ BizObs application found in $BIZOBS_DIR"
 
-# Create log directory and set permissions
-echo "📁 Creating log directory..."
-mkdir -p /var/log
-touch /var/log/bizobs.log
-touch /var/log/bizobs-error.log
-chown ec2-user:ec2-user /var/log/bizobs.log /var/log/bizobs-error.log
-chmod 644 /var/log/bizobs.log /var/log/bizobs-error.log
-
 # Install dependencies
 echo "📦 Installing Node.js dependencies..."
 cd "$BIZOBS_DIR"
@@ -67,23 +57,8 @@ if systemctl is-active --quiet "$SERVICE_NAME"; then
     systemctl stop "$SERVICE_NAME"
 fi
 
-# Copy service file to systemd directory
 echo "⚙️  Installing systemd service..."
-cp "$SERVICE_FILE" "$SYSTEMD_DIR/$SERVICE_NAME.service"
-chown root:root "$SYSTEMD_DIR/$SERVICE_NAME.service"
-chmod 644 "$SYSTEMD_DIR/$SERVICE_NAME.service"
-
-# Reload systemd daemon
-echo "🔄 Reloading systemd daemon..."
-systemctl daemon-reload
-
-# Enable the service to start on boot
-echo "🎯 Enabling $SERVICE_NAME service for auto-start..."
-systemctl enable "$SERVICE_NAME"
-
-# Start the service
-echo "🚀 Starting $SERVICE_NAME service..."
-systemctl start "$SERVICE_NAME"
+bash "$SCRIPT_DIR/install-systemd-service.sh" --enable --start
 
 # Wait a moment for service to start
 sleep 3
@@ -103,11 +78,10 @@ if systemctl is-active --quiet "$SERVICE_NAME"; then
     echo "  • Restart service: sudo systemctl restart $SERVICE_NAME"
     echo "  • Disable auto-start: sudo systemctl disable $SERVICE_NAME"
     echo ""
-    echo "📝 Logs are also written to:"
-    echo "  • /var/log/bizobs.log (stdout)"
-    echo "  • /var/log/bizobs-error.log (stderr)"
+    echo "📝 Application status:"
+    echo "  • ./status.sh"
     echo ""
-    echo "🌐 Application should be available at: http://$(curl -s http://169.254.169.254/latest/meta-data/public-hostname):4000"
+    echo "🌐 Application should be available at: http://$(curl -s http://169.254.169.254/latest/meta-data/public-hostname):8080"
 else
     echo "❌ Failed to start BizObs service"
     echo "�� Check logs with: sudo journalctl -u $SERVICE_NAME -n 50"

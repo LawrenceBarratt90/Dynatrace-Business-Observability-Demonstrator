@@ -405,10 +405,26 @@ Deploys: OneAgent features, capture rules, service naming, OpenPipeline pipeline
 ## Management Commands
 
 ```bash
-./start-server.sh    # Full startup with nginx + all services
 ./status.sh          # Detailed status report
 ./stop.sh            # Stop all services
-./restart.sh         # Restart application
+bash update.sh --server   # Pull, rebuild, refresh systemd unit, restart server
+sudo systemctl restart bizobs-server.service
+```
+
+### In-Place Upgrade Script (no fresh install)
+
+```bash
+set -euo pipefail
+
+REPO_DIR="/home/ec2-user/Dynatrace-Business-Observability-Forge"
+BRANCH="main"
+
+cd "$REPO_DIR"
+git fetch origin "$BRANCH"
+git checkout "$BRANCH"
+git pull --ff-only origin "$BRANCH"
+bash update.sh --server
+./status.sh
 ```
 
 ```bash

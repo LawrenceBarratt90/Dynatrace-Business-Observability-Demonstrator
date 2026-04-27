@@ -128,6 +128,17 @@ const dtCredentials = {
   configuredBy: 'none' // 'ui', 'env', 'api'
 };
 
+const startupState = {
+  credentialsResolved: false,
+  dependencyFailures: [],
+  serviceStartupCompleted: false,
+  serviceStartupSuccessful: 0,
+  serviceStartupFailed: 0,
+  autoLoadWatcherStarted: false,
+  aiAgentsReady: false,
+  startupCompletedAt: null,
+};
+
 // Load persisted credentials from file (if exists)
 try {
   if (existsSync(DT_CREDS_FILE)) {
@@ -2374,6 +2385,87 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+app.get('/api/ready', (req, res) => {
+  const requiredChecks = [
+    {
+      name: 'serverListening',
+      ready: server.listening,
+      detail: server.listening ? 'HTTP listener is accepting connections' : 'HTTP listener is not active yet'
+    },
+    {
+      name: 'compiledAgents',
+      ready: existsSync(path.join(__dirname, 'dist', 'agents')),
+      detail: 'Compiled TypeScript agent bundle present'
+    },
+    {
+      name: 'dataDirectory',
+      ready: existsSync(path.join(__dirname, 'data')),
+      detail: 'Runtime data directory present'
+    },
+    {
+      name: 'savedConfigsDirectory',
+      ready: existsSync(path.join(__dirname, 'saved-configs')),
+      detail: 'Saved configuration directory present'
+    },
+    {
+      name: 'dependenciesValidated',
+      ready: startupState.dependencyFailures.length === 0,
+      detail: startupState.dependencyFailures.length === 0
+        ? 'Essential dependency checks passed'
+        : `Failed checks: ${startupState.dependencyFailures.join(', ')}`
+    },
+    {
+      name: 'autoLoadWatcher',
+      ready: startupState.autoLoadWatcherStarted,
+      detail: startupState.autoLoadWatcherStarted ? 'Auto-load watcher started' : 'Auto-load watcher not started yet'
+    }
+  ];
+
+  const optionalChecks = [
+    {
+      name: 'dynatraceCredentials',
+      ready: Boolean(dtCredentials.environmentUrl && dtCredentials.apiToken),
+      detail: dtCredentials.environmentUrl && dtCredentials.apiToken
+        ? `Configured via ${dtCredentials.configuredBy}`
+        : 'Credentials not configured'
+    },
+    {
+      name: 'aiAgents',
+      ready: startupState.aiAgentsReady,
+      detail: startupState.aiAgentsReady ? 'Autonomous agents initialized' : 'Autonomous agents still initializing'
+    },
+    {
+      name: 'mcpServer',
+      ready: mcpServerStatus === 'running',
+      detail: `MCP server status: ${mcpServerStatus}`
+    }
+  ];
+
+  const ready = requiredChecks.every(check => check.ready);
+  const statusCode = ready ? 200 : 503;
+
+  res.status(statusCode).json({
+    status: ready ? 'ready' : 'starting',
+    ready,
+    timestamp: new Date().toISOString(),
+    mainProcess: {
+      pid: process.pid,
+      uptime: process.uptime(),
+      port: PORT,
+      listening: server.listening
+    },
+    startupState: {
+      credentialsResolved: startupState.credentialsResolved,
+      serviceStartupCompleted: startupState.serviceStartupCompleted,
+      serviceStartupSuccessful: startupState.serviceStartupSuccessful,
+      serviceStartupFailed: startupState.serviceStartupFailed,
+      startupCompletedAt: startupState.startupCompletedAt,
+    },
+    requiredChecks,
+    optionalChecks
+  });
+});
+
 // Comprehensive health check endpoint with observability hygiene
 app.get('/api/health/comprehensive', async (req, res) => {
   try {
@@ -4567,6 +4659,7 @@ app.use((err, req, res, next) => {
 (async () => {
   // Prompt for Dynatrace credentials if not already configured
   await promptForCredentials();
+  startupState.credentialsResolved = true;
 
   // Start the server and initialize child services
   server.listen(PORT, () => {
@@ -4610,6 +4703,7 @@ app.use((err, req, res, next) => {
   } else {
     console.log('✅ All essential dependencies validated successfully.');
   }
+  startupState.dependencyFailures = failedDependencies.map(dep => dep.name);
 
   // --- Clean up orphaned service processes from previous server sessions ---
   // These zombie processes hold ports in the service port range and cause
@@ -4677,6 +4771,10 @@ app.use((err, req, res, next) => {
   Promise.all(serviceStartPromises).then(results => {
     const successful = results.filter(r => r.status === 'started').length;
     const failed = results.filter(r => r.status === 'failed').length;
+    startupState.serviceStartupCompleted = true;
+    startupState.serviceStartupSuccessful = successful;
+    startupState.serviceStartupFailed = failed;
+    startupState.startupCompletedAt = new Date().toISOString();
     
     console.log(`🔧 Service startup completed: ${successful} successful, ${failed} failed`);
     
@@ -4701,12 +4799,16 @@ app.use((err, req, res, next) => {
       }
     }, 3000);
     }).catch(error => {
+    startupState.serviceStartupCompleted = true;
+    startupState.serviceStartupFailed = serviceStartPromises.length;
+    startupState.startupCompletedAt = new Date().toISOString();
     console.error('❌ Critical error during service startup:', error.message);
   });
   
   // --- Start Auto-Load Watcher ---
   // Monitors running services and auto-generates 30-60 journeys/min per company
   startAutoLoadWatcher();
+  startupState.autoLoadWatcherStarted = true;
   
   // Make startAutoLoadWatcher available globally so journey routes can restart it after a stop
   global.startAutoLoadWatcher = startAutoLoadWatcher;
@@ -4772,7 +4874,9 @@ app.use((err, req, res, next) => {
     // Fix-It Agent: triggered by Dynatrace workflow webhook (POST /api/workflow-webhook/problem)
     // No auto-polling — Dynatrace detects problems and calls the webhook (~5-10 min after problem opens)
     console.log('✅ Fix-It AI Agent: Ready (workflow webhook mode — waiting for Dynatrace problem notifications)');
+    startupState.aiAgentsReady = true;
   } catch (agentError) {
+    startupState.aiAgentsReady = false;
     console.error('⚠️  AI Agents startup error (non-fatal):', agentError.message);
   }
   

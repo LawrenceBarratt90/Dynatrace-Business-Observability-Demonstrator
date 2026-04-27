@@ -521,11 +521,13 @@ sudo nginx -t && sudo systemctl restart nginx
 For auto-start on boot:
 
 ```bash
-sudo tee /etc/systemd/system/bizobs.service << EOF
+sudo tee /etc/systemd/system/bizobs-server.service << EOF
 [Unit]
 Description=Business Observability Demonstrator
 After=network.target ollama.service
 Wants=ollama.service
+StartLimitIntervalSec=600
+StartLimitBurst=20
 
 [Service]
 Type=simple
@@ -533,15 +535,29 @@ User=$(whoami)
 WorkingDirectory=$(pwd)
 Environment=NODE_ENV=production
 Environment=PORT=8080
-ExecStart=/usr/bin/node --require ./otel.cjs server.js
+Environment=HOME=/home/$(whoami)
+Environment=PATH=$(dirname $(command -v node)):/usr/local/bin:/usr/bin:/bin
+EnvironmentFile=-$(pwd)/.env
+ExecStartPre=/bin/bash $(pwd)/scripts/self-heal.sh
+ExecStart=$(command -v node) --require ./otel.cjs server.js
 Restart=always
-RestartSec=10
-StandardOutput=append:$(pwd)/logs/bizobs.log
-StandardError=append:$(pwd)/logs/bizobs-error.log
+RestartSec=5
+SyslogIdentifier=bizobs-server
+StandardOutput=journal
+StandardError=journal
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=$(pwd)
+ReadWritePaths=/tmp
 
 [Install]
 WantedBy=multi-user.target
 EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable --now bizobs-server.service
+journalctl -u bizobs-server.service -f
 
 sudo systemctl daemon-reload
 sudo systemctl enable bizobs
