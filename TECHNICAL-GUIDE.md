@@ -1,4 +1,4 @@
-# Technical Guide — Business Observability Demonstrator (v2.38.8)
+# Technical Guide — Business Observability Demonstrator (v2.38.9)
 
 > A hands-on guide for engineers, SEs, and developers who want to get the platform running and understand what's under the hood.
 
