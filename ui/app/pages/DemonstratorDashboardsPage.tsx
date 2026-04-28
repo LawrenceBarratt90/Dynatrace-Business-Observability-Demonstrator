@@ -1433,7 +1433,7 @@ function inferTimeseriesUnit(tile?: TileDefinition, metricKey?: string | null): 
   return 'count';
 }
 
-function buildExplicitTimeseriesData(data: any, tile?: TileDefinition): Array<{ name: string | string[]; unit?: string; datapoints: Array<{ start: Date; end?: Date; value: number }> }> {
+function buildExplicitTimeseriesData(data: any, tile?: TileDefinition): Array<{ name: string; datapoints: Array<{ start: Date; value: number }> }> {
   const records = Array.isArray(data?.records) ? data.records : [];
   const series = records.map((record: Record<string, any>) => {
     const metricKey = findTimeseriesArrayKey(record);
@@ -1452,10 +1452,9 @@ function buildExplicitTimeseriesData(data: any, tile?: TileDefinition): Array<{ 
         if (!Number.isFinite(value)) return null;
 
         const pointStart = new Date(startMs + index * intervalMs);
-        const pointEnd = new Date(startMs + (index + 1) * intervalMs);
-        return { start: pointStart, end: pointEnd, value };
+        return { start: pointStart, value };
       })
-      .filter((point): point is { start: Date; end: Date; value: number } => point !== null);
+      .filter((point): point is { start: Date; value: number } => point !== null);
 
     if (!datapoints.length) return null;
 
@@ -1463,13 +1462,12 @@ function buildExplicitTimeseriesData(data: any, tile?: TileDefinition): Array<{ 
       .filter(([key, value]) => key !== 'timeframe' && key !== 'interval' && key !== metricKey && !key.startsWith('__') && typeof value === 'string' && value)
       .map(([, value]) => value as string);
 
-    const name = dimensions.length > 1 ? dimensions : (dimensions[0] || metricKey);
+    const name = dimensions[0] || metricKey;
     return {
       name,
-      unit: inferTimeseriesUnit(tile, metricKey),
       datapoints,
     };
-  }).filter(Boolean) as Array<{ name: string | string[]; unit?: string; datapoints: Array<{ start: Date; end?: Date; value: number }> }>;
+  }).filter(Boolean) as Array<{ name: string; datapoints: Array<{ start: Date; value: number }> }>;
 
   return series;
 }
