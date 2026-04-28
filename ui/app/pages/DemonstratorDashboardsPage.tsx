@@ -1789,10 +1789,10 @@ function NativeTimeseriesChart({ data, tile }: { data: any; tile?: TileDefinitio
   if (!records.length) return <div style={{ color: '#8899aa', fontSize: 11, padding: 8 }}>No timeseries data</div>;
 
   const lineColors = ['#4fc3f7', '#27ae60', '#f39c12', '#e74c3c', '#a78bfa', '#1abc9c', '#f1c40f', '#e67e22'];
-  const width = 860;
-  const height = 220;
-  const padX = 28;
-  const padY = 20;
+  const width = 900;
+  const height = 240;
+  const padX = 44;
+  const padY = 24;
 
   const series = records.slice(0, 8).map((r: any, idx: number) => {
     const arrKey = findTimeseriesArrayKey(r);
@@ -1808,25 +1808,79 @@ function NativeTimeseriesChart({ data, tile }: { data: any; tile?: TileDefinitio
 
   const pointCount = Math.max(...series.map((s) => s.values.length), 1);
   const maxY = Math.max(1, ...series.flatMap((s) => s.values));
+  const startTime = records[0]?.timeframe?.start ? new Date(records[0].timeframe.start) : null;
+  const endTime = records[0]?.timeframe?.end ? new Date(records[0].timeframe.end) : null;
+  const timeLabel = (d: Date | null) => (d ? d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '');
 
   const toX = (i: number) => padX + (i / Math.max(pointCount - 1, 1)) * (width - padX * 2);
   const toY = (v: number) => height - padY - (v / maxY) * (height - padY * 2);
 
   const topSeries = [...series].sort((a, b) => b.total - a.total).slice(0, 5);
+  const yTicks = [0, 0.25, 0.5, 0.75, 1].map((ratio) => ({
+    y: padY + (1 - ratio) * (height - padY * 2),
+    value: maxY * ratio,
+  }));
 
   return (
     <div style={{ width: '100%', height: '100%', minHeight: 250, display: 'flex', flexDirection: 'column', gap: 8 }}>
-      <svg viewBox={`0 0 ${width} ${height}`} style={{ width: '100%', height: 190, borderRadius: 8, background: 'rgba(6,10,24,0.45)' }} preserveAspectRatio="none">
-        <line x1={padX} y1={height - padY} x2={width - padX} y2={height - padY} stroke="rgba(120,140,200,0.35)" strokeWidth="1" />
-        <line x1={padX} y1={padY} x2={padX} y2={height - padY} stroke="rgba(120,140,200,0.35)" strokeWidth="1" />
-        {[0.25, 0.5, 0.75].map((p) => {
-          const y = padY + p * (height - padY * 2);
-          return <line key={p} x1={padX} y1={y} x2={width - padX} y2={y} stroke="rgba(120,140,200,0.12)" strokeWidth="1" />;
+      <svg viewBox={`0 0 ${width} ${height}`} style={{ width: '100%', height: 210, borderRadius: 8, background: 'rgba(6,10,24,0.45)' }} preserveAspectRatio="none">
+        <defs>
+          {topSeries.map((s, idx) => (
+            <linearGradient key={s.label} id={`series-grad-${idx}`} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={s.color} stopOpacity="0.35" />
+              <stop offset="100%" stopColor={s.color} stopOpacity="0" />
+            </linearGradient>
+          ))}
+        </defs>
+
+        <line x1={padX} y1={height - padY} x2={width - padX} y2={height - padY} stroke="rgba(120,140,200,0.4)" strokeWidth="1" />
+        <line x1={padX} y1={padY} x2={padX} y2={height - padY} stroke="rgba(120,140,200,0.4)" strokeWidth="1" />
+
+        {yTicks.map((tick, idx) => (
+          <g key={idx}>
+            <line x1={padX} y1={tick.y} x2={width - padX} y2={tick.y} stroke="rgba(120,140,200,0.14)" strokeWidth="1" />
+            <text x={padX - 8} y={tick.y + 3} textAnchor="end" fill="rgba(175,190,230,0.8)" fontSize="9">
+              {fmtNum(tick.value)}
+            </text>
+          </g>
+        ))}
+
+        {topSeries.map((s, idx) => {
+          const points = s.values.map((v, i) => ({ x: toX(i), y: toY(v), v }));
+          const lineD = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
+          const areaD = `${lineD} L ${toX(points.length - 1)} ${height - padY} L ${toX(0)} ${height - padY} Z`;
+
+          let peakIndex = 0;
+          let peakValue = -Infinity;
+          s.values.forEach((v, i) => {
+            if (v > peakValue) {
+              peakValue = v;
+              peakIndex = i;
+            }
+          });
+          const peak = points[peakIndex];
+          const end = points[points.length - 1];
+
+          return (
+            <g key={s.label}>
+              <path d={areaD} fill={`url(#series-grad-${idx})`} />
+              <path d={lineD} fill="none" stroke={s.color} strokeWidth="2.2" strokeLinejoin="round" strokeLinecap="round" />
+
+              <circle cx={peak.x} cy={peak.y} r="3.2" fill={s.color} />
+              <text x={peak.x + 5} y={Math.max(padY + 10, peak.y - 6)} fill={s.color} fontSize="9" fontWeight="700">
+                peak {fmtNum(peak.v)}
+              </text>
+
+              <circle cx={end.x} cy={end.y} r="2.8" fill={s.color} opacity="0.9" />
+              <text x={Math.min(width - padX - 2, end.x + 6)} y={end.y + 3} fill="rgba(220,230,255,0.92)" fontSize="9">
+                {fmtNum(end.v)}
+              </text>
+            </g>
+          );
         })}
-        {topSeries.map((s) => {
-          const d = s.values.map((v, i) => `${i === 0 ? 'M' : 'L'} ${toX(i)} ${toY(v)}`).join(' ');
-          return <path key={s.label} d={d} fill="none" stroke={s.color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />;
-        })}
+
+        <text x={padX} y={height - 6} fill="rgba(175,190,230,0.8)" fontSize="9">{timeLabel(startTime)}</text>
+        <text x={width - padX} y={height - 6} textAnchor="end" fill="rgba(175,190,230,0.8)" fontSize="9">{timeLabel(endTime)}</text>
       </svg>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 6 }}>
         {topSeries.map((s) => (
