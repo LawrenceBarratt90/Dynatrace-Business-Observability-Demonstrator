@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { Flex } from '@dynatrace/strato-components';
+import { TimeseriesChart } from '@dynatrace/strato-components-preview';
 import { InfoButton } from '../components/InfoButton';
 import {
-  TimeseriesChart,
   type ChartMessage,
   CategoricalBarChart,
   PieChart,
