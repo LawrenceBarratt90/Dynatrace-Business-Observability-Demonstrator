@@ -1850,6 +1850,15 @@ function ChartRenderer({ vizType, data, tile }: { vizType: TileDefinition['vizTy
 
   switch (vizType) {
     case 'timeseries': {
+      try {
+        const ts = convertQueryResultToTimeseries(data);
+        if (Array.isArray(ts) && ts.length > 0 && hasRenderableTimeseries(ts)) {
+          return <div style={{ width: '100%', height: 250 }}><TimeseriesChart data={ts} /></div>;
+        }
+      } catch {
+        // Fall back below.
+      }
+
       return <NativeTimeseriesChart data={data} tile={tile} />;
     }
 
