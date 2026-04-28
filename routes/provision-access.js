@@ -2,11 +2,22 @@ import express from 'express';
 
 const router = express.Router();
 
-const DT_TOKEN_URL = 'https://sso-sprint.dynatracelabs.com/sso/oauth2/token';
+function resolveTokenUrl() {
+  if (process.env.DT_ACCOUNT_TOKEN_URL) {
+    return process.env.DT_ACCOUNT_TOKEN_URL;
+  }
+
+  const envType = (process.env.ENV_TYPE || '').toLowerCase();
+  if (envType === 'prod') {
+    return 'https://sso.dynatrace.com/sso/oauth2/token';
+  }
+  return 'https://sso-sprint.dynatracelabs.com/sso/oauth2/token';
+}
 const DT_IAM_BASE = 'https://api-hardening.internal.dynatracelabs.com/iam/v1/accounts';
 const ALLOWED_DOMAIN = process.env.ALLOWED_EMAIL_DOMAIN || 'dynatrace.com';
 
 async function getDynatraceToken() {
+  const tokenUrl = resolveTokenUrl();
   const params = new URLSearchParams({
     grant_type: 'client_credentials',
     client_id: process.env.DT_ACCOUNT_OAUTH_CLIENT_ID,
@@ -14,7 +25,7 @@ async function getDynatraceToken() {
     resource: process.env.DT_ACCOUNT_RESOURCE,
   });
 
-  const res = await fetch(DT_TOKEN_URL, {
+  const res = await fetch(tokenUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: params.toString(),
@@ -54,7 +65,6 @@ router.post('/', async (req, res) => {
   try {
     const token = await getDynatraceToken();
 
-    // Step 1: Create user (409 = already exists, that's fine)
     const createRes = await fetch(`${DT_IAM_BASE}/${accountId}/users`, {
       method: 'POST',
       headers: {
@@ -69,7 +79,6 @@ router.post('/', async (req, res) => {
       throw new Error(`Create user failed (${createRes.status}): ${text}`);
     }
 
-    // Step 2: Add user to group (409 = already in group, that's fine)
     const groupRes = await fetch(`${DT_IAM_BASE}/${accountId}/users/${encodeURIComponent(normalizedEmail)}`, {
       method: 'POST',
       headers: {
@@ -86,7 +95,6 @@ router.post('/', async (req, res) => {
 
     console.log(`[provision-access] Provisioned access for ${normalizedEmail}`);
     return res.json({ success: true, message: `Access provisioned for ${normalizedEmail}. You will receive an invitation email shortly.` });
-
   } catch (err) {
     console.error('[provision-access] Error:', err.message);
     return res.status(500).json({ success: false, error: 'Provisioning failed. Please contact an administrator.' });

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Request Dynatrace Access — Business Observability Demonstrator</title>
+  <title>Request Dynatrace Access - Business Observability Demonstrator</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = {
@@ -40,10 +40,8 @@
 
   <div class="w-full max-w-md animate-fade-in">
 
-    <!-- Logo / header -->
     <div class="text-center mb-8">
       <div class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-dtcard border border-dtborder mb-4 shadow-card">
-        <!-- DT-style icon -->
         <svg width="36" height="36" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
           <circle cx="18" cy="18" r="17" stroke="#00D4FF" stroke-width="1.5"/>
           <path d="M12 24L18 12L24 24" stroke="#00D4FF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
@@ -54,7 +52,6 @@
       <p class="text-sm text-gray-400 mt-1">Business Observability Demonstrator</p>
     </div>
 
-    <!-- Card -->
     <div class="bg-dtcard border border-dtborder rounded-xl p-8 shadow-card">
 
       <p class="text-sm text-gray-300 mb-6 leading-relaxed">
@@ -89,7 +86,6 @@
         </button>
       </form>
 
-      <!-- Success state (hidden initially) -->
       <div id="successMessage" class="hidden text-center py-4">
         <div class="inline-flex items-center justify-center w-12 h-12 rounded-full bg-dtgreen/20 border border-dtgreen mb-4">
           <svg class="w-6 h-6 text-dtgreen" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -100,7 +96,6 @@
         <p id="successText" class="text-sm text-gray-300"></p>
       </div>
 
-      <!-- Error state (hidden initially) -->
       <div id="errorMessage" class="hidden mt-4 p-4 rounded-lg bg-red-900/30 border border-red-700">
         <p class="text-sm text-red-300" id="errorText"></p>
       </div>
@@ -126,7 +121,7 @@
 
     function setLoading(loading) {
       submitBtn.disabled = loading;
-      btnText.textContent = loading ? 'Requesting…' : 'Request Access';
+      btnText.textContent = loading ? 'Requesting...' : 'Request Access';
       btnSpinner.classList.toggle('hidden', !loading);
     }
 
