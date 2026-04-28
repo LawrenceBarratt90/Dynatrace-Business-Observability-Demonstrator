@@ -1395,16 +1395,17 @@ function toNumeric(value: any): number {
   return 0;
 }
 
-function normalizeQueryData(raw: any): { records: any[] } {
+function normalizeQueryData(raw: any): any {
   if (!raw) return { records: [] };
 
-  if (Array.isArray(raw.records)) return { records: raw.records };
-  if (Array.isArray(raw?.result?.records)) return { records: raw.result.records };
-  if (Array.isArray(raw?.data?.records)) return { records: raw.data.records };
-  if (Array.isArray(raw?.result)) return { records: raw.result };
-  if (Array.isArray(raw?.records)) return { records: raw.records };
+  // Keep original metadata when records are already present (important for chart helpers).
+  if (Array.isArray(raw.records)) return raw;
 
-  return { records: [] };
+  if (Array.isArray(raw?.result?.records)) return { ...raw, records: raw.result.records };
+  if (Array.isArray(raw?.data?.records)) return { ...raw, records: raw.data.records };
+  if (Array.isArray(raw?.result)) return { ...raw, records: raw.result };
+
+  return { ...raw, records: [] };
 }
 
 function hasRenderableTimeseries(ts: any): boolean {
@@ -1792,7 +1793,7 @@ function ChartRenderer({ vizType, data, tile }: { vizType: TileDefinition['vizTy
       try {
         const ts = convertQueryResultToTimeseries(data);
         if (Array.isArray(ts) && ts.length > 0 && hasRenderableTimeseries(ts)) {
-          return <TimeseriesChart data={ts} height={250} />;
+          return <div style={{ width: '100%', height: 250 }}><TimeseriesChart data={ts} /></div>;
         }
       } catch {
         // Fall through to aggregate fallback below.
@@ -1800,7 +1801,7 @@ function ChartRenderer({ vizType, data, tile }: { vizType: TileDefinition['vizTy
 
       const fallbackBars = buildTimeseriesBarFallback(data);
       if (fallbackBars.length > 0) {
-        return <CategoricalBarChart data={fallbackBars} height={250} />;
+        return <div style={{ width: '100%', height: 250 }}><CategoricalBarChart data={fallbackBars} /></div>;
       }
 
       return <div style={{ color: '#8899aa', fontSize: 11 }}>No timeseries data</div>;
@@ -1812,7 +1813,7 @@ function ChartRenderer({ vizType, data, tile }: { vizType: TileDefinition['vizTy
         category: dimKey ? String(r[dimKey] ?? 'Unknown') : 'Unknown',
         value: metricKey ? toNumeric(r[metricKey]) : 0,
       }));
-      return <PieChart data={{ slices }} height={250} />;
+      return <div style={{ width: '100%', height: 250 }}><PieChart data={{ slices }} /></div>;
     }
 
     case 'categoricalBar': {
@@ -1821,7 +1822,7 @@ function ChartRenderer({ vizType, data, tile }: { vizType: TileDefinition['vizTy
         category: dimKey ? String(r[dimKey] ?? 'Unknown') : 'Unknown',
         value: metricKey ? toNumeric(r[metricKey]) : 0,
       }));
-      return <CategoricalBarChart data={chartData} height={250} />;
+      return <div style={{ width: '100%', height: 250 }}><CategoricalBarChart data={chartData} /></div>;
     }
 
     case 'singleValue':
@@ -1838,7 +1839,7 @@ function ChartRenderer({ vizType, data, tile }: { vizType: TileDefinition['vizTy
         category: dimKey ? String(r[dimKey] ?? 'Unknown') : 'Unknown',
         value: metricKey ? toNumeric(r[metricKey]) : 0,
       }));
-      return <DonutChart data={{ slices }} height={250}><DonutChart.Legend /></DonutChart>;
+      return <div style={{ width: '100%', height: 250 }}><DonutChart data={{ slices }}><DonutChart.Legend /></DonutChart></div>;
     }
 
     case 'honeycomb': {
@@ -1850,7 +1851,7 @@ function ChartRenderer({ vizType, data, tile }: { vizType: TileDefinition['vizTy
         if (vl > 0) hcData.push({ name: nm, value: vl });
       }
       if (!hcData.length) return <div style={{ color: '#8899aa', fontSize: 11 }}>No numeric data</div>;
-      return <HoneycombChart data={hcData} height={250} shape="hexagon" showLabels />;
+      return <div style={{ width: '100%', height: 250 }}><HoneycombChart data={hcData} shape="hexagon" showLabels /></div>;
     }
 
     case 'meterBar': {
