@@ -1401,6 +1401,48 @@ function classifyRecordKeys(record: Record<string, any>): { dimKey: string | nul
   return { dimKey, metricKey };
 }
 
+function findTimeseriesArrayKey(record: Record<string, any>): string | null {
+  for (const [k, v] of Object.entries(record)) {
+    if (Array.isArray(v) && v.some((x) => typeof x === 'number' && isFinite(x))) {
+      return k;
+    }
+  }
+  return null;
+}
+
+function pickSeriesLabel(record: Record<string, any>): string {
+  if (typeof record.service === 'string' && record.service) return record.service;
+  for (const [k, v] of Object.entries(record)) {
+    if (k === 'timeframe' || k === 'interval' || k.startsWith('__')) continue;
+    if (typeof v === 'string' && v) return v;
+  }
+  return 'Series';
+}
+
+function buildTimeseriesBarFallback(data: any): Array<{ category: string; value: number }> {
+  if (!data?.records?.length) return [];
+  const buckets = new Map<string, number>();
+
+  for (const r of data.records as Array<Record<string, any>>) {
+    const arrKey = findTimeseriesArrayKey(r);
+    if (!arrKey) continue;
+
+    const arr = r[arrKey] as unknown[];
+    const total = arr.reduce((sum, val) => {
+      const num = typeof val === 'number' ? val : Number(val);
+      return sum + (isFinite(num) ? num : 0);
+    }, 0);
+
+    const label = pickSeriesLabel(r);
+    buckets.set(label, (buckets.get(label) || 0) + total);
+  }
+
+  return Array.from(buckets.entries())
+    .map(([category, value]) => ({ category, value }))
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 15);
+}
+
 /** Format large numbers nicely: 63200 → "63.2K", 1200000 → "1.2M" */
 function fmtNum(n: number): string {
   if (n === 0) return '0';
@@ -1699,9 +1741,21 @@ function ChartRenderer({ vizType, data, tile }: { vizType: TileDefinition['vizTy
 
   switch (vizType) {
     case 'timeseries': {
-      const ts = convertQueryResultToTimeseries(data);
-      if (!ts?.length) return <div style={{ color: '#8899aa', fontSize: 11 }}>No timeseries data</div>;
-      return <TimeseriesChart data={ts} height={250} />;
+      try {
+        const ts = convertQueryResultToTimeseries(data);
+        if (Array.isArray(ts) && ts.length > 0) {
+          return <TimeseriesChart data={ts} height={250} />;
+        }
+      } catch {
+        // Fall through to aggregate fallback below.
+      }
+
+      const fallbackBars = buildTimeseriesBarFallback(data);
+      if (fallbackBars.length > 0) {
+        return <CategoricalBarChart data={fallbackBars} height={250} />;
+      }
+
+      return <div style={{ color: '#8899aa', fontSize: 11 }}>No timeseries data</div>;
     }
 
     case 'pie': {
