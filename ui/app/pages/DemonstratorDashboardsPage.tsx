@@ -1904,7 +1904,21 @@ function ChartRenderer({ vizType, data, tile }: { vizType: TileDefinition['vizTy
 
   switch (vizType) {
     case 'timeseries': {
-      return <NativeTimeseriesChart data={data} tile={tile} />;
+      try {
+        const ts = convertQueryResultToTimeseries(data);
+        if (Array.isArray(ts) && ts.length > 0 && hasRenderableTimeseries(ts)) {
+          return <div style={{ width: '100%', height: 250 }}><TimeseriesChart data={ts} /></div>;
+        }
+      } catch {
+        // Fall back to a default categorical chart if conversion fails.
+      }
+
+      const fallbackBars = buildTimeseriesBarFallback(data);
+      if (fallbackBars.length > 0) {
+        return <div style={{ width: '100%', height: 250 }}><CategoricalBarChart data={fallbackBars} /></div>;
+      }
+
+      return <div style={{ color: '#8899aa', fontSize: 11 }}>No timeseries data</div>;
     }
 
     case 'pie': {
