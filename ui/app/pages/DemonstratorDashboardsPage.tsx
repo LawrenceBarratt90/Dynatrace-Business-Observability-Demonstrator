@@ -1838,11 +1838,11 @@ function NativeTimeseriesChart({ data, tile }: { data: any; tile?: TileDefinitio
   const records = Array.isArray(data?.records) ? data.records : [];
   if (!records.length) return <div style={{ color: '#8899aa', fontSize: 11, padding: 8 }}>No timeseries data</div>;
 
-  const lineColors = ['#4fc3f7', '#27ae60', '#f39c12', '#e74c3c', '#a78bfa', '#1abc9c', '#f1c40f', '#e67e22'];
+  const lineColors = ['#6fb7ff', '#7bd88f', '#f5b14c', '#e46b6b', '#9b8cff', '#56c4b5'];
   const width = 900;
-  const height = 240;
-  const padX = 44;
-  const padY = 24;
+  const height = 230;
+  const padX = 40;
+  const padY = 20;
 
   const series = records.slice(0, 8).map((r: any, idx: number) => {
     const arrKey = findTimeseriesArrayKey(r);
@@ -1873,66 +1873,27 @@ function NativeTimeseriesChart({ data, tile }: { data: any; tile?: TileDefinitio
 
   return (
     <div style={{ width: '100%', height: '100%', minHeight: 250, display: 'flex', flexDirection: 'column', gap: 8 }}>
-      <svg viewBox={`0 0 ${width} ${height}`} style={{ width: '100%', height: 210, borderRadius: 8, background: 'rgba(6,10,24,0.45)' }} preserveAspectRatio="none">
-        <defs>
-          {topSeries.map((s, idx) => (
-            <linearGradient key={s.label} id={`series-grad-${idx}`} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={s.color} stopOpacity="0.35" />
-              <stop offset="100%" stopColor={s.color} stopOpacity="0" />
-            </linearGradient>
-          ))}
-        </defs>
-
-        <line x1={padX} y1={height - padY} x2={width - padX} y2={height - padY} stroke="rgba(120,140,200,0.4)" strokeWidth="1" />
-        <line x1={padX} y1={padY} x2={padX} y2={height - padY} stroke="rgba(120,140,200,0.4)" strokeWidth="1" />
+      <svg viewBox={`0 0 ${width} ${height}`} style={{ width: '100%', height: 205 }} preserveAspectRatio="none">
+        <line x1={padX} y1={height - padY} x2={width - padX} y2={height - padY} stroke="rgba(136,153,204,0.35)" strokeWidth="1" />
+        <line x1={padX} y1={padY} x2={padX} y2={height - padY} stroke="rgba(136,153,204,0.35)" strokeWidth="1" />
 
         {yTicks.map((tick, idx) => (
           <g key={idx}>
-            <line x1={padX} y1={tick.y} x2={width - padX} y2={tick.y} stroke="rgba(120,140,200,0.14)" strokeWidth="1" />
-            <text x={padX - 8} y={tick.y + 3} textAnchor="end" fill="rgba(175,190,230,0.8)" fontSize="9">
-              {fmtNum(tick.value)}
-            </text>
+            <line x1={padX} y1={tick.y} x2={width - padX} y2={tick.y} stroke="rgba(136,153,204,0.12)" strokeWidth="1" />
+            <text x={padX - 8} y={tick.y + 3} textAnchor="end" fill="rgba(176,184,216,0.8)" fontSize="9">{fmtNum(tick.value)}</text>
           </g>
         ))}
 
-        {topSeries.map((s, idx) => {
-          const points = s.values.map((v, i) => ({ x: toX(i), y: toY(v), v }));
+        {topSeries.map((s) => {
+          const points = s.values.map((v, i) => ({ x: toX(i), y: toY(v) }));
           const lineD = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
-          const areaD = `${lineD} L ${toX(points.length - 1)} ${height - padY} L ${toX(0)} ${height - padY} Z`;
-
-          let peakIndex = 0;
-          let peakValue = -Infinity;
-          s.values.forEach((v, i) => {
-            if (v > peakValue) {
-              peakValue = v;
-              peakIndex = i;
-            }
-          });
-          const peak = points[peakIndex];
-          const end = points[points.length - 1];
-
-          return (
-            <g key={s.label}>
-              <path d={areaD} fill={`url(#series-grad-${idx})`} />
-              <path d={lineD} fill="none" stroke={s.color} strokeWidth="2.2" strokeLinejoin="round" strokeLinecap="round" />
-
-              <circle cx={peak.x} cy={peak.y} r="3.2" fill={s.color} />
-              <text x={peak.x + 5} y={Math.max(padY + 10, peak.y - 6)} fill={s.color} fontSize="9" fontWeight="700">
-                peak {fmtNum(peak.v)}
-              </text>
-
-              <circle cx={end.x} cy={end.y} r="2.8" fill={s.color} opacity="0.9" />
-              <text x={Math.min(width - padX - 2, end.x + 6)} y={end.y + 3} fill="rgba(220,230,255,0.92)" fontSize="9">
-                {fmtNum(end.v)}
-              </text>
-            </g>
-          );
+          return <path key={s.label} d={lineD} fill="none" stroke={s.color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />;
         })}
 
-        <text x={padX} y={height - 6} fill="rgba(175,190,230,0.8)" fontSize="9">{timeLabel(startTime)}</text>
-        <text x={width - padX} y={height - 6} textAnchor="end" fill="rgba(175,190,230,0.8)" fontSize="9">{timeLabel(endTime)}</text>
+        <text x={padX} y={height - 6} fill="rgba(176,184,216,0.8)" fontSize="9">{timeLabel(startTime)}</text>
+        <text x={width - padX} y={height - 6} textAnchor="end" fill="rgba(176,184,216,0.8)" fontSize="9">{timeLabel(endTime)}</text>
       </svg>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 6 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 6 }}>
         {topSeries.map((s) => (
           <div key={s.label} style={{ fontSize: 10, color: '#b7c3e6', display: 'flex', alignItems: 'center', gap: 6 }}>
             <span style={{ width: 10, height: 10, borderRadius: 999, background: s.color, display: 'inline-block' }} />
@@ -1941,9 +1902,37 @@ function NativeTimeseriesChart({ data, tile }: { data: any; tile?: TileDefinitio
           </div>
         ))}
       </div>
-      <div style={{ fontSize: 10, color: '#7f8bb0' }}>
-        {tile?.title || 'Timeseries'} • max {fmtNum(maxY)} • {pointCount} points
-      </div>
+    </div>
+  );
+}
+
+function NativeCategoricalBarChart({ data }: { data: any }) {
+  const records = Array.isArray(data?.records) ? data.records : [];
+  if (!records.length) return <div style={{ color: '#8899aa', fontSize: 11, padding: 8 }}>No data</div>;
+
+  const { dimKey, metricKey } = classifyRecordKeys(records[0]);
+  const bars: Array<{ category: string; value: number }> = records
+    .map((r: any) => ({
+      category: dimKey ? String(r[dimKey] ?? 'Unknown') : 'Unknown',
+      value: metricKey ? toNumeric(r[metricKey]) : 0,
+    }))
+    .filter((item: { category: string; value: number }) => item.value > 0)
+    .slice(0, 12);
+
+  if (!bars.length) return <div style={{ color: '#8899aa', fontSize: 11, padding: 8 }}>No numeric data</div>;
+
+  const maxValue = Math.max(...bars.map((b: { category: string; value: number }) => b.value), 1);
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, paddingTop: 6 }}>
+      {bars.map((bar: { category: string; value: number }) => (
+        <div key={bar.category} style={{ display: 'grid', gridTemplateColumns: '180px 1fr 64px', gap: 10, alignItems: 'center', fontSize: 11 }}>
+          <div style={{ color: '#b0b8d8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{bar.category}</div>
+          <div style={{ height: 10, background: 'rgba(136,153,204,0.12)', borderRadius: 999, overflow: 'hidden' }}>
+            <div style={{ width: `${(bar.value / maxValue) * 100}%`, height: '100%', background: '#6fb7ff', borderRadius: 999 }} />
+          </div>
+          <div style={{ color: '#e0e6ff', fontFamily: 'monospace', textAlign: 'right' }}>{fmtNum(bar.value)}</div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -1954,29 +1943,7 @@ function ChartRenderer({ vizType, data, tile }: { vizType: TileDefinition['vizTy
 
   switch (vizType) {
     case 'timeseries': {
-      const explicitSeries = buildExplicitTimeseriesData(data, tile);
-      if (explicitSeries.length > 0 && hasRenderableTimeseries(explicitSeries)) {
-        return (
-          <div style={{ width: '100%', height: 250 }}>
-            <TimeseriesChart data={explicitSeries} height={250}>
-              <TimeseriesChart.YAxis />
-              <TimeseriesChart.XAxis />
-              <TimeseriesChart.Tooltip variant="shared" />
-              <TimeseriesChart.Legend />
-              <TimeseriesChart.EmptyState>
-                No timeseries data
-              </TimeseriesChart.EmptyState>
-            </TimeseriesChart>
-          </div>
-        );
-      }
-
-      const fallbackBars = buildTimeseriesBarFallback(data);
-      if (fallbackBars.length > 0) {
-        return <div style={{ width: '100%', height: 250 }}><CategoricalBarChart data={fallbackBars} /></div>;
-      }
-
-      return <div style={{ color: '#8899aa', fontSize: 11 }}>No timeseries data</div>;
+      return <NativeTimeseriesChart data={data} tile={tile} />;
     }
 
     case 'pie': {
@@ -1989,12 +1956,7 @@ function ChartRenderer({ vizType, data, tile }: { vizType: TileDefinition['vizTy
     }
 
     case 'categoricalBar': {
-      const { dimKey, metricKey } = classifyRecordKeys(records[0]);
-      const chartData = records.map((r: any) => ({
-        category: dimKey ? String(r[dimKey] ?? 'Unknown') : 'Unknown',
-        value: metricKey ? toNumeric(r[metricKey]) : 0,
-      }));
-      return <div style={{ width: '100%', height: 250 }}><CategoricalBarChart data={chartData} /></div>;
+      return <NativeCategoricalBarChart data={data} />;
     }
 
     case 'singleValue':
