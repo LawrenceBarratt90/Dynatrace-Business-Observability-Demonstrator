@@ -4,6 +4,7 @@ import { Flex } from '@dynatrace/strato-components';
 import { InfoButton } from '../components/InfoButton';
 import {
   TimeseriesChart,
+  type ChartMessage,
   CategoricalBarChart,
   PieChart,
   DonutChart,
@@ -1472,7 +1473,7 @@ function buildExplicitTimeseriesData(data: any, tile?: TileDefinition): Array<{ 
   return series;
 }
 
-function logChartMessages(messages: Array<{ message: string; severityLevel: string }>) {
+function logChartMessages(messages: ChartMessage[]) {
   messages.forEach((msg) => {
     console.info({ message: msg.message, severity: msg.severityLevel });
   });
@@ -1946,7 +1947,16 @@ function ChartRenderer({ vizType, data, tile }: { vizType: TileDefinition['vizTy
 
   switch (vizType) {
     case 'timeseries': {
-      return <NativeTimeseriesChart data={data} tile={tile} />;
+      const explicitSeries = buildExplicitTimeseriesData(data, tile);
+      if (!explicitSeries.length) {
+        return <div style={{ color: '#8899aa', fontSize: 11, padding: 8 }}>No timeseries data</div>;
+      }
+
+      return (
+        <div style={{ width: '100%', height: 250 }}>
+          <TimeseriesChart data={explicitSeries} height={250} onMessage={logChartMessages} />
+        </div>
+      );
     }
 
     case 'pie': {
