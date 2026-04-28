@@ -56,6 +56,7 @@ try {
 // Fix-It detector available but not auto-started (triggered via workflow webhook instead)
 // import { startDetector as startFixitDetector } from './dist/agents/fixit/problemDetector.js';
 import mcpServerRouter from './routes/mcp-server.js';
+import provisionAccessRouter from './routes/provision-access.js';
 import { injectDynatraceMetadata, injectErrorMetadata, propagateMetadata, validateMetadata } from './middleware/dynatrace-metadata.js';
 import { performComprehensiveHealthCheck } from './middleware/observability-hygiene.js';
 // MongoDB integration removed
@@ -678,6 +679,7 @@ app.use('/api/librarian', librarianRouter.default || librarianRouter);
 app.use('/api/autonomous', autonomousRouter.default || autonomousRouter);
 app.use('/api/workflow-webhook', workflowWebhookRouter.default || workflowWebhookRouter);
 app.use('/api/mcp', mcpServerRouter);
+app.use('/api/provision-access', provisionAccessRouter);
 
 // 🚦 FEATURE FLAG API - Generic, scalable, future-proof
 // Default values for all feature flags
