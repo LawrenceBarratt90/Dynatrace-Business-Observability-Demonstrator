@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Request Dynatrace Access - Business Observability Demonstrator</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            dtpurple: '#6C2C9C', dtblue: '#00A1C9', dtcyan: '#00D4FF', dtgreen: '#73BE28',
+            dtorange: '#FFA86B', dtyellow: '#FFD23F', dtdark: '#181A20', dtgray: '#23272F',
+            dtcard: '#22242A', dtaccent: '#FFD23F', dtborder: '#2D2D2D'
+          },
+          boxShadow: {
+            glow: '0 0 20px rgba(0, 212, 255, 0.5)',
+            card: '0 4px 24px rgba(0,0,0,0.12), 0 1.5px 4px rgba(0,212,255,0.08)'
+          },
+          fontFamily: {
+            sans: ['Inter', 'Roboto', 'Arial', 'sans-serif']
+          }
+        }
+      }
+    };
+  </script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+  <style>
+    @keyframes fade-in {
+      0% { opacity: 0; transform: translateY(16px); }
+      100% { opacity: 1; transform: translateY(0); }
+    }
+    .animate-fade-in { animation: fade-in 0.4s ease-out; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spinner { animation: spin 0.8s linear infinite; }
+  </style>
+</head>
+<body class="bg-dtdark text-white font-sans min-h-screen flex items-center justify-center p-6">
+
+  <div class="w-full max-w-md animate-fade-in">
+
+    <div class="text-center mb-8">
+      <div class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-dtcard border border-dtborder mb-4 shadow-card">
+        <svg width="36" height="36" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="18" cy="18" r="17" stroke="#00D4FF" stroke-width="1.5"/>
+          <path d="M12 24L18 12L24 24" stroke="#00D4FF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          <circle cx="18" cy="12" r="2" fill="#73BE28"/>
+        </svg>
+      </div>
+      <h1 class="text-2xl font-bold text-white">Request Demo Access</h1>
+      <p class="text-sm text-gray-400 mt-1">Business Observability Demonstrator</p>
+    </div>
+
+    <div class="bg-dtcard border border-dtborder rounded-xl p-8 shadow-card">
+
+      <p class="text-sm text-gray-300 mb-6 leading-relaxed">
+        Enter your Dynatrace email address to receive instant access to the Business Observability Demonstrator environment.
+      </p>
+
+      <form id="accessForm" novalidate>
+        <div class="mb-5">
+          <label for="emailInput" class="block text-sm font-medium text-gray-300 mb-2">
+            Work email address
+          </label>
+          <input
+            id="emailInput"
+            type="email"
+            autocomplete="email"
+            placeholder="yourname@dynatrace.com"
+            required
+            class="w-full bg-dtdark border border-dtborder rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-dtcyan focus:ring-1 focus:ring-dtcyan transition-all"
+          />
+          <p id="emailError" class="mt-2 text-xs text-red-400 hidden"></p>
+        </div>
+
+        <button
+          id="submitBtn"
+          type="submit"
+          class="w-full bg-dtgreen hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold py-3 rounded-lg transition-all flex items-center justify-center gap-2"
+        >
+          <span id="btnText">Request Access</span>
+          <svg id="btnSpinner" class="spinner hidden w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/>
+          </svg>
+        </button>
+      </form>
+
+      <div id="successMessage" class="hidden text-center py-4">
+        <div class="inline-flex items-center justify-center w-12 h-12 rounded-full bg-dtgreen/20 border border-dtgreen mb-4">
+          <svg class="w-6 h-6 text-dtgreen" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+          </svg>
+        </div>
+        <h2 class="text-lg font-semibold text-dtgreen mb-2">Access Provisioned!</h2>
+        <p id="successText" class="text-sm text-gray-300"></p>
+      </div>
+
+      <div id="errorMessage" class="hidden mt-4 p-4 rounded-lg bg-red-900/30 border border-red-700">
+        <p class="text-sm text-red-300" id="errorText"></p>
+      </div>
+
+    </div>
+
+    <p class="text-center text-xs text-gray-600 mt-6">
+      Having trouble? Contact your Dynatrace administrator.
+    </p>
+  </div>
+
+  <script>
+    const form = document.getElementById('accessForm');
+    const emailInput = document.getElementById('emailInput');
+    const emailError = document.getElementById('emailError');
+    const submitBtn = document.getElementById('submitBtn');
+    const btnText = document.getElementById('btnText');
+    const btnSpinner = document.getElementById('btnSpinner');
+    const successMessage = document.getElementById('successMessage');
+    const successText = document.getElementById('successText');
+    const errorMessage = document.getElementById('errorMessage');
+    const errorText = document.getElementById('errorText');
+
+    function setLoading(loading) {
+      submitBtn.disabled = loading;
+      btnText.textContent = loading ? 'Requesting...' : 'Request Access';
+      btnSpinner.classList.toggle('hidden', !loading);
+    }
+
+    function showError(msg) {
+      errorText.textContent = msg;
+      errorMessage.classList.remove('hidden');
+    }
+
+    function clearMessages() {
+      emailError.classList.add('hidden');
+      emailError.textContent = '';
+      errorMessage.classList.add('hidden');
+      errorText.textContent = '';
+    }
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      clearMessages();
+
+      const email = emailInput.value.trim();
+      if (!email) {
+        emailError.textContent = 'Please enter your email address.';
+        emailError.classList.remove('hidden');
+        emailInput.focus();
+        return;
+      }
+
+      setLoading(true);
+
+      try {
+        const res = await fetch('/api/provision-access', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email }),
+        });
+
+        const data = await res.json();
+
+        if (data.success) {
+          form.classList.add('hidden');
+          successText.textContent = data.message || 'You will receive an invitation email shortly.';
+          successMessage.classList.remove('hidden');
+        } else {
+          showError(data.error || 'An unexpected error occurred. Please try again.');
+        }
+      } catch (err) {
+        showError('Unable to connect to the server. Please try again later.');
+      } finally {
+        setLoading(false);
+      }
+    });
+  </script>
+
+</body>
+</html>

@@ -74,6 +74,18 @@ prompt_optional() {
   fi
 }
 
+prompt_optional_blank() {
+  local var_name="$1"
+  local prompt_text="$2"
+  local current_val="${!var_name}"
+
+  if [ -z "$current_val" ]; then
+    echo -ne "  ${CYAN}${prompt_text}${NC} "
+    read -r input
+    eval "$var_name=\"$input\""
+  fi
+}
+
 NEED_PROMPT=false
 if [ -z "$TENANT_ID" ] || [ "$TENANT_ID" = "YOUR_TENANT_ID" ] || \
    [ -z "$ENV_TYPE" ] || \
@@ -157,6 +169,16 @@ if [ "$NEED_PROMPT" = true ]; then
   echo -e "  ${YELLOW}Press Enter to use the same EdgeConnect client, or paste a different one.${NC}"
   prompt_optional "DEPLOY_OAUTH_CLIENT_ID" "Deploy OAuth Client ID (Enter = same):" "EC_OAUTH_CLIENT_ID"
   prompt_optional "DEPLOY_OAUTH_CLIENT_SECRET" "Deploy OAuth Client Secret (Enter = same):" "EC_OAUTH_CLIENT_SECRET"
+  echo ""
+
+  echo -e "  ${CYAN}Optional: Access Request Auto-Provisioning (for /access-request.html)${NC}"
+  echo -e "  ${YELLOW}Press Enter to skip for now. You can fill these later in setup.conf.${NC}"
+  prompt_optional_blank "DT_ACCOUNT_ID" "Dynatrace Account ID (optional):"
+  prompt_optional_blank "DT_ACCESS_GROUP_UUID" "Access Group UUID for new users (optional):"
+  prompt_optional_blank "DT_ACCOUNT_OAUTH_CLIENT_ID" "Account OAuth Client ID (optional):"
+  prompt_optional_blank "DT_ACCOUNT_OAUTH_CLIENT_SECRET" "Account OAuth Client Secret (optional):"
+  prompt_optional_blank "DT_ACCOUNT_RESOURCE" "OAuth Resource (optional, e.g. urn:dtaccount:<id>):"
+  prompt_optional_blank "DT_ACCOUNT_TOKEN_URL" "OAuth Token URL (optional, Enter to auto by ENV_TYPE):"
   echo ""
 fi
 
@@ -243,6 +265,12 @@ EC_OAUTH_CLIENT_ID="$EC_OAUTH_CLIENT_ID"
 EC_OAUTH_CLIENT_SECRET="$EC_OAUTH_CLIENT_SECRET"
 DEPLOY_OAUTH_CLIENT_ID="$DEPLOY_OAUTH_CLIENT_ID"
 DEPLOY_OAUTH_CLIENT_SECRET="$DEPLOY_OAUTH_CLIENT_SECRET"
+DT_ACCOUNT_ID="$DT_ACCOUNT_ID"
+DT_ACCESS_GROUP_UUID="$DT_ACCESS_GROUP_UUID"
+DT_ACCOUNT_OAUTH_CLIENT_ID="$DT_ACCOUNT_OAUTH_CLIENT_ID"
+DT_ACCOUNT_OAUTH_CLIENT_SECRET="$DT_ACCOUNT_OAUTH_CLIENT_SECRET"
+DT_ACCOUNT_RESOURCE="$DT_ACCOUNT_RESOURCE"
+DT_ACCOUNT_TOKEN_URL="$DT_ACCOUNT_TOKEN_URL"
 EOF
   ok "Saved to setup.conf (won't ask again)"
 fi
@@ -261,6 +289,26 @@ PRIVATE_IP=$(hostname -I | awk '{print $1}')
 
 echo -e "  Tenant:     ${BOLD}$TENANT_URL${NC}"
 echo -e "  Private IP: ${BOLD}$PRIVATE_IP${NC}"
+
+# Persist runtime vars used by the server (dotenv loads .env automatically).
+ENV_FILE="$SCRIPT_DIR/.env"
+upsert_env_var() {
+  local key="$1"
+  local value="$2"
+  if [ -f "$ENV_FILE" ] && grep -q "^${key}=" "$ENV_FILE"; then
+    sed -i "s|^${key}=.*|${key}=${value}|" "$ENV_FILE"
+  else
+    echo "${key}=${value}" >> "$ENV_FILE"
+  fi
+}
+
+upsert_env_var "ENV_TYPE" "$ENV_TYPE"
+upsert_env_var "DT_ACCOUNT_ID" "$DT_ACCOUNT_ID"
+upsert_env_var "DT_ACCESS_GROUP_UUID" "$DT_ACCESS_GROUP_UUID"
+upsert_env_var "DT_ACCOUNT_OAUTH_CLIENT_ID" "$DT_ACCOUNT_OAUTH_CLIENT_ID"
+upsert_env_var "DT_ACCOUNT_OAUTH_CLIENT_SECRET" "$DT_ACCOUNT_OAUTH_CLIENT_SECRET"
+upsert_env_var "DT_ACCOUNT_RESOURCE" "$DT_ACCOUNT_RESOURCE"
+upsert_env_var "DT_ACCOUNT_TOKEN_URL" "$DT_ACCOUNT_TOKEN_URL"
 
 # ── Step 1: Prerequisites ──────────────────────────────────
 step "Step 1/6: Checking prerequisites"
