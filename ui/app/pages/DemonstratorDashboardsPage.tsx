@@ -11,7 +11,6 @@ import {
   MeterBarChart,
   SingleValue,
   GaugeChart,
-  convertQueryResultToTimeseries,
 } from '@dynatrace/strato-components-preview/charts';
 import { useDqlQuery } from '@dynatrace-sdk/react-hooks';
 import { loadAppSettings, AppSettings } from '../services/app-settings';
@@ -1475,6 +1474,12 @@ function buildExplicitTimeseriesData(data: any, tile?: TileDefinition): Array<{ 
   return series;
 }
 
+function logChartMessages(messages: Array<{ message: string; severityLevel: string }>) {
+  messages.forEach((msg) => {
+    console.info({ message: msg.message, severity: msg.severityLevel });
+  });
+}
+
 /** Find the dimension (string category) and metric (numeric) keys in a DQL record. */
 function classifyRecordKeys(record: Record<string, any>): { dimKey: string | null; metricKey: string | null } {
   let dimKey: string | null = null;
@@ -1943,6 +1948,15 @@ function ChartRenderer({ vizType, data, tile }: { vizType: TileDefinition['vizTy
 
   switch (vizType) {
     case 'timeseries': {
+      const explicitSeries = buildExplicitTimeseriesData(data, tile);
+      if (explicitSeries.length > 0) {
+        return (
+          <div style={{ width: '100%', height: 250 }}>
+            <TimeseriesChart data={explicitSeries} height={250} onMessage={logChartMessages} />
+          </div>
+        );
+      }
+
       return <NativeTimeseriesChart data={data} tile={tile} />;
     }
 
