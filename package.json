@@ -14,6 +14,7 @@
     "prebuild": "npm run build:agents",
     "configure:dynatrace": "node dynatrace-monaco/deploy.cjs",
     "configure:monaco": "cd dynatrace-monaco && monaco deploy manifest.yaml",
+    "access:worker": "node scripts/process-access-requests.js",
     "app:build": "dt-app build",
     "app:start": "dt-app dev",
     "app:deploy": "dt-app deploy",

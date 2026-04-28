@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { Flex } from '@dynatrace/strato-components';
-import { TimeseriesChart } from '@dynatrace/strato-components-preview';
 import { InfoButton } from '../components/InfoButton';
 import {
   type ChartMessage,
@@ -1473,12 +1472,6 @@ function buildExplicitTimeseriesData(data: any, tile?: TileDefinition): Array<{ 
   return series;
 }
 
-function logChartMessages(messages: ChartMessage[]) {
-  messages.forEach((msg) => {
-    console.info({ message: msg.message, severity: msg.severityLevel });
-  });
-}
-
 /** Find the dimension (string category) and metric (numeric) keys in a DQL record. */
 function classifyRecordKeys(record: Record<string, any>): { dimKey: string | null; metricKey: string | null } {
   let dimKey: string | null = null;
@@ -1838,73 +1831,297 @@ function ImpactCard({ data, tile }: { data: any; tile?: TileDefinition }) {
   );
 }
 
-function NativeTimeseriesChart({ data, tile }: { data: any; tile?: TileDefinition }) {
-  const records = Array.isArray(data?.records) ? data.records : [];
-  if (!records.length) return <div style={{ color: '#8899aa', fontSize: 11, padding: 8 }}>No timeseries data</div>;
+function NativeTimeseriesChart({ series, tile }: { series: Array<{ name: string; datapoints: Array<{ start: Date; value: number }> }>; tile?: TileDefinition }) {
+  if (!series.length) return <div style={{ color: '#8899aa', fontSize: 11, padding: 8 }}>No timeseries data</div>;
 
-  const lineColors = ['#6fb7ff', '#7bd88f', '#f5b14c', '#e46b6b', '#9b8cff', '#56c4b5'];
-  const width = 900;
-  const height = 230;
-  const padX = 40;
-  const padY = 20;
+  const palette = ['#6fb7ff', '#7bd88f', '#f5b14c', '#e46b6b', '#9b8cff', '#56c4b5'];
+  const width = 960;
+  const height = 240;
+  const padLeft = 44;
+  const padRight = 16;
+  const padTop = 18;
+  const padBottom = 34;
 
-  const series = records.slice(0, 8).map((r: any, idx: number) => {
-    const arrKey = findTimeseriesArrayKey(r);
-    if (!arrKey) return null;
-    const label = pickSeriesLabel(r);
-    const valuesRaw = Array.isArray(r[arrKey]) ? r[arrKey] : [];
-    const values = valuesRaw.map((v: any) => (typeof v === 'number' && isFinite(v) ? v : 0));
-    const total = values.reduce((sum: number, v: number) => sum + v, 0);
-    return { label, values, total, color: lineColors[idx % lineColors.length] };
-  }).filter(Boolean) as Array<{ label: string; values: number[]; total: number; color: string }>;
+  const ranked = [...series]
+    .map((item, index) => {
+      const total = item.datapoints.reduce((sum, point) => sum + point.value, 0);
+      return {
+        ...item,
+        color: palette[index % palette.length],
+        total,
+      };
+    })
+    .sort((left, right) => right.total - left.total)
+    .slice(0, 5);
+  const [hoveredPoint, setHoveredPoint] = useState<null | {
+    seriesName: string;
+    color: string;
+    value: number;
+    time: Date;
+    svgX: number;
+    svgY: number;
+    annotationTitle?: string;
+    annotationDescription?: string;
+  }>(null);
 
-  if (!series.length) return <div style={{ color: '#8899aa', fontSize: 11, padding: 8 }}>No numeric series found</div>;
+  const allPoints = ranked.flatMap((item) => item.datapoints);
+  if (!allPoints.length) return <div style={{ color: '#8899aa', fontSize: 11, padding: 8 }}>No timeseries data</div>;
 
-  const pointCount = Math.max(...series.map((s) => s.values.length), 1);
-  const maxY = Math.max(1, ...series.flatMap((s) => s.values));
-  const startTime = records[0]?.timeframe?.start ? new Date(records[0].timeframe.start) : null;
-  const endTime = records[0]?.timeframe?.end ? new Date(records[0].timeframe.end) : null;
-  const timeLabel = (d: Date | null) => (d ? d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '');
+  const minTime = Math.min(...allPoints.map((point) => point.start.getTime()));
+  const maxTime = Math.max(...allPoints.map((point) => point.start.getTime()));
+  const maxValue = Math.max(1, ...allPoints.map((point) => point.value));
+  const minValue = Math.min(0, ...allPoints.map((point) => point.value));
+  const rangeValue = Math.max(1, maxValue - minValue);
+  const xSpan = Math.max(1, maxTime - minTime);
 
-  const toX = (i: number) => padX + (i / Math.max(pointCount - 1, 1)) * (width - padX * 2);
-  const toY = (v: number) => height - padY - (v / maxY) * (height - padY * 2);
+  const toX = (time: number) => padLeft + ((time - minTime) / xSpan) * (width - padLeft - padRight);
+  const toY = (value: number) => padTop + (1 - (value - minValue) / rangeValue) * (height - padTop - padBottom);
+  const formatTime = (time: number) => new Date(time).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 
-  const topSeries = [...series].sort((a, b) => b.total - a.total).slice(0, 5);
-  const yTicks = [0, 0.25, 0.5, 0.75, 1].map((ratio) => ({
-    y: padY + (1 - ratio) * (height - padY * 2),
-    value: maxY * ratio,
-  }));
+  const primarySeries = ranked[0];
+  const showBaseline = ranked.length === 1 && primarySeries.datapoints.length > 1;
+  const baseline = showBaseline
+    ? primarySeries.datapoints.reduce((sum, point) => sum + point.value, 0) / primarySeries.datapoints.length
+    : null;
+  const markers = baseline == null
+    ? []
+    : primarySeries.datapoints.filter((point) => point.value > baseline).slice(0, 8);
+  const hoverablePoints = ranked.flatMap((item) =>
+    item.datapoints.map((point) => {
+      const exceedsBaseline = baseline != null && point.value > baseline;
+      const percentageDifference = baseline && baseline !== 0 ? ((point.value - baseline) / baseline) * 100 : 0;
+      return {
+        seriesName: item.name,
+        color: item.color,
+        value: point.value,
+        time: point.start,
+        svgX: toX(point.start.getTime()),
+        svgY: toY(point.value),
+        annotationTitle: exceedsBaseline ? 'Above baseline' : undefined,
+        annotationDescription: exceedsBaseline
+          ? `This point is above baseline (+${percentageDifference.toFixed(1)}%).`
+          : undefined,
+      };
+    })
+  );
+
+  const buildLine = (datapoints: Array<{ start: Date; value: number }>) => datapoints
+    .map((point, index) => `${index === 0 ? 'M' : 'L'} ${toX(point.start.getTime()).toFixed(1)} ${toY(point.value).toFixed(1)}`)
+    .join(' ');
+  const buildArea = (datapoints: Array<{ start: Date; value: number }>) => {
+    if (!datapoints.length) return '';
+    const firstX = toX(datapoints[0].start.getTime()).toFixed(1);
+    const lastX = toX(datapoints[datapoints.length - 1].start.getTime()).toFixed(1);
+    const baseY = toY(minValue).toFixed(1);
+    return `${buildLine(datapoints)} L ${lastX} ${baseY} L ${firstX} ${baseY} Z`;
+  };
+
+  const yTicks = [0, 0.25, 0.5, 0.75, 1].map((ratio) => {
+    const value = minValue + rangeValue * ratio;
+    return { value, y: toY(value) };
+  });
+  const xTicks = [0, 0.5, 1].map((ratio) => {
+    const time = minTime + xSpan * ratio;
+    return { time, x: toX(time) };
+  });
+  const handlePointerMove = (event: React.MouseEvent<SVGSVGElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+
+    const svgX = ((event.clientX - rect.left) / rect.width) * width;
+    const svgY = ((event.clientY - rect.top) / rect.height) * height;
+    const nearest = hoverablePoints.reduce((best, point) => {
+      const dx = point.svgX - svgX;
+      const dy = point.svgY - svgY;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+      if (!best || distance < best.distance) {
+        return { point, distance };
+      }
+      return best;
+    }, null as null | { point: typeof hoverablePoints[number]; distance: number });
+
+    if (!nearest || nearest.distance > 36) {
+      setHoveredPoint(null);
+      return;
+    }
+
+    setHoveredPoint(nearest.point);
+  };
 
   return (
-    <div style={{ width: '100%', height: '100%', minHeight: 250, display: 'flex', flexDirection: 'column', gap: 8 }}>
-      <svg viewBox={`0 0 ${width} ${height}`} style={{ width: '100%', height: 205 }} preserveAspectRatio="none">
-        <line x1={padX} y1={height - padY} x2={width - padX} y2={height - padY} stroke="rgba(136,153,204,0.35)" strokeWidth="1" />
-        <line x1={padX} y1={padY} x2={padX} y2={height - padY} stroke="rgba(136,153,204,0.35)" strokeWidth="1" />
+    <div style={{ width: '100%', height: '100%', minHeight: 252, display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div style={{
+        flex: 1,
+        minHeight: 208,
+        borderRadius: 10,
+        border: '1px solid rgba(110, 132, 194, 0.16)',
+        background: 'linear-gradient(180deg, rgba(16, 20, 34, 0.72) 0%, rgba(9, 12, 22, 0.86) 100%)',
+        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)',
+        overflow: 'hidden',
+        position: 'relative',
+      }}>
+        <svg
+          viewBox={`0 0 ${width} ${height}`}
+          style={{ width: '100%', height: '100%', cursor: 'crosshair' }}
+          preserveAspectRatio="none"
+          onMouseMove={handlePointerMove}
+          onMouseLeave={() => setHoveredPoint(null)}
+        >
+          <defs>
+            <linearGradient id="dps-line-fill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={primarySeries.color} stopOpacity="0.24" />
+              <stop offset="100%" stopColor={primarySeries.color} stopOpacity="0.02" />
+            </linearGradient>
+          </defs>
 
-        {yTicks.map((tick, idx) => (
-          <g key={idx}>
-            <line x1={padX} y1={tick.y} x2={width - padX} y2={tick.y} stroke="rgba(136,153,204,0.12)" strokeWidth="1" />
-            <text x={padX - 8} y={tick.y + 3} textAnchor="end" fill="rgba(176,184,216,0.8)" fontSize="9">{fmtNum(tick.value)}</text>
-          </g>
-        ))}
+          {yTicks.map((tick) => (
+            <g key={`y-${tick.value}`}>
+              <line x1={padLeft} y1={tick.y} x2={width - padRight} y2={tick.y} stroke="rgba(143, 158, 201, 0.14)" strokeWidth="1" />
+              <text x={padLeft - 8} y={tick.y + 3} textAnchor="end" fill="rgba(183, 195, 230, 0.78)" fontSize="9">{fmtNum(tick.value)}</text>
+            </g>
+          ))}
 
-        {topSeries.map((s) => {
-          const points = s.values.map((v, i) => ({ x: toX(i), y: toY(v) }));
-          const lineD = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
-          return <path key={s.label} d={lineD} fill="none" stroke={s.color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />;
-        })}
+          {xTicks.map((tick) => (
+            <g key={`x-${tick.time}`}>
+              <line x1={tick.x} y1={padTop} x2={tick.x} y2={height - padBottom} stroke="rgba(143, 158, 201, 0.08)" strokeWidth="1" />
+              <text x={tick.x} y={height - 10} textAnchor="middle" fill="rgba(183, 195, 230, 0.72)" fontSize="9">{formatTime(tick.time)}</text>
+            </g>
+          ))}
 
-        <text x={padX} y={height - 6} fill="rgba(176,184,216,0.8)" fontSize="9">{timeLabel(startTime)}</text>
-        <text x={width - padX} y={height - 6} textAnchor="end" fill="rgba(176,184,216,0.8)" fontSize="9">{timeLabel(endTime)}</text>
-      </svg>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 6 }}>
-        {topSeries.map((s) => (
-          <div key={s.label} style={{ fontSize: 10, color: '#b7c3e6', display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ width: 10, height: 10, borderRadius: 999, background: s.color, display: 'inline-block' }} />
-            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.label}</span>
-            <span style={{ marginLeft: 'auto', color: '#e0e6ff', fontFamily: 'monospace' }}>{fmtNum(s.total)}</span>
+          <line x1={padLeft} y1={height - padBottom} x2={width - padRight} y2={height - padBottom} stroke="rgba(143, 158, 201, 0.24)" strokeWidth="1" />
+          <line x1={padLeft} y1={padTop} x2={padLeft} y2={height - padBottom} stroke="rgba(143, 158, 201, 0.24)" strokeWidth="1" />
+
+          {showBaseline && baseline != null && (
+            <g>
+              <line
+                x1={padLeft}
+                y1={toY(baseline)}
+                x2={width - padRight}
+                y2={toY(baseline)}
+                stroke="rgba(123, 216, 143, 0.92)"
+                strokeWidth="1.25"
+                strokeDasharray={hoveredPoint ? '0' : '6 5'}
+              />
+              <text x={width - padRight} y={toY(baseline) - 6} textAnchor="end" fill="rgba(123, 216, 143, 0.92)" fontSize="10" fontWeight="600">Baseline {fmtNum(baseline)}</text>
+            </g>
+          )}
+
+          {hoveredPoint && (
+            <line
+              x1={hoveredPoint.svgX}
+              y1={padTop}
+              x2={hoveredPoint.svgX}
+              y2={height - padBottom}
+              stroke="rgba(219, 229, 255, 0.35)"
+              strokeWidth="1"
+              strokeDasharray="4 4"
+            />
+          )}
+
+          {primarySeries.datapoints.length > 1 && (
+            <path d={buildArea(primarySeries.datapoints)} fill="url(#dps-line-fill)" stroke="none" />
+          )}
+
+          {ranked.map((item) => (
+            <g key={item.name}>
+              <path
+                d={buildLine(item.datapoints)}
+                fill="none"
+                stroke={item.color}
+                strokeWidth={item === primarySeries ? 2.5 : 2}
+                strokeLinejoin="round"
+                strokeLinecap="round"
+              />
+              {item.datapoints.map((point, index) => {
+                const isEndpoint = index === item.datapoints.length - 1;
+                const isHovered = hoveredPoint?.seriesName === item.name && hoveredPoint.time.getTime() === point.start.getTime();
+                if (!isEndpoint && item !== primarySeries && !isHovered) return null;
+                return (
+                  <circle
+                    key={`${item.name}-${point.start.toISOString()}`}
+                    cx={toX(point.start.getTime())}
+                    cy={toY(point.value)}
+                    r={isHovered ? 4.8 : isEndpoint ? 3.2 : 2.4}
+                    fill={item.color}
+                    stroke="rgba(11, 16, 29, 0.95)"
+                    strokeWidth="1.2"
+                  />
+                );
+              })}
+            </g>
+          ))}
+
+          {markers.map((point) => (
+            <g key={`marker-${point.start.toISOString()}`}>
+              <circle cx={toX(point.start.getTime())} cy={toY(point.value)} r={5.5} fill="rgba(228, 107, 107, 0.18)" />
+              <circle cx={toX(point.start.getTime())} cy={toY(point.value)} r={2.8} fill="#e46b6b" />
+            </g>
+          ))}
+        </svg>
+
+        {hoveredPoint && (
+          <div style={{
+            position: 'absolute',
+            top: 12,
+            left: `${(hoveredPoint.svgX / width) * 100}%`,
+            transform: hoveredPoint.svgX > width * 0.72 ? 'translateX(calc(-100% - 12px))' : 'translateX(12px)',
+            minWidth: 210,
+            maxWidth: 260,
+            padding: '10px 12px',
+            borderRadius: 10,
+            background: 'rgba(8, 12, 22, 0.94)',
+            border: '1px solid rgba(131, 153, 214, 0.22)',
+            boxShadow: '0 12px 28px rgba(0,0,0,0.38)',
+            pointerEvents: 'none',
+            zIndex: 2,
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+              <span style={{ width: 10, height: 10, borderRadius: 999, background: hoveredPoint.color, display: 'inline-block' }} />
+              <span style={{ color: '#eef3ff', fontSize: 11, fontWeight: 700 }}>{hoveredPoint.seriesName}</span>
+            </div>
+            <div style={{ color: '#b9c6ea', fontSize: 10, marginBottom: 6 }}>{formatTime(hoveredPoint.time.getTime())}</div>
+            <div style={{ color: '#ffffff', fontSize: 16, fontWeight: 700, marginBottom: hoveredPoint.annotationTitle ? 8 : 0 }}>{fmtNum(hoveredPoint.value)}</div>
+            {hoveredPoint.annotationTitle && (
+              <div style={{
+                borderTop: '1px solid rgba(131, 153, 214, 0.14)',
+                paddingTop: 8,
+                display: 'grid',
+                gap: 4,
+              }}>
+                <div style={{ color: '#ffb6b6', fontSize: 10, fontWeight: 700, letterSpacing: '0.03em', textTransform: 'uppercase' }}>
+                  {hoveredPoint.annotationTitle}
+                </div>
+                <div style={{ color: '#d7dff7', fontSize: 10, lineHeight: 1.45 }}>
+                  {hoveredPoint.annotationDescription}
+                </div>
+              </div>
+            )}
           </div>
-        ))}
+        )}
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 6 }}>
+        {ranked.map((item) => {
+          const latest = item.datapoints[item.datapoints.length - 1]?.value ?? 0;
+          return (
+            <div key={item.name} style={{
+              display: 'grid',
+              gridTemplateColumns: '12px 1fr auto',
+              gap: 8,
+              alignItems: 'center',
+              padding: '8px 10px',
+              borderRadius: 8,
+              background: 'rgba(111, 132, 187, 0.08)',
+              border: '1px solid rgba(111, 132, 187, 0.14)',
+              color: '#d8e1ff',
+              fontSize: 10,
+            }}>
+              <span style={{ width: 10, height: 10, borderRadius: 999, background: item.color, display: 'inline-block' }} />
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.name}</span>
+              <span style={{ fontFamily: 'monospace', color: '#eef3ff' }}>{fmtNum(latest)}</span>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -1952,11 +2169,7 @@ function ChartRenderer({ vizType, data, tile }: { vizType: TileDefinition['vizTy
         return <div style={{ color: '#8899aa', fontSize: 11, padding: 8 }}>No timeseries data</div>;
       }
 
-      return (
-        <div style={{ width: '100%', height: 250 }}>
-          <TimeseriesChart data={explicitSeries} height={250} onMessage={logChartMessages} />
-        </div>
-      );
+      return <NativeTimeseriesChart series={explicitSeries} tile={tile} />;
     }
 
     case 'pie': {
