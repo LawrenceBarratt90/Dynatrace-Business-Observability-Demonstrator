@@ -1991,21 +1991,6 @@ function NativeTimeseriesChart({ series, tile }: { series: Array<{ name: string;
           <line x1={padLeft} y1={height - padBottom} x2={width - padRight} y2={height - padBottom} stroke="rgba(143, 158, 201, 0.24)" strokeWidth="1" />
           <line x1={padLeft} y1={padTop} x2={padLeft} y2={height - padBottom} stroke="rgba(143, 158, 201, 0.24)" strokeWidth="1" />
 
-          {showBaseline && baseline != null && (
-            <g>
-              <line
-                x1={padLeft}
-                y1={toY(baseline)}
-                x2={width - padRight}
-                y2={toY(baseline)}
-                stroke="rgba(123, 216, 143, 0.92)"
-                strokeWidth="1.25"
-                strokeDasharray={hoveredPoint ? '0' : '6 5'}
-              />
-              <text x={width - padRight} y={toY(baseline) - 6} textAnchor="end" fill="rgba(123, 216, 143, 0.92)" fontSize="10" fontWeight="600">Baseline {fmtNum(baseline)}</text>
-            </g>
-          )}
-
           {hoveredPoint && (
             <line
               x1={hoveredPoint.svgX}
