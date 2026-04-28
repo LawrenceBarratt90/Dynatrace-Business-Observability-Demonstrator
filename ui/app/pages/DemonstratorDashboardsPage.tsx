@@ -1286,6 +1286,8 @@ function DqlTile({ tile, timeframe }: { tile: TileDefinition; timeframe: Timefra
     { autoFetch: true, autoFetchOnUpdate: true },
   );
 
+  const normalizedData = useMemo(() => normalizeQueryData(data), [data]);
+
   const handleCopy = useCallback(() => {
     navigator.clipboard.writeText(tile.dql);
     setCopied(true);
@@ -1358,7 +1360,7 @@ function DqlTile({ tile, timeframe }: { tile: TileDefinition; timeframe: Timefra
         {isError && (
           <div style={{ color: '#e74c3c', fontSize: 11, padding: 8 }}>Error: {error?.message || 'Query failed'}</div>
         )}
-        {!isLoading && !isError && data && <ChartRenderer vizType={tile.vizType} data={data} tile={tile} />}
+        {!isLoading && !isError && normalizedData && <ChartRenderer vizType={tile.vizType} data={normalizedData} tile={tile} />}
       </div>
     </div>
   );
@@ -1381,13 +1383,58 @@ function extractNumeric(record: Record<string, any>): number {
   return last;
 }
 
+function toNumeric(value: any): number {
+  if (typeof value === 'number' && isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const n = Number(value);
+    return isFinite(n) ? n : 0;
+  }
+  if (Array.isArray(value)) {
+    return value.reduce((sum, item) => sum + toNumeric(item), 0);
+  }
+  return 0;
+}
+
+function normalizeQueryData(raw: any): { records: any[] } {
+  if (!raw) return { records: [] };
+
+  if (Array.isArray(raw.records)) return { records: raw.records };
+  if (Array.isArray(raw?.result?.records)) return { records: raw.result.records };
+  if (Array.isArray(raw?.data?.records)) return { records: raw.data.records };
+  if (Array.isArray(raw?.result)) return { records: raw.result };
+  if (Array.isArray(raw?.records)) return { records: raw.records };
+
+  return { records: [] };
+}
+
+function hasRenderableTimeseries(ts: any): boolean {
+  if (!Array.isArray(ts) || ts.length === 0) return false;
+
+  const stack: any[] = [...ts];
+  while (stack.length > 0) {
+    const cur = stack.pop();
+    if (typeof cur === 'number' && isFinite(cur)) return true;
+    if (Array.isArray(cur)) {
+      for (const item of cur) stack.push(item);
+    } else if (cur && typeof cur === 'object') {
+      for (const val of Object.values(cur)) stack.push(val);
+    }
+  }
+
+  return false;
+}
+
 /** Find the dimension (string category) and metric (numeric) keys in a DQL record. */
 function classifyRecordKeys(record: Record<string, any>): { dimKey: string | null; metricKey: string | null } {
   let dimKey: string | null = null;
   let metricKey: string | null = null;
   for (const k of Object.keys(record)) {
     const v = record[k];
-    if (metricKey === null && (typeof v === 'number' || (typeof v === 'string' && isFinite(Number(v)) && v !== ''))) {
+    if (metricKey === null && (
+      typeof v === 'number' ||
+      (typeof v === 'string' && isFinite(Number(v)) && v !== '') ||
+      (Array.isArray(v) && v.some((x) => typeof x === 'number' && isFinite(x)))
+    )) {
       metricKey = k;
     } else if (dimKey === null && typeof v === 'string') {
       dimKey = k;
@@ -1737,13 +1784,14 @@ function ImpactCard({ data, tile }: { data: any; tile?: TileDefinition }) {
 }
 
 function ChartRenderer({ vizType, data, tile }: { vizType: TileDefinition['vizType']; data: any; tile?: TileDefinition }) {
-  if (!data?.records?.length) return <div style={{ color: '#8899aa', fontSize: 11, padding: 8 }}>No data</div>;
+  const records = Array.isArray(data?.records) ? data.records : [];
+  if (!records.length) return <div style={{ color: '#8899aa', fontSize: 11, padding: 8 }}>No data</div>;
 
   switch (vizType) {
     case 'timeseries': {
       try {
         const ts = convertQueryResultToTimeseries(data);
-        if (Array.isArray(ts) && ts.length > 0) {
+        if (Array.isArray(ts) && ts.length > 0 && hasRenderableTimeseries(ts)) {
           return <TimeseriesChart data={ts} height={250} />;
         }
       } catch {
@@ -1759,19 +1807,19 @@ function ChartRenderer({ vizType, data, tile }: { vizType: TileDefinition['vizTy
     }
 
     case 'pie': {
-      const { dimKey, metricKey } = classifyRecordKeys(data.records[0]);
-      const slices = data.records.map((r: any) => ({
+      const { dimKey, metricKey } = classifyRecordKeys(records[0]);
+      const slices = records.map((r: any) => ({
         category: dimKey ? String(r[dimKey] ?? 'Unknown') : 'Unknown',
-        value: metricKey ? (typeof r[metricKey] === 'number' ? r[metricKey] : Number(r[metricKey]) || 0) : 0,
+        value: metricKey ? toNumeric(r[metricKey]) : 0,
       }));
       return <PieChart data={{ slices }} height={250} />;
     }
 
     case 'categoricalBar': {
-      const { dimKey, metricKey } = classifyRecordKeys(data.records[0]);
-      const chartData = data.records.map((r: any) => ({
+      const { dimKey, metricKey } = classifyRecordKeys(records[0]);
+      const chartData = records.map((r: any) => ({
         category: dimKey ? String(r[dimKey] ?? 'Unknown') : 'Unknown',
-        value: metricKey ? (typeof r[metricKey] === 'number' ? r[metricKey] : Number(r[metricKey]) || 0) : 0,
+        value: metricKey ? toNumeric(r[metricKey]) : 0,
       }));
       return <CategoricalBarChart data={chartData} height={250} />;
     }
@@ -1780,25 +1828,25 @@ function ChartRenderer({ vizType, data, tile }: { vizType: TileDefinition['vizTy
       return <RichSingleValue data={data} tile={tile} />;
 
     case 'gauge': {
-      const val = extractNumeric(data.records[0]);
+      const val = extractNumeric(records[0]);
       return <GaugeChart value={val} min={0} max={Math.max(100, val)} height={120} />;
     }
 
     case 'donut': {
-      const { dimKey, metricKey } = classifyRecordKeys(data.records[0]);
-      const slices = data.records.map((r: any) => ({
+      const { dimKey, metricKey } = classifyRecordKeys(records[0]);
+      const slices = records.map((r: any) => ({
         category: dimKey ? String(r[dimKey] ?? 'Unknown') : 'Unknown',
-        value: metricKey ? (typeof r[metricKey] === 'number' ? r[metricKey] : Number(r[metricKey]) || 0) : 0,
+        value: metricKey ? toNumeric(r[metricKey]) : 0,
       }));
       return <DonutChart data={{ slices }} height={250}><DonutChart.Legend /></DonutChart>;
     }
 
     case 'honeycomb': {
       const hcData: Array<{ name: string; value: number }> = [];
-      for (const r of data.records) {
+      for (const r of records) {
         const { dimKey: dk, metricKey: mk } = classifyRecordKeys(r);
         const nm = dk ? String(r[dk] ?? 'Item') : 'Item';
-        const vl = mk ? (typeof r[mk] === 'number' ? r[mk] : Number(r[mk]) || 0) : 0;
+        const vl = mk ? toNumeric(r[mk]) : 0;
         if (vl > 0) hcData.push({ name: nm, value: vl });
       }
       if (!hcData.length) return <div style={{ color: '#8899aa', fontSize: 11 }}>No numeric data</div>;
@@ -1806,7 +1854,7 @@ function ChartRenderer({ vizType, data, tile }: { vizType: TileDefinition['vizTy
     }
 
     case 'meterBar': {
-      const val = extractNumeric(data.records[0]);
+      const val = extractNumeric(records[0]);
       const isPercent = (tile?.title || '').toLowerCase().includes('rate') || (tile?.title || '').toLowerCase().includes('%');
       const display = isPercent ? (val <= 1 ? (val * 100).toFixed(1) + '%' : val.toFixed(1) + '%') : fmtNum(val);
       return (
@@ -1829,7 +1877,6 @@ function ChartRenderer({ vizType, data, tile }: { vizType: TileDefinition['vizTy
       return <ImpactCard data={data} tile={tile} />;
 
     case 'table': {
-      const records = data.records;
       const keys = Object.keys(records[0]).filter(k => !k.startsWith('__'));
       const isCurrencyCol = (k: string) => /revenue|value|cost|spend|impact/i.test(k) && !/rate|count|fail/i.test(k);
       // Parse markdown links: [text](url) → { text, url }
