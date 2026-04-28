@@ -1475,7 +1475,7 @@ function buildTimeseriesBarFallback(data: any): Array<{ category: string; value:
     if (!arrKey) continue;
 
     const arr = r[arrKey] as unknown[];
-    const total = arr.reduce((sum, val) => {
+    const total = arr.reduce((sum: number, val: unknown) => {
       const num = typeof val === 'number' ? val : Number(val);
       return sum + (isFinite(num) ? num : 0);
     }, 0);
