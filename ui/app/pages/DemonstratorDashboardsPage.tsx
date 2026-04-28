@@ -1425,6 +1425,56 @@ function hasRenderableTimeseries(ts: any): boolean {
   return false;
 }
 
+function inferTimeseriesUnit(tile?: TileDefinition, metricKey?: string | null): string {
+  const text = `${tile?.title || ''} ${metricKey || ''}`.toLowerCase();
+  if (text.includes('cpu') || text.includes('rate') || text.includes('availability') || text.includes('%')) return 'percent';
+  if (text.includes('latency') || text.includes('response') || text.includes('duration')) return 'ms';
+  if (text.includes('memory')) return 'byte';
+  if (text.includes('time')) return 'ms';
+  return 'count';
+}
+
+function buildExplicitTimeseriesData(data: any, tile?: TileDefinition): Array<{ name: string | string[]; unit?: string; datapoints: Array<{ start: Date; end?: Date; value: number }> }> {
+  const records = Array.isArray(data?.records) ? data.records : [];
+  const series = records.map((record: Record<string, any>) => {
+    const metricKey = findTimeseriesArrayKey(record);
+    if (!metricKey) return null;
+
+    const timeframe = record.timeframe;
+    const intervalNs = Number(record.interval || 0);
+    const intervalMs = Number.isFinite(intervalNs) && intervalNs > 0 ? Math.max(1, Math.round(intervalNs / 1_000_000)) : 60_000;
+    const startMs = timeframe?.start ? new Date(timeframe.start).getTime() : NaN;
+    if (!Number.isFinite(startMs)) return null;
+
+    const values = Array.isArray(record[metricKey]) ? record[metricKey] : [];
+    const datapoints = values
+      .map((rawValue: unknown, index: number) => {
+        const value = typeof rawValue === 'number' ? rawValue : Number(rawValue);
+        if (!Number.isFinite(value)) return null;
+
+        const pointStart = new Date(startMs + index * intervalMs);
+        const pointEnd = new Date(startMs + (index + 1) * intervalMs);
+        return { start: pointStart, end: pointEnd, value };
+      })
+      .filter((point): point is { start: Date; end: Date; value: number } => point !== null);
+
+    if (!datapoints.length) return null;
+
+    const dimensions = Object.entries(record)
+      .filter(([key, value]) => key !== 'timeframe' && key !== 'interval' && key !== metricKey && !key.startsWith('__') && typeof value === 'string' && value)
+      .map(([, value]) => value as string);
+
+    const name = dimensions.length > 1 ? dimensions : (dimensions[0] || metricKey);
+    return {
+      name,
+      unit: inferTimeseriesUnit(tile, metricKey),
+      datapoints,
+    };
+  }).filter(Boolean) as Array<{ name: string | string[]; unit?: string; datapoints: Array<{ start: Date; end?: Date; value: number }> }>;
+
+  return series;
+}
+
 /** Find the dimension (string category) and metric (numeric) keys in a DQL record. */
 function classifyRecordKeys(record: Record<string, any>): { dimKey: string | null; metricKey: string | null } {
   let dimKey: string | null = null;
@@ -1904,13 +1954,21 @@ function ChartRenderer({ vizType, data, tile }: { vizType: TileDefinition['vizTy
 
   switch (vizType) {
     case 'timeseries': {
-      try {
-        const ts = convertQueryResultToTimeseries(data);
-        if (Array.isArray(ts) && ts.length > 0 && hasRenderableTimeseries(ts)) {
-          return <div style={{ width: '100%', height: 250 }}><TimeseriesChart data={ts} /></div>;
-        }
-      } catch {
-        // Fall back to a default categorical chart if conversion fails.
+      const explicitSeries = buildExplicitTimeseriesData(data, tile);
+      if (explicitSeries.length > 0 && hasRenderableTimeseries(explicitSeries)) {
+        return (
+          <div style={{ width: '100%', height: 250 }}>
+            <TimeseriesChart data={explicitSeries} height={250}>
+              <TimeseriesChart.YAxis />
+              <TimeseriesChart.XAxis />
+              <TimeseriesChart.Tooltip variant="shared" />
+              <TimeseriesChart.Legend />
+              <TimeseriesChart.EmptyState>
+                No timeseries data
+              </TimeseriesChart.EmptyState>
+            </TimeseriesChart>
+          </div>
+        );
       }
 
       const fallbackBars = buildTimeseriesBarFallback(data);
