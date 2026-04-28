@@ -1784,27 +1784,73 @@ function ImpactCard({ data, tile }: { data: any; tile?: TileDefinition }) {
   );
 }
 
+function NativeTimeseriesChart({ data, tile }: { data: any; tile?: TileDefinition }) {
+  const records = Array.isArray(data?.records) ? data.records : [];
+  if (!records.length) return <div style={{ color: '#8899aa', fontSize: 11, padding: 8 }}>No timeseries data</div>;
+
+  const lineColors = ['#4fc3f7', '#27ae60', '#f39c12', '#e74c3c', '#a78bfa', '#1abc9c', '#f1c40f', '#e67e22'];
+  const width = 860;
+  const height = 220;
+  const padX = 28;
+  const padY = 20;
+
+  const series = records.slice(0, 8).map((r: any, idx: number) => {
+    const arrKey = findTimeseriesArrayKey(r);
+    if (!arrKey) return null;
+    const label = pickSeriesLabel(r);
+    const valuesRaw = Array.isArray(r[arrKey]) ? r[arrKey] : [];
+    const values = valuesRaw.map((v: any) => (typeof v === 'number' && isFinite(v) ? v : 0));
+    const total = values.reduce((sum: number, v: number) => sum + v, 0);
+    return { label, values, total, color: lineColors[idx % lineColors.length] };
+  }).filter(Boolean) as Array<{ label: string; values: number[]; total: number; color: string }>;
+
+  if (!series.length) return <div style={{ color: '#8899aa', fontSize: 11, padding: 8 }}>No numeric series found</div>;
+
+  const pointCount = Math.max(...series.map((s) => s.values.length), 1);
+  const maxY = Math.max(1, ...series.flatMap((s) => s.values));
+
+  const toX = (i: number) => padX + (i / Math.max(pointCount - 1, 1)) * (width - padX * 2);
+  const toY = (v: number) => height - padY - (v / maxY) * (height - padY * 2);
+
+  const topSeries = [...series].sort((a, b) => b.total - a.total).slice(0, 5);
+
+  return (
+    <div style={{ width: '100%', height: '100%', minHeight: 250, display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <svg viewBox={`0 0 ${width} ${height}`} style={{ width: '100%', height: 190, borderRadius: 8, background: 'rgba(6,10,24,0.45)' }} preserveAspectRatio="none">
+        <line x1={padX} y1={height - padY} x2={width - padX} y2={height - padY} stroke="rgba(120,140,200,0.35)" strokeWidth="1" />
+        <line x1={padX} y1={padY} x2={padX} y2={height - padY} stroke="rgba(120,140,200,0.35)" strokeWidth="1" />
+        {[0.25, 0.5, 0.75].map((p) => {
+          const y = padY + p * (height - padY * 2);
+          return <line key={p} x1={padX} y1={y} x2={width - padX} y2={y} stroke="rgba(120,140,200,0.12)" strokeWidth="1" />;
+        })}
+        {topSeries.map((s) => {
+          const d = s.values.map((v, i) => `${i === 0 ? 'M' : 'L'} ${toX(i)} ${toY(v)}`).join(' ');
+          return <path key={s.label} d={d} fill="none" stroke={s.color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />;
+        })}
+      </svg>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 6 }}>
+        {topSeries.map((s) => (
+          <div key={s.label} style={{ fontSize: 10, color: '#b7c3e6', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ width: 10, height: 10, borderRadius: 999, background: s.color, display: 'inline-block' }} />
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.label}</span>
+            <span style={{ marginLeft: 'auto', color: '#e0e6ff', fontFamily: 'monospace' }}>{fmtNum(s.total)}</span>
+          </div>
+        ))}
+      </div>
+      <div style={{ fontSize: 10, color: '#7f8bb0' }}>
+        {tile?.title || 'Timeseries'} • max {fmtNum(maxY)} • {pointCount} points
+      </div>
+    </div>
+  );
+}
+
 function ChartRenderer({ vizType, data, tile }: { vizType: TileDefinition['vizType']; data: any; tile?: TileDefinition }) {
   const records = Array.isArray(data?.records) ? data.records : [];
   if (!records.length) return <div style={{ color: '#8899aa', fontSize: 11, padding: 8 }}>No data</div>;
 
   switch (vizType) {
     case 'timeseries': {
-      try {
-        const ts = convertQueryResultToTimeseries(data);
-        if (Array.isArray(ts) && ts.length > 0 && hasRenderableTimeseries(ts)) {
-          return <div style={{ width: '100%', height: 250 }}><TimeseriesChart data={ts} /></div>;
-        }
-      } catch {
-        // Fall through to aggregate fallback below.
-      }
-
-      const fallbackBars = buildTimeseriesBarFallback(data);
-      if (fallbackBars.length > 0) {
-        return <div style={{ width: '100%', height: 250 }}><CategoricalBarChart data={fallbackBars} /></div>;
-      }
-
-      return <div style={{ color: '#8899aa', fontSize: 11 }}>No timeseries data</div>;
+      return <NativeTimeseriesChart data={data} tile={tile} />;
     }
 
     case 'pie': {
