@@ -1950,7 +1950,17 @@ function ChartRenderer({ vizType, data, tile }: { vizType: TileDefinition['vizTy
       if (explicitSeries.length > 0) {
         return (
           <div style={{ width: '100%', height: 250 }}>
-            <TimeseriesChart data={explicitSeries} height={250} onMessage={logChartMessages} />
+            <TimeseriesChart height={250} onMessage={logChartMessages}>
+              {explicitSeries.map((series) => (
+                <TimeseriesChart.Line key={`${series.name}`} data={series} />
+              ))}
+              <TimeseriesChart.YAxis />
+              <TimeseriesChart.XAxis />
+              <TimeseriesChart.Tooltip variant="shared" />
+              <TimeseriesChart.Legend />
+              <TimeseriesChart.EmptyState>No timeseries data</TimeseriesChart.EmptyState>
+              <TimeseriesChart.ErrorState>Unable to render timeseries</TimeseriesChart.ErrorState>
+            </TimeseriesChart>
           </div>
         );
       }
