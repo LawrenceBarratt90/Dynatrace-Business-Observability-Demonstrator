@@ -1550,6 +1550,59 @@ function fmtNum(n: number): string {
   return n.toFixed(2);
 }
 
+function buildNiceTickValues(min: number, max: number, targetTickCount = 5): number[] {
+  if (!Number.isFinite(min) || !Number.isFinite(max)) return [0, 25, 50, 75, 100];
+  if (min === max) {
+    const fallbackMax = max === 0 ? 1 : max;
+    return [0, fallbackMax * 0.25, fallbackMax * 0.5, fallbackMax * 0.75, fallbackMax];
+  }
+
+  const span = Math.abs(max - min);
+  const roughStep = span / Math.max(1, targetTickCount - 1);
+  const magnitude = Math.pow(10, Math.floor(Math.log10(roughStep)));
+  const normalized = roughStep / magnitude;
+  const niceNormalizedStep = normalized >= 7.5 ? 10 : normalized >= 3.5 ? 5 : normalized >= 1.5 ? 2 : 1;
+  const step = niceNormalizedStep * magnitude;
+  const niceMin = Math.floor(min / step) * step;
+  const niceMax = Math.ceil(max / step) * step;
+
+  const ticks: number[] = [];
+  for (let value = niceMin; value <= niceMax + step * 0.5; value += step) {
+    ticks.push(Number(value.toFixed(8)));
+  }
+
+  return ticks.length >= 2 ? ticks : [niceMin, niceMax];
+}
+
+function formatTimeseriesTick(time: number, minTime: number, maxTime: number, isEdge: boolean): string {
+  const current = new Date(time);
+  const sameDay = new Date(minTime).toDateString() === new Date(maxTime).toDateString();
+  if (sameDay) {
+    return isEdge
+      ? current.toLocaleString([], { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
+      : current.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+
+  return isEdge
+    ? current.toLocaleString([], { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
+    : current.toLocaleDateString([], { day: '2-digit', month: 'short' });
+}
+
+function formatSeriesLabel(name: string): string {
+  let label = name.trim();
+  label = label.replace(/^https?:\/\//, '');
+  label = label.replace(/^lib\//, '');
+  label = label.replace(/\.js$/i, '');
+  label = label.replace(/\?.*$/, '');
+
+  if (label.includes('/')) {
+    const segments = label.split('/').filter(Boolean);
+    label = segments[segments.length - 1] || label;
+  }
+
+  return label;
+}
+
 /* ─────── REGION → LAT/LNG LOOKUP ─────── */
 const REGION_COORDS: Record<string, [number, number]> = {
   'north america': [-100, 45], 'south america': [-60, -15], 'europe': [15, 50],
@@ -1840,13 +1893,14 @@ function NativeTimeseriesChart({ series, tile }: { series: Array<{ name: string;
   const padLeft = 44;
   const padRight = 16;
   const padTop = 18;
-  const padBottom = 34;
+  const padBottom = 40;
 
   const ranked = [...series]
     .map((item, index) => {
       const total = item.datapoints.reduce((sum, point) => sum + point.value, 0);
       return {
         ...item,
+        displayName: formatSeriesLabel(item.name),
         color: palette[index % palette.length],
         total,
       };
@@ -1869,10 +1923,13 @@ function NativeTimeseriesChart({ series, tile }: { series: Array<{ name: string;
 
   const minTime = Math.min(...allPoints.map((point) => point.start.getTime()));
   const maxTime = Math.max(...allPoints.map((point) => point.start.getTime()));
-  const maxValue = Math.max(1, ...allPoints.map((point) => point.value));
-  const minValue = Math.min(0, ...allPoints.map((point) => point.value));
-  const rangeValue = Math.max(1, maxValue - minValue);
   const xSpan = Math.max(1, maxTime - minTime);
+  const rawMaxValue = Math.max(1, ...allPoints.map((point) => point.value));
+  const rawMinValue = Math.min(0, ...allPoints.map((point) => point.value));
+  const yTickValues = buildNiceTickValues(rawMinValue, rawMaxValue, 5);
+  const minValue = yTickValues[0];
+  const maxValue = yTickValues[yTickValues.length - 1];
+  const rangeValue = Math.max(1, maxValue - minValue);
 
   const toX = (time: number) => padLeft + ((time - minTime) / xSpan) * (width - padLeft - padRight);
   const toY = (value: number) => padTop + (1 - (value - minValue) / rangeValue) * (height - padTop - padBottom);
@@ -1891,7 +1948,7 @@ function NativeTimeseriesChart({ series, tile }: { series: Array<{ name: string;
       const exceedsBaseline = baseline != null && point.value > baseline;
       const percentageDifference = baseline && baseline !== 0 ? ((point.value - baseline) / baseline) * 100 : 0;
       return {
-        seriesName: item.name,
+        seriesName: item.displayName,
         color: item.color,
         value: point.value,
         time: point.start,
@@ -1916,10 +1973,7 @@ function NativeTimeseriesChart({ series, tile }: { series: Array<{ name: string;
     return `${buildLine(datapoints)} L ${lastX} ${baseY} L ${firstX} ${baseY} Z`;
   };
 
-  const yTicks = [0, 0.25, 0.5, 0.75, 1].map((ratio) => {
-    const value = minValue + rangeValue * ratio;
-    return { value, y: toY(value) };
-  });
+  const yTicks = yTickValues.map((value) => ({ value, y: toY(value) }));
   const xTicks = [0, 0.5, 1].map((ratio) => {
     const time = minTime + xSpan * ratio;
     return { time, x: toX(time) };
@@ -1984,7 +2038,15 @@ function NativeTimeseriesChart({ series, tile }: { series: Array<{ name: string;
           {xTicks.map((tick) => (
             <g key={`x-${tick.time}`}>
               <line x1={tick.x} y1={padTop} x2={tick.x} y2={height - padBottom} stroke="rgba(143, 158, 201, 0.08)" strokeWidth="1" />
-              <text x={tick.x} y={height - 10} textAnchor="middle" fill="rgba(183, 195, 230, 0.72)" fontSize="9">{formatTime(tick.time)}</text>
+              <text
+                x={tick === xTicks[0] ? tick.x + 4 : tick === xTicks[xTicks.length - 1] ? tick.x - 4 : tick.x}
+                y={height - 10}
+                textAnchor={tick === xTicks[0] ? 'start' : tick === xTicks[xTicks.length - 1] ? 'end' : 'middle'}
+                fill="rgba(183, 195, 230, 0.72)"
+                fontSize="9"
+              >
+                {formatTimeseriesTick(tick.time, minTime, maxTime, tick === xTicks[0] || tick === xTicks[xTicks.length - 1])}
+              </text>
             </g>
           ))}
 
@@ -2050,8 +2112,8 @@ function NativeTimeseriesChart({ series, tile }: { series: Array<{ name: string;
             top: 12,
             left: `${(hoveredPoint.svgX / width) * 100}%`,
             transform: hoveredPoint.svgX > width * 0.72 ? 'translateX(calc(-100% - 12px))' : 'translateX(12px)',
-            minWidth: 210,
-            maxWidth: 260,
+            minWidth: 220,
+            maxWidth: 280,
             padding: '10px 12px',
             borderRadius: 10,
             background: 'rgba(8, 12, 22, 0.94)',
@@ -2085,7 +2147,7 @@ function NativeTimeseriesChart({ series, tile }: { series: Array<{ name: string;
         )}
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 6 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 8 }}>
         {ranked.map((item) => {
           const latest = item.datapoints[item.datapoints.length - 1]?.value ?? 0;
           return (
@@ -2094,16 +2156,16 @@ function NativeTimeseriesChart({ series, tile }: { series: Array<{ name: string;
               gridTemplateColumns: '12px 1fr auto',
               gap: 8,
               alignItems: 'center',
-              padding: '8px 10px',
+              padding: '9px 12px',
               borderRadius: 8,
               background: 'rgba(111, 132, 187, 0.08)',
               border: '1px solid rgba(111, 132, 187, 0.14)',
               color: '#d8e1ff',
-              fontSize: 10,
+              fontSize: 11,
             }}>
               <span style={{ width: 10, height: 10, borderRadius: 999, background: item.color, display: 'inline-block' }} />
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.name}</span>
-              <span style={{ fontFamily: 'monospace', color: '#eef3ff' }}>{fmtNum(latest)}</span>
+              <span title={item.name} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#d8e1ff' }}>{item.displayName}</span>
+              <span style={{ fontFamily: 'monospace', color: '#eef3ff', fontSize: 10 }}>{fmtNum(latest)}</span>
             </div>
           );
         })}
