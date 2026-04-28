@@ -312,6 +312,7 @@ export const HomePage = () => {
   const [aiGenSteps, setAiGenSteps] = useState<Array<{ label: string; status: 'pending' | 'running' | 'done' | 'error'; detail?: string }>>([]);
   const [aiGenComplete, setAiGenComplete] = useState(false);
   const [aiGenError, setAiGenError] = useState('');
+  const [aiGenDashboardUrl, setAiGenDashboardUrl] = useState<string | null>(null);
 
   // "Use Your Own AI Prompt" (paste) flow state
   const [showPasteAiModal, setShowPasteAiModal] = useState(false);
@@ -1450,6 +1451,18 @@ export const HomePage = () => {
     }
   };
 
+  const normalizeServiceName = (rawService: any, rawStep: any) => {
+    const candidate = String(rawService || rawStep || 'step-service');
+    return candidate
+      .trim()
+      .replace(/[^a-zA-Z0-9\-_\s]/g, '')
+      .replace(/([a-z0-9])([A-Z])/g, '$1-$2')
+      .replace(/[\s_]+/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '')
+      .toLowerCase();
+  };
+
   const generateAndDeployDashboard = async () => {
     if (!dashboardCompanyName || !dashboardJourneyType) {
       setDashboardGenerationStatus('⚠️ Please select both company and journey type');
@@ -1638,7 +1651,7 @@ export const HomePage = () => {
       const fullSteps = (journeyConfig.steps || parsedResponse.steps || []).map((s: any) => ({
         ...s,
         stepName: s.stepName || s.name,
-        serviceName: s.serviceName || s.service,
+        serviceName: normalizeServiceName(s.serviceName || s.service, s.stepName || s.name),
         companyName: s.companyName || jCompany,
       }));
 
@@ -1714,11 +1727,13 @@ export const HomePage = () => {
       { label: 'Generating Journey Config', status: 'pending' },
       { label: 'Validating JSON', status: 'pending' },
       { label: 'Creating Services', status: 'pending' },
+      { label: 'Generating & Deploying Bespoke Dashboard', status: 'pending' },
       { label: 'Saving to My Templates', status: 'pending' },
     ];
     setAiGenSteps([...steps]);
     setAiGenComplete(false);
     setAiGenError('');
+    setAiGenDashboardUrl(null);
     setShowAiGenModal(true);
     let stepIdx = 0;
 
@@ -1835,10 +1850,42 @@ export const HomePage = () => {
       const fullSteps = (journeyConfig.steps || parsedResponse.steps || []).map((s: any) => ({
         ...s,
         stepName: s.stepName || s.name,
-        serviceName: s.serviceName || s.service,
+        serviceName: normalizeServiceName(s.serviceName || s.service, s.stepName || s.name),
         companyName: s.companyName || jCompany,
       }));
       autoDeployBusinessFlow(jCompany, jType, fullSteps);
+
+      // Generate + deploy bespoke dashboard from discovered journey fields
+      updateStep(stepIdx, { status: 'running' });
+      const dashboardRes = await callProxyWithRetry({
+        action: 'mcp-generate-deploy-dashboard',
+        apiHost: apiSettings.host,
+        apiPort: apiSettings.port,
+        apiProtocol: apiSettings.protocol,
+        body: {
+          company: jCompany,
+          journeyType: jType,
+          useAI: true,
+        },
+      }, 3, 1500) as any;
+
+      if (!dashboardRes.success) {
+        throw new Error(`Bespoke dashboard deployment failed: ${dashboardRes.error || 'unknown error'}`);
+      }
+
+      const rawDashboardUrl = dashboardRes?.data?.dashboardUrl || '';
+      const resolvedDashboardUrl = rawDashboardUrl
+        ? (rawDashboardUrl.startsWith('http') ? rawDashboardUrl : `${TENANT_URL}${rawDashboardUrl}`)
+        : null;
+      setAiGenDashboardUrl(resolvedDashboardUrl);
+
+      updateStep(stepIdx, {
+        status: 'done',
+        detail: dashboardRes?.data?.dashboardName
+          ? `Deployed: ${dashboardRes.data.dashboardName}`
+          : 'Dashboard deployed',
+      });
+      stepIdx++;
 
       // Auto-save to My Templates
       updateStep(stepIdx, { status: 'running' });
@@ -1871,6 +1918,7 @@ export const HomePage = () => {
       setIsGeneratingServices(false);
       setShowJourneyPickerModal(false);
       setJourneyPickerResolve(null);
+      setAiGenDashboardUrl(null);
       const failedIdx = steps.findIndex(s => s.status === 'running');
       if (failedIdx >= 0) updateStep(failedIdx, { status: 'error', detail: err.message });
       setAiGenError(err.message);
@@ -2021,7 +2069,7 @@ export const HomePage = () => {
       const fullSteps = (journeyConfig.steps || parsedResponse.steps || []).map((s: any) => ({
         ...s,
         stepName: s.stepName || s.name,
-        serviceName: s.serviceName || s.service,
+        serviceName: normalizeServiceName(s.serviceName || s.service, s.stepName || s.name),
         companyName: s.companyName || jCompany,
       }));
       autoDeployBusinessFlow(jCompany, jType, fullSteps);
@@ -6298,13 +6346,13 @@ export const HomePage = () => {
         <div style={{ position: 'fixed', inset: 0, zIndex: 10003, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.65)' }} />
           <div style={{
-            position: 'relative', width: 520, background: Colors.Background.Surface.Default,
+            position: 'relative', width: 'min(640px, 92vw)', background: Colors.Background.Surface.Default,
             borderRadius: 20, border: `2px solid ${aiGenComplete ? 'rgba(115,190,40,0.6)' : aiGenError ? 'rgba(220,50,47,0.6)' : 'rgba(0,161,201,0.4)'}`,
             boxShadow: '0 24px 64px rgba(0,0,0,0.4)', overflow: 'hidden',
           }}>
             {/* Header */}
             <div style={{
-              padding: '20px 24px',
+              padding: '22px 28px',
               background: aiGenComplete
                 ? 'linear-gradient(135deg, rgba(115,190,40,0.9), rgba(0,180,0,0.8))'
                 : aiGenError
@@ -6325,10 +6373,10 @@ export const HomePage = () => {
             </div>
 
             {/* Steps */}
-            <div style={{ padding: '20px 24px' }}>
+            <div style={{ padding: '24px 28px 22px', maxHeight: '56vh', overflowY: 'auto' }}>
               {aiGenSteps.map((step, idx) => (
                 <div key={idx} style={{
-                  display: 'flex', alignItems: 'flex-start', gap: 14, marginBottom: idx < aiGenSteps.length - 1 ? 16 : 0,
+                  display: 'flex', alignItems: 'flex-start', gap: 14, marginBottom: idx < aiGenSteps.length - 1 ? 20 : 0,
                   opacity: step.status === 'pending' ? 0.4 : 1,
                   transition: 'opacity 0.3s ease',
                 }}>
@@ -6344,7 +6392,7 @@ export const HomePage = () => {
                   </div>
                   <div style={{ flex: 1, paddingTop: 4 }}>
                     <div style={{
-                      fontSize: 14, fontWeight: step.status === 'running' ? 700 : 600,
+                      fontSize: 15, fontWeight: step.status === 'running' ? 700 : 600,
                       color: step.status === 'running' ? Colors.Text.Neutral.Default : step.status === 'done' ? Colors.Text.Neutral.Default : Colors.Text.Neutral.Subdued,
                     }}>
                       {step.label}
@@ -6352,7 +6400,7 @@ export const HomePage = () => {
                     </div>
                     {step.detail && (
                       <div style={{
-                        fontSize: 11, marginTop: 3,
+                        fontSize: 12, marginTop: 5, lineHeight: 1.45,
                         color: step.status === 'error' ? '#dc322f' : 'rgba(115,190,40,0.9)',
                         fontFamily: step.status === 'error' ? 'monospace' : 'inherit',
                         wordBreak: 'break-word',
@@ -6378,13 +6426,13 @@ export const HomePage = () => {
             </div>
 
             {/* Footer */}
-            <div style={{ padding: '16px 24px', borderTop: `1px solid ${Colors.Border.Neutral.Default}`, display: 'flex', justifyContent: aiGenComplete || aiGenError ? 'space-between' : 'flex-end', alignItems: 'center' }}>
+            <div style={{ padding: '18px 24px', borderTop: `1px solid ${Colors.Border.Neutral.Default}`, display: 'flex', flexWrap: 'wrap', gap: 10, justifyContent: aiGenComplete || aiGenError ? 'flex-start' : 'flex-end', alignItems: 'center' }}>
               {aiGenComplete && (
-                <Flex gap={8} alignItems="center">
+                <Flex gap={12} alignItems="center" style={{ flexWrap: 'wrap' }}>
                   <Button
                     variant="emphasized"
                     onClick={() => { setShowAiGenModal(false); setActiveTab('step2'); setStep2Phase('generate'); }}
-                    style={{ padding: '8px 20px' }}
+                    style={{ padding: '9px 20px' }}
                   >
                     View Results
                   </Button>
@@ -6394,7 +6442,7 @@ export const HomePage = () => {
                     rel="noopener noreferrer"
                     style={{
                       display: 'inline-flex', alignItems: 'center', gap: 6,
-                      padding: '8px 16px', borderRadius: 8, fontSize: 12, fontWeight: 600,
+                      padding: '9px 16px', borderRadius: 8, fontSize: 12, fontWeight: 600,
                       background: 'linear-gradient(135deg, rgba(0,161,201,0.1), rgba(108,44,156,0.1))',
                       border: '1px solid rgba(0,161,201,0.3)',
                       color: Colors.Text.Neutral.Default,
@@ -6404,6 +6452,24 @@ export const HomePage = () => {
                   >
                     🔍 View AI Prompts in Dynatrace
                   </a>
+                  {aiGenDashboardUrl && (
+                    <a
+                      href={aiGenDashboardUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{
+                        display: 'inline-flex', alignItems: 'center', gap: 6,
+                        padding: '9px 16px', borderRadius: 8, fontSize: 12, fontWeight: 600,
+                        background: 'linear-gradient(135deg, rgba(115,190,40,0.12), rgba(0,161,201,0.12))',
+                        border: '1px solid rgba(115,190,40,0.45)',
+                        color: Colors.Text.Neutral.Default,
+                        textDecoration: 'none',
+                        transition: 'all 0.2s ease',
+                      }}
+                    >
+                      📊 Open Bespoke Dashboard
+                    </a>
+                  )}
                 </Flex>
               )}
               {aiGenError && (
@@ -6416,7 +6482,7 @@ export const HomePage = () => {
                 </Button>
               )}
               {(aiGenComplete || aiGenError) && (
-                <Button onClick={() => setShowAiGenModal(false)} style={{ padding: '8px 16px' }}>
+                <Button onClick={() => setShowAiGenModal(false)} style={{ padding: '9px 16px', marginLeft: 'auto' }}>
                   Close
                 </Button>
               )}

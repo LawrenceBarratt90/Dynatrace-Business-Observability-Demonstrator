@@ -90,6 +90,7 @@ NEED_PROMPT=false
 if [ -z "$TENANT_ID" ] || [ "$TENANT_ID" = "YOUR_TENANT_ID" ] || \
    [ -z "$ENV_TYPE" ] || \
    [ -z "$API_TOKEN" ] || [[ "$API_TOKEN" == *"XXXX"* ]] || \
+  [ -z "$DT_PLATFORM_TOKEN" ] || [[ "$DT_PLATFORM_TOKEN" == *"XXXX"* ]] || \
    [ -z "$EC_OAUTH_CLIENT_ID" ] || [[ "$EC_OAUTH_CLIENT_ID" == *"XXXX"* ]] || \
    [ -z "$EC_OAUTH_CLIENT_SECRET" ] || [[ "$EC_OAUTH_CLIENT_SECRET" == *"YYYY"* ]]; then
   # Support legacy setup.conf that used OAUTH_CLIENT_ID
@@ -142,8 +143,23 @@ if [ "$NEED_PROMPT" = true ]; then
   prompt_if_missing "API_TOKEN" "API Token:" "dt0c01.XXXX..."
   echo ""
 
-  # 4. EdgeConnect OAuth Client ID
-  echo -e "  ${CYAN}─── 4/6: EdgeConnect OAuth Client ID ───${NC}"
+  # 4. DT Platform Token (for dtctl dashboard apply)
+  echo -e "  ${CYAN}─── 4/7: DT Platform Token (dtctl) ───${NC}"
+  echo -e "  ${YELLOW}Needed for bespoke dashboard deployment via dtctl.${NC}"
+  echo -e "  ${YELLOW}Use a platform token (typically dt0s16.*), not an ingest token.${NC}"
+  echo -e "  ${YELLOW}Minimum scopes:${NC}"
+  echo -e "  ${YELLOW}  • document:documents:write${NC}"
+  echo -e "  ${YELLOW}Recommended:${NC}"
+  echo -e "  ${YELLOW}  • document:documents:read${NC}"
+  echo -e "  ${YELLOW}Optional (only if you want environment-wide sharing):${NC}"
+  echo -e "  ${YELLOW}  • document:environment-shares:write${NC}"
+  echo -e "  ${YELLOW}Recommended:${NC}"
+  echo -e "  ${YELLOW}  • document:documents:read${NC}"
+  prompt_if_missing "DT_PLATFORM_TOKEN" "DT Platform Token:" "dt0s16.XXXX..."
+  echo ""
+
+  # 5. EdgeConnect OAuth Client ID
+  echo -e "  ${CYAN}─── 5/7: EdgeConnect OAuth Client ID ───${NC}"
   echo -e "  ${YELLOW}Dynatrace → Settings → General → External Requests → Add EdgeConnect${NC}"
   echo -e "  ${YELLOW}DT generates the OAuth credentials — copy the Client ID${NC}"
   echo -e "  ${YELLOW}Starts with: dt0s10. or dt0s02. (depends on your tenant)${NC}"
@@ -151,15 +167,15 @@ if [ "$NEED_PROMPT" = true ]; then
   prompt_if_missing "EC_OAUTH_CLIENT_ID" "EdgeConnect OAuth Client ID:" "dt0s10.XXXX"
   echo ""
 
-  # 5. EdgeConnect OAuth Client Secret
-  echo -e "  ${CYAN}─── 5/6: EdgeConnect OAuth Client Secret ───${NC}"
+  # 6. EdgeConnect OAuth Client Secret
+  echo -e "  ${CYAN}─── 6/7: EdgeConnect OAuth Client Secret ───${NC}"
   echo -e "  ${YELLOW}Same page — shown only once when you create the EdgeConnect!${NC}"
   echo -e "  ${YELLOW}Starts with same prefix as the ID (dt0s10. or dt0s02.)${NC}"
   prompt_if_missing "EC_OAUTH_CLIENT_SECRET" "EdgeConnect OAuth Client Secret:" "dt0s10.XXXX.YYYY..."
   echo ""
 
-  # 6. AppEngine Deploy OAuth (can be same or different)
-  echo -e "  ${CYAN}─── 6/6: AppEngine Deploy OAuth ───${NC}"
+  # 7. AppEngine Deploy OAuth (can be same or different)
+  echo -e "  ${CYAN}─── 7/7: AppEngine Deploy OAuth ───${NC}"
   echo -e "  ${YELLOW}This deploys the Demonstrator UI to your Dynatrace Apps.${NC}"
   echo -e "  ${YELLOW}Can be the SAME client as EdgeConnect (if you added deploy scopes to it)${NC}"
   echo -e "  ${YELLOW}OR a different OAuth client. Accepts dt0s10 (env-level) or dt0s02 (account-level).${NC}"
@@ -190,6 +206,10 @@ fi
 
 if [[ ! "$API_TOKEN" == dt0c01.* ]]; then
   fail "API Token must start with 'dt0c01.' — you entered '${API_TOKEN:0:10}...'. Delete setup.conf and re-run ./setup.sh"
+fi
+
+if [[ ! "$DT_PLATFORM_TOKEN" == dt0s*.* ]]; then
+  fail "DT Platform Token must be a platform token (expected dt0s*.*). Update setup.conf and re-run ./setup.sh"
 fi
 
 # EdgeConnect OAuth — accepts dt0s10 (environment-level) or dt0s02 (account-level)
@@ -261,6 +281,7 @@ if [ "$NEED_PROMPT" = true ]; then
 ENV_TYPE="$ENV_TYPE"
 TENANT_ID="$TENANT_ID"
 API_TOKEN="$API_TOKEN"
+DT_PLATFORM_TOKEN="$DT_PLATFORM_TOKEN"
 EC_OAUTH_CLIENT_ID="$EC_OAUTH_CLIENT_ID"
 EC_OAUTH_CLIENT_SECRET="$EC_OAUTH_CLIENT_SECRET"
 DEPLOY_OAUTH_CLIENT_ID="$DEPLOY_OAUTH_CLIENT_ID"
@@ -303,6 +324,8 @@ upsert_env_var() {
 }
 
 upsert_env_var "ENV_TYPE" "$ENV_TYPE"
+upsert_env_var "DT_PLATFORM_TOKEN" "$DT_PLATFORM_TOKEN"
+upsert_env_var "DT_ENVIRONMENT" "$APPS_URL"
 upsert_env_var "DT_ACCOUNT_ID" "$DT_ACCOUNT_ID"
 upsert_env_var "DT_ACCESS_GROUP_UUID" "$DT_ACCESS_GROUP_UUID"
 upsert_env_var "DT_ACCOUNT_OAUTH_CLIENT_ID" "$DT_ACCOUNT_OAUTH_CLIENT_ID"

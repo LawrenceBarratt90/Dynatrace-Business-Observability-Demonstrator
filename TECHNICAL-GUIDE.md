@@ -2,7 +2,7 @@
 
 > A hands-on guide for engineers, SEs, and developers who want to get the platform running and understand what's under the hood.
 
-> **Want the fast path?** Just run `sudo ./setup.sh` — it walks you through 6 guided prompts and does everything automatically. This guide explains what the script does and how to do it manually.
+> **Want the fast path?** Just run `sudo ./setup.sh` — it walks you through 7 guided prompts and does everything automatically. This guide explains what the script does and how to do it manually.
 
 ---
 
@@ -116,12 +116,12 @@ Follow these steps **in order**. Each step depends on the one before it.
 
 ```
 Step 1: Clone & Install            ← Get the code (single unified repo)
-Step 2: Create DT Credentials      ← A: API Token  +  B: OAuth Client (2 things to create in DT)
+Step 2: Create DT Credentials      ← A: API Token + B: DT Platform Token + C: OAuth Clients
 Step 3–5: sudo ./setup.sh               ← Handles EdgeConnect, app deploy, build, and server start
 Step 6: Configure from Demonstrator UI    ← Wire everything together (private IP + Get Started checklist)
 ```
 
-> **Shortest path:** Do Steps 1–2, then just run `sudo ./setup.sh` — it walks you through 6 guided prompts and does Steps 3–5 automatically.
+> **Shortest path:** Do Steps 1–2, then just run `sudo ./setup.sh` — it walks you through 7 guided prompts and does Steps 3–5 automatically.
 
 ---
 
@@ -136,7 +136,7 @@ sudo chmod +x setup.sh
 sudo ./setup.sh
 ```
 
-The `setup.sh` script will walk you through 6 guided prompts and handle everything automatically: npm install, credential configuration, EdgeConnect setup, AppEngine deploy, and server startup.
+The `setup.sh` script will walk you through 7 guided prompts and handle everything automatically: npm install, credential configuration, EdgeConnect setup, AppEngine deploy, and server startup.
 
 **Verify:** The script ends with a green "All done" message and the server running on port 8080.
 
@@ -144,13 +144,19 @@ The `setup.sh` script will walk you through 6 guided prompts and handle everythi
 
 ### Step 2: Create Dynatrace Credentials
 
-You need **2–3 credentials** — an API Token, an EdgeConnect OAuth Client, and a separate Deploy OAuth Client:
+You need **3–4 credentials** — an API Token, a DT Platform Token for dtctl dashboard deployment, an EdgeConnect OAuth Client, and optionally a separate Deploy OAuth Client:
 
 | # | Credential | Type | Where To Create | What Uses It |
 |---|-----------|------|----------------|---------------|
 | A | **API Token** | `dt0c01.*` | Dynatrace tenant → Settings → Access Tokens | The **Demonstrator server** uses this to send events/metrics to Dynatrace |
-| B | **EdgeConnect OAuth** | `dt0s10.*` or `dt0s02.*` | Dynatrace tenant → Settings → General → External Requests → EdgeConnect | **EdgeConnect** (tunnel). Can also be used for deploy if you add the right scopes. |
-| C | **Deploy OAuth**  | `dt0s10.*` or `dt0s02.*` | Separate client from Account Management → IAM → OAuth clients | **`dt-app deploy`** (app deployment to Dynatrace AppEngine) |
+| B | **DT Platform Token (dtctl)** | `dt0s16.*` (recommended) | Dynatrace tenant token UI (platform token) | **Bespoke dashboard deployment via dtctl** (`/api/ai-dashboard/deploy-dtctl`) |
+| C | **EdgeConnect OAuth** | `dt0s10.*` or `dt0s02.*` | Dynatrace tenant → Settings → General → External Requests → EdgeConnect | **EdgeConnect** (tunnel). Can also be used for deploy if you add the right scopes. |
+| D | **Deploy OAuth**  | `dt0s10.*` or `dt0s02.*` | Separate client from Account Management → IAM → OAuth clients | **`dt-app deploy`** (app deployment to Dynatrace AppEngine) |
+
+For credential B (DT Platform Token used by dtctl), required scopes are:
+- `document:documents:write`
+- Recommended: `document:documents:read`
+- Optional (only if you want environment-wide sharing): `document:environment-shares:write`
 
 ---
 

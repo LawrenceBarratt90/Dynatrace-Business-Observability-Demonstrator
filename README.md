@@ -34,11 +34,12 @@ Model any customer’s real business journey — their exact checkout flow, clai
 
 - **Dynatrace NFR tenant** 
 - **Node.js v22+** and **Docker** on your host (EC2/VM)
-- **2 Dynatrace credentials** (see [TECHNICAL-GUIDE.md](TECHNICAL-GUIDE.md#step-2-create-dynatrace-credentials) for how to create them):
+- **4 Dynatrace credentials** (see [TECHNICAL-GUIDE.md](TECHNICAL-GUIDE.md#step-2-create-dynatrace-credentials) for how to create them):
 
 | Credential | Type | Where To Create |
 |-----------|------|-----------------|
 | **API Token** | `dt0c01.*` | DT tenant → Settings → Access Tokens (scopes: `events.ingest`, `metrics.ingest`, `openTelemetryTrace.ingest`, `entities.read`) |
+| **DT Platform Token (dtctl)** | `dt0s16.*` (recommended) | Used by bespoke dashboard deployment via dtctl. Minimum scope: `document:documents:write` (recommended: `document:documents:read`; optional for environment sharing: `document:environment-shares:write`) |
 | **EdgeConnect OAuth** | `dt0s10.*` or `dt0s02.*` | DT tenant → Settings → General → External Requests → Add EdgeConnect. DT generates the credentials automatically. |
 | **Deploy OAuth** *(optional)* | `dt0s10.*` or `dt0s02.*` | Same client works if you add `app-engine:apps:install` + `app-engine:apps:run` scopes. Or use a separate account-level client from Account Management → IAM → OAuth clients. |
 
@@ -48,7 +49,7 @@ Model any customer’s real business journey — their exact checkout flow, clai
 git clone https://github.com/LawrenceBarratt90/Business-Observability-Demonstrator.git && cd Dynatrace-Business-Outcome-Engine && chmod +x setup.sh && ./setup.sh
 ```
 
-The script walks you through 6 guided prompts (environment type, tenant ID, API token, EdgeConnect OAuth, and deploy OAuth), then automatically:
+The script walks you through 7 guided prompts (environment type, tenant ID, API token, DT platform token for dtctl, EdgeConnect OAuth, and deploy OAuth), then automatically:
 
 1. Installs npm packages
 2. Configures & starts EdgeConnect (Docker)

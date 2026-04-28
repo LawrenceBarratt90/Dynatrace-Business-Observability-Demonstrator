@@ -15,6 +15,8 @@ import fs from 'fs/promises';
 import { readFileSync } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
 import { performance } from 'perf_hooks';
 import { trace, SpanKind, SpanStatusCode, metrics } from '@opentelemetry/api';
 import { getFields, getAllEntries, getRepoSummary } from '../services/field-repo.js';
@@ -38,6 +40,7 @@ import { getBespokePrompt, getBespokeSections } from '../templates/dql/bespoke-p
 const router = express.Router();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const execFileAsync = promisify(execFile);
 
 const SKILLS_PATH = path.join(__dirname, '../ai-agent-knowledge-base-main@c5ea8662910/knowledge-base/dynatrace/skills');
 const PROMPTS_PATH = path.join(__dirname, '../prompts');
@@ -4284,6 +4287,174 @@ router.post('/generate', async (req, res) => {
   } catch (error) {
     console.error('[AI Dashboard] Generation error:', error);
     res.status(500).json({ error: error.message });
+  }
+});
+
+// Deploy a generated dashboard using dtctl (from scratch path, no Documents SDK)
+router.post('/deploy-dtctl', async (req, res) => {
+  const tempPaths = [];
+  try {
+    const { dashboard, company, journeyType } = req.body || {};
+    if (!dashboard?.content || !company || !journeyType) {
+      return res.status(400).json({ success: false, error: 'dashboard, company, and journeyType are required' });
+    }
+
+    let environmentUrl = (process.env.DT_ENVIRONMENT || process.env.DYNATRACE_URL || '').trim().replace(/\/$/, '');
+    let apiToken = (process.env.DT_PLATFORM_TOKEN || process.env.DYNATRACE_TOKEN || '').trim();
+
+    // Fallback: load values from setup.conf if env vars are not exported in the running shell.
+    if (!environmentUrl || !apiToken) {
+      try {
+        const setupConfPath = path.join(__dirname, '..', 'setup.conf');
+        const setupRaw = readFileSync(setupConfPath, 'utf8');
+        const conf = {};
+        for (const line of setupRaw.split(/\r?\n/)) {
+          const trimmed = line.trim();
+          if (!trimmed || trimmed.startsWith('#')) continue;
+          const m = trimmed.match(/^([A-Z0-9_]+)\s*=\s*"?(.*?)"?$/);
+          if (m) conf[m[1]] = m[2];
+        }
+
+        if (!environmentUrl) {
+          environmentUrl = String(conf.DT_ENVIRONMENT || conf.DYNATRACE_URL || '').trim().replace(/\/$/, '');
+        }
+
+        if (!environmentUrl && conf.TENANT_ID) {
+          const tenantId = String(conf.TENANT_ID).trim();
+          const envType = String(conf.ENV_TYPE || '').trim().toLowerCase();
+          if (tenantId) {
+            if (envType === 'sprint') {
+              environmentUrl = `https://${tenantId}.sprint.apps.dynatracelabs.com`;
+            } else {
+              environmentUrl = `https://${tenantId}.apps.dynatrace.com`;
+            }
+          }
+        }
+
+        if (!apiToken) {
+          apiToken = String(
+            conf.DT_PLATFORM_TOKEN ||
+            conf.PLATFORM_TOKEN ||
+            conf.DYNATRACE_TOKEN ||
+            conf.API_TOKEN ||
+            ''
+          ).trim();
+        }
+      } catch (confErr) {
+        // Non-blocking: final credential check below will return an explicit error.
+      }
+    }
+
+    if (!environmentUrl || !apiToken) {
+      return res.status(500).json({
+        success: false,
+        error: 'Dynatrace credentials missing on server (DT_ENVIRONMENT + DT_PLATFORM_TOKEN)',
+        hint: 'Use a platform token with dashboard scope document:documents:write (recommended: document:documents:read; optional for environment sharing: document:environment-shares:write).',
+      });
+    }
+
+    const toolsDir = path.join(__dirname, '..', '.tools', 'dtctl');
+    const dtctlBin = path.join(toolsDir, 'dtctl');
+
+    // Install dtctl locally if it is missing
+    await fs.mkdir(toolsDir, { recursive: true });
+    try {
+      await fs.access(dtctlBin);
+    } catch {
+      const installCmd = [
+        'set -e',
+        `mkdir -p "${toolsDir}"`,
+        `cd "${toolsDir}"`,
+        'curl -fsSL -o dtctl.tar.gz https://github.com/dynatrace-oss/dtctl/releases/download/v0.26.0/dtctl_0.26.0_linux_amd64.tar.gz',
+        'tar -xzf dtctl.tar.gz',
+        'chmod +x dtctl'
+      ].join(' && ');
+      await execFileAsync('bash', ['-lc', installCmd], { timeout: 120000 });
+    }
+
+    const sanitizedCompany = String(company).replace(/[^a-zA-Z0-9-]/g, '-').toLowerCase();
+    const sanitizedJourney = String(journeyType).replace(/[^a-zA-Z0-9-]/g, '-').toLowerCase();
+    const aiSlug = String(dashboard.metadata?.dashboardSlug || '')
+      .replace(/[^a-z0-9-]/gi, '-')
+      .toLowerCase()
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '');
+    const dashboardId = aiSlug ? `bizobs-${sanitizedCompany}-${aiSlug}` : `bizobs-${sanitizedCompany}-${sanitizedJourney}`;
+    const dashboardName = dashboard.name || `${company} - ${journeyType} Journey`;
+
+    const tmpBase = path.join(__dirname, '..', 'tmp', 'dtctl');
+    await fs.mkdir(tmpBase, { recursive: true });
+
+    const nonce = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const dashboardFile = path.join(tmpBase, `dashboard-${nonce}.json`);
+    const configFile = path.join(tmpBase, `.dtctl-${nonce}.yaml`);
+    tempPaths.push(dashboardFile, configFile);
+
+    await fs.writeFile(dashboardFile, JSON.stringify(dashboard.content, null, 2), 'utf8');
+
+    const contextName = 'local';
+    const tokenRef = 'default-token';
+
+    await execFileAsync(dtctlBin, ['config', 'set-credentials', tokenRef, '--token', apiToken, '--config', configFile, '--plain'], { timeout: 30000 });
+    await execFileAsync(dtctlBin, ['config', 'set-context', contextName, '--environment', environmentUrl, '--token-ref', tokenRef, '--safety-level', 'readwrite-all', '--config', configFile, '--plain'], { timeout: 30000 });
+
+    const applyArgs = [
+      'apply',
+      '-f', dashboardFile,
+      '--id', dashboardId,
+      '--context', contextName,
+      '--config', configFile,
+      '--output', 'json',
+      '--plain'
+    ];
+
+    const { stdout, stderr } = await execFileAsync(dtctlBin, applyArgs, { timeout: 120000 });
+    if (stderr && stderr.trim()) {
+      console.warn('[AI Dashboard] dtctl stderr:', stderr.trim());
+    }
+
+    let parsed = null;
+    try { parsed = JSON.parse(stdout); } catch { /* non-blocking */ }
+
+    return res.json({
+      success: true,
+      data: {
+        dashboardId,
+        dashboardName,
+        dashboardUrl: `/ui/apps/dynatrace.dashboards/dashboard/${dashboardId}`,
+        applied: parsed || stdout,
+      }
+    });
+  } catch (error) {
+    const rawErr = String(error?.stderr || error?.stdout || error?.message || 'dtctl deployment failed');
+    const low = rawErr.toLowerCase();
+    const looksLikeScopeOrAuth =
+      low.includes('forbidden') ||
+      low.includes('unauthorized') ||
+      low.includes('insufficient') ||
+      low.includes('permission') ||
+      low.includes('scope') ||
+      low.includes('status 401') ||
+      low.includes('status 403') ||
+      low.includes('status code: 401') ||
+      low.includes('status code: 403') ||
+      low.includes('could not parse jwt');
+
+    console.error('[AI Dashboard] dtctl deployment error:', rawErr);
+
+    if (looksLikeScopeOrAuth) {
+      return res.status(403).json({
+        success: false,
+        error: `dtctl authentication/scope error: ${rawErr}`,
+        hint: 'Token must include at least document:documents:write for dashboard apply. If you also enable environment sharing, add document:environment-shares:write.',
+      });
+    }
+
+    return res.status(500).json({ success: false, error: rawErr });
+  } finally {
+    await Promise.all(tempPaths.map(async (p) => {
+      try { await fs.unlink(p); } catch { /* ignore cleanup errors */ }
+    }));
   }
 });
 

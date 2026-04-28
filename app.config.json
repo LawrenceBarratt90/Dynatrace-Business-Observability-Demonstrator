@@ -4,7 +4,7 @@
   "app": {
     "id": "my.bizobs.generator.master",
     "name": "Business Observability Demonstrator",
-    "version": "2.38.28",
+    "version": "2.38.41",
     "description": "AI-powered Business Observability — generate and observe journeys",
     "scopes": [
       {

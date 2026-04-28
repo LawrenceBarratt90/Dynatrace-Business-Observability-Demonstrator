@@ -18,6 +18,16 @@ TENANT_ID="YOUR_TENANT_ID"
 # Scopes needed: events.ingest, metrics.ingest, openTelemetryTrace.ingest, entities.read
 API_TOKEN="dt0c01.XXXX..."
 
+# Platform Token for dtctl dashboard deployment (recommended)
+# Token scopes (minimum):
+#   - document:documents:write
+# Optional (if you want environment-wide sharing):
+#   - document:environment-shares:write
+# Recommended read scope:
+#   - document:documents:read
+# You can also set PLATFORM_TOKEN as an alias.
+DT_PLATFORM_TOKEN="dt0s16.XXXX..."
+
 # EdgeConnect OAuth Client (dt0s10.*)
 # Create at: DT tenant → Settings → General → External Requests → Add EdgeConnect
 # Scope: app-engine:edge-connects:connect (auto-added by DT)

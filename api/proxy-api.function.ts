@@ -10,7 +10,7 @@ import { documentsClient, environmentSharesClient } from '@dynatrace-sdk/client-
 import { queryExecutionClient } from '@dynatrace-sdk/client-query';
 
 interface ProxyPayload {
-  action: 'simulate-journey' | 'simulate-vcarb-race' | 'vcarb-race-status' | 'stop-vcarb-race' | 'get-saved-config' | 'test-connection' | 'get-services' | 'stop-all-services' | 'stop-company-services' | 'get-dormant-services' | 'clear-dormant-services' | 'clear-company-dormant' | 'chaos-get-active' | 'chaos-get-recipes' | 'chaos-inject' | 'chaos-revert' | 'chaos-revert-all' | 'chaos-get-targeted' | 'chaos-remove-target' | 'chaos-smart' | 'ec-create' | 'ec-update-patterns' | 'detect-builtin-settings' | 'deploy-builtin-settings' | 'deploy-workflow' | 'debug-builtin-schema' | 'generate-dashboard' | 'generate-dashboard-async' | 'get-dashboard-status' | 'deploy-dashboard' | 'deploy-ai-dashboard' | 'mcp-generate-deploy-dashboard' | 'list-saved-dashboards' | 'load-saved-dashboard' | 'delete-saved-dashboard' | 'deploy-business-flow' | 'list-business-flows' | 'delete-business-flows' | 'generate-pdf' | 'generate-doc' | 'load-app-settings' | 'save-app-settings' | 'check-journey-assets' | 'create-notebook' | 'execute-dql' | 'demonstrator-ai-tiles' | 'demonstrator-tiles-status' | 'field-repo-get' | 'librarian-history' | 'librarian-stats' | 'librarian-analyze' | 'system-health' | 'system-cleanup' | 'github-copilot-generate' | 'github-copilot-check-credential' | 'github-copilot-save-credential' | 'github-copilot-list-models';
+  action: 'simulate-journey' | 'simulate-vcarb-race' | 'vcarb-race-status' | 'stop-vcarb-race' | 'get-saved-config' | 'test-connection' | 'get-services' | 'stop-all-services' | 'stop-company-services' | 'get-dormant-services' | 'clear-dormant-services' | 'clear-company-dormant' | 'chaos-get-active' | 'chaos-get-recipes' | 'chaos-inject' | 'chaos-revert' | 'chaos-revert-all' | 'chaos-get-targeted' | 'chaos-remove-target' | 'chaos-smart' | 'ec-create' | 'ec-update-patterns' | 'detect-builtin-settings' | 'deploy-builtin-settings' | 'deploy-workflow' | 'debug-builtin-schema' | 'generate-dashboard' | 'generate-dashboard-async' | 'get-dashboard-status' | 'deploy-dashboard' | 'mcp-generate-deploy-dashboard' | 'list-saved-dashboards' | 'load-saved-dashboard' | 'delete-saved-dashboard' | 'deploy-business-flow' | 'list-business-flows' | 'delete-business-flows' | 'generate-pdf' | 'generate-doc' | 'load-app-settings' | 'save-app-settings' | 'check-journey-assets' | 'create-notebook' | 'execute-dql' | 'demonstrator-ai-tiles' | 'demonstrator-tiles-status' | 'field-repo-get' | 'librarian-history' | 'librarian-stats' | 'librarian-analyze' | 'system-health' | 'system-cleanup' | 'github-copilot-generate' | 'github-copilot-check-credential' | 'github-copilot-save-credential' | 'github-copilot-list-models';
   apiHost: string;
   apiPort: string;
   apiProtocol: string;
@@ -91,7 +91,14 @@ export default async function (payload: ProxyPayload) {
         return await fetch(url, { ...init, signal: init?.signal || AbortSignal.timeout(15000) });
       } catch (err: any) {
         lastErr = err;
-        const isEC = err.message?.includes('Connection error') || err.message?.includes('EdgeConnect');
+        const msg = String(err?.message || '').toLowerCase();
+        const isEC =
+          msg.includes('connection error') ||
+          msg.includes('edgeconnect') ||
+          msg.includes('timed out') ||
+          msg.includes('timeout') ||
+          msg.includes('signal') ||
+          msg.includes('abort');
         if (!isEC || i === attempts) throw err;
         console.warn(`[proxy-api] fetch retry ${i}/${attempts} for ${url}: ${err.message}`);
         await new Promise(r => setTimeout(r, delayMs));
@@ -1361,57 +1368,50 @@ export default async function (payload: ProxyPayload) {
         const generationMethod = data.generationMethod || 'unknown';
         console.log(`[proxy-api] Generated ${Object.keys(dashboard.content.tiles || {}).length} tiles via ${generationMethod}`);
 
-        // Step 2: Deploy the dashboard to Dynatrace using Document API
-        const sanitizedCompany = company.replace(/[^a-zA-Z0-9-]/g, '-').toLowerCase();
-        const sanitizedJourney = journeyType.replace(/[^a-zA-Z0-9-]/g, '-').toLowerCase();
-        // Use AI-provided slug for unique document IDs per prompt focus, falling back to journey type
-        const aiSlug = (dashboard.metadata?.dashboardSlug || '').replace(/[^a-z0-9-]/gi, '-').toLowerCase().replace(/-+/g, '-').replace(/^-|-$/g, '');
-        const dashboardId = aiSlug
-          ? `bizobs-${sanitizedCompany}-${aiSlug}`
-          : `bizobs-${sanitizedCompany}-${sanitizedJourney}`;
-        const dashboardName = dashboard.name || `${company} - ${journeyType} Journey`;
+        // Step 2: Deploy using dtctl from the EC2 backend (from-scratch path)
+        let deployData: any = null;
+        for (let deployAttempt = 1; deployAttempt <= 3; deployAttempt++) {
+          const deployRes = await fetchWithRetry(`${baseUrl}/api/ai-dashboard/deploy-dtctl`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ dashboard, company, journeyType }),
+            signal: AbortSignal.timeout(180000),
+          }, 8, 4000);
 
-        let alreadyExisted = false;
-        try {
-          const existing = await documentsClient.getDocument({ id: dashboardId });
-          // Dashboard exists — update it
-          await documentsClient.updateDocument({
-            id: dashboardId,
-            optimisticLockingVersion: existing.metadata!.version,
-            body: {
-              name: dashboardName,
-              content: new Blob([JSON.stringify(dashboard.content)], { type: 'application/json' }),
-            },
-          });
-          alreadyExisted = true;
-          console.log(`[proxy-api] MCP dashboard updated: ${dashboardId}`);
-        } catch (e: any) {
-          // 404 = doesn't exist → create it
-          if (e?.body?.error?.code === 404 || e?.statusCode === 404) {
-            const result = await documentsClient.createDocument({
-              body: {
-                id: dashboardId,
-                name: dashboardName,
-                type: 'dashboard',
-                content: new Blob([JSON.stringify(dashboard.content)], { type: 'application/json' }),
-              },
-            });
+          deployData = await deployRes.json();
+          const transientDeployError = String(deployData?.error || '').toLowerCase();
+          const shouldRetryDeploy =
+            (!deployData?.success && (
+              transientDeployError.includes('edgeconnect') ||
+              transientDeployError.includes('connection error') ||
+              transientDeployError.includes('timed out') ||
+              transientDeployError.includes('timeout') ||
+              transientDeployError.includes('signal') ||
+              transientDeployError.includes('abort')
+            ));
 
-            // Share with entire environment
-            try {
-              await environmentSharesClient.createEnvironmentShare({
-                body: { documentId: result.id!, access: 'read' },
-              });
-            } catch (shareErr: any) {
-              console.warn('[proxy-api] Dashboard shared failed (non-blocking):', shareErr.message);
-            }
-            console.log(`[proxy-api] MCP dashboard created: ${dashboardId}`);
-          } else {
-            throw e;
+          if (deployData?.success || !shouldRetryDeploy || deployAttempt === 3) {
+            break;
           }
+
+          const waitMs = 2500 * deployAttempt;
+          console.warn(`[proxy-api] deploy-dtctl retry ${deployAttempt}/3 after transient tunnel error: ${deployData.error}`);
+          await new Promise(r => setTimeout(r, waitMs));
         }
 
-        const dashboardUrl = `/ui/apps/dynatrace.dashboards/dashboard/${dashboardId}`;
+        if (!deployData.success || !deployData.data?.dashboardId) {
+          const deployError = String(deployData.error || 'dtctl dashboard deployment failed');
+          return {
+            success: false,
+            error: deployError,
+            code: 'DTCTL_DEPLOY_FAILED',
+          };
+        }
+
+        const dashboardId = deployData.data.dashboardId;
+        const dashboardName = deployData.data.dashboardName || dashboard.name || `${company} - ${journeyType} Journey`;
+        const dashboardUrl = deployData.data.dashboardUrl || `/ui/apps/dynatrace.dashboards/dashboard/${dashboardId}`;
+
         return {
           success: true,
           data: {
@@ -1420,98 +1420,13 @@ export default async function (payload: ProxyPayload) {
             dashboardName,
             tileCount: Object.keys(dashboard.content.tiles || {}).length,
             generationMethod,
-            alreadyExisted,
-            message: alreadyExisted
-              ? `Dashboard "${dashboardName}" updated successfully`
-              : `Dashboard "${dashboardName}" deployed and shared with environment`,
+            alreadyExisted: false,
+            message: `Dashboard "${dashboardName}" deployed with dtctl`,
           },
         };
       } catch (error: any) {
         console.error('[proxy-api] MCP generate+deploy error:', error.message);
         return { success: false, error: error.message || 'MCP dashboard generation failed' };
-      }
-    }
-
-    if (action === 'deploy-ai-dashboard') {
-      // Deploy the built-in AI Observability dashboard using the Document API
-      const DASHBOARD_ID = 'bizobs-ai-observability-dashboard';
-      const DASHBOARD_NAME = '[AI Obs] Ollama — BizObs Demonstrator';
-
-      try {
-        // Check if dashboard already exists
-        try {
-          const existing = await documentsClient.getDocument({ id: DASHBOARD_ID });
-          // Dashboard exists — update it with latest version
-          const dashboardContent = (body as any)?.dashboardContent;
-          if (dashboardContent) {
-            await documentsClient.updateDocument({
-              id: DASHBOARD_ID,
-              optimisticLockingVersion: existing.metadata!.version,
-              body: {
-                content: new Blob([JSON.stringify(dashboardContent)], { type: 'application/json' }),
-              },
-            });
-            return {
-              success: true,
-              data: {
-                dashboardId: DASHBOARD_ID,
-                dashboardUrl: `/ui/apps/dynatrace.dashboards/dashboard/${DASHBOARD_ID}`,
-                message: 'AI Observability dashboard updated to latest version',
-                alreadyExisted: true,
-              },
-            };
-          }
-          return {
-            success: true,
-            data: {
-              dashboardId: DASHBOARD_ID,
-              dashboardUrl: `/ui/apps/dynatrace.dashboards/dashboard/${DASHBOARD_ID}`,
-              message: 'AI Observability dashboard already exists',
-              alreadyExisted: true,
-            },
-          };
-        } catch (e: any) {
-          // 404 means doesn't exist — proceed to create
-          if (e?.body?.error?.code !== 404 && e?.statusCode !== 404) {
-            throw e;
-          }
-        }
-
-        // Dashboard doesn't exist — create it
-        const dashboardContent = (body as any)?.dashboardContent;
-        if (!dashboardContent) {
-          return { success: false, error: 'Missing dashboardContent in request body' };
-        }
-
-        const result = await documentsClient.createDocument({
-          body: {
-            id: DASHBOARD_ID,
-            name: DASHBOARD_NAME,
-            type: 'dashboard',
-            content: new Blob([JSON.stringify(dashboardContent)], { type: 'application/json' }),
-          },
-        });
-
-        // Share with entire environment
-        try {
-          await environmentSharesClient.createEnvironmentShare({
-            body: { documentId: result.id!, access: 'read' },
-          });
-        } catch (shareErr: any) {
-          console.warn('[proxy-api] Dashboard created but sharing failed:', shareErr.message);
-        }
-
-        return {
-          success: true,
-          data: {
-            dashboardId: result.id,
-            dashboardUrl: `/ui/apps/dynatrace.dashboards/dashboard/${result.id}`,
-            message: 'AI Observability dashboard deployed and shared with environment',
-          },
-        };
-      } catch (error: any) {
-        console.error('[proxy-api] AI Dashboard deploy error:', error.message, error.body || '');
-        return { success: false, error: error.message || 'Failed to deploy AI Observability dashboard' };
       }
     }
 
@@ -2206,6 +2121,13 @@ export default async function (payload: ProxyPayload) {
         }
 
         const selectedModel = model || 'gpt-4.1';
+        // Keep calls inside typical AppEngine function execution limits.
+        const proxyAttemptTimeoutMs = 12000;
+        const directCallTimeoutMs = 35000;
+        const timeoutLike = (message?: string) => {
+          const m = (message || '').toLowerCase();
+          return m.includes('timed out') || m.includes('timeout') || m.includes('signal') || m.includes('abort');
+        };
 
         // 2. Route through EC2 server for OTel GenAI tracing (shows in DT AI Observability)
         //    Falls back to direct GitHub Models API call if server unreachable
@@ -2217,7 +2139,7 @@ export default async function (payload: ProxyPayload) {
               'x-github-token': ghToken,
             },
             body: JSON.stringify({ prompt, model: selectedModel }),
-            signal: AbortSignal.timeout(120000),
+            signal: AbortSignal.timeout(proxyAttemptTimeoutMs),
           });
           if (proxyResp.ok) {
             const proxyResult = await proxyResp.json();
@@ -2233,58 +2155,92 @@ export default async function (payload: ProxyPayload) {
         }
 
         // 3. Fallback: Call GitHub Models API directly (no OTel span, but still works)
-        const startTime = Date.now();
-        const resp = await fetch('https://models.inference.ai.azure.com/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${ghToken}`,
-          },
-          body: JSON.stringify({
-            model: selectedModel,
-            messages: [
-              { role: 'system', content: 'You are a business analyst AI assistant. Follow the output format instructions in the user prompt exactly. When asked for JSON, return raw JSON only (no markdown fences). When asked for natural language, respond with clear professional prose using headings and bullet points.' },
-              { role: 'user', content: prompt },
-            ],
-            temperature: 0.7,
-            max_tokens: 4096,
-          }),
-          signal: AbortSignal.timeout(120000),
-        });
-        const durationMs = Date.now() - startTime;
+        const fallbackCandidates = [selectedModel, 'gpt-4o-mini', 'gpt-4.1-mini']
+          .filter((m, idx, arr) => !!m && arr.indexOf(m) === idx);
+        let lastFallbackError = 'AI generation failed';
 
-        if (!resp.ok) {
-          const errText = await resp.text();
-          if (resp.status === 401) {
-            return { success: false, error: 'GitHub token is invalid or expired. Update it in Settings → GitHub Copilot.', code: 'AUTH_FAILED' };
+        for (let i = 0; i < fallbackCandidates.length; i++) {
+          const candidateModel = fallbackCandidates[i]!;
+          const isPrimary = i === 0;
+          const candidateTimeoutMs = isPrimary ? directCallTimeoutMs : 20000;
+          const candidateMaxTokens = isPrimary ? 2048 : 1200;
+          try {
+            const startTime = Date.now();
+            const resp = await fetch('https://models.inference.ai.azure.com/chat/completions', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${ghToken}`,
+              },
+              body: JSON.stringify({
+                model: candidateModel,
+                messages: [
+                  { role: 'system', content: 'You are a business analyst AI assistant. Follow the output format instructions in the user prompt exactly. When asked for JSON, return raw JSON only (no markdown fences). When asked for natural language, respond with clear professional prose using headings and bullet points.' },
+                  { role: 'user', content: prompt },
+                ],
+                temperature: 0.7,
+                max_tokens: candidateMaxTokens,
+              }),
+              signal: AbortSignal.timeout(candidateTimeoutMs),
+            });
+            const durationMs = Date.now() - startTime;
+
+            if (!resp.ok) {
+              const errText = await resp.text();
+              if (resp.status === 401) {
+                return { success: false, error: 'GitHub token is invalid or expired. Update it in Settings → GitHub Copilot.', code: 'AUTH_FAILED' };
+              }
+              if (resp.status === 429) {
+                return { success: false, error: 'Rate limit reached. Try again in a few minutes.', code: 'RATE_LIMITED' };
+              }
+              lastFallbackError = `GitHub Models API error (${resp.status}): ${errText.slice(0, 200)}`;
+              if (resp.status >= 500 && i < fallbackCandidates.length - 1) {
+                console.warn(`[proxy-api] github-copilot-generate: ${candidateModel} failed (${resp.status}), trying next fallback model`);
+                continue;
+              }
+              if (i < fallbackCandidates.length - 1) continue;
+              return { success: false, error: lastFallbackError };
+            }
+
+            const result = await resp.json();
+            const content = result.choices?.[0]?.message?.content || '';
+            const usage = result.usage || {};
+
+            return {
+              success: true,
+              data: {
+                content,
+                model: candidateModel,
+                usage,
+                genai: {
+                  system: 'github_models',
+                  model: result.model || candidateModel,
+                  promptTokens: usage.prompt_tokens || 0,
+                  completionTokens: usage.completion_tokens || 0,
+                  totalTokens: (usage.prompt_tokens || 0) + (usage.completion_tokens || 0),
+                  durationMs,
+                  finishReason: result.choices?.[0]?.finish_reason || 'unknown',
+                },
+              },
+            };
+          } catch (directErr: any) {
+            lastFallbackError = directErr?.message || 'AI generation failed';
+            if (timeoutLike(lastFallbackError) && i < fallbackCandidates.length - 1) {
+              console.warn(`[proxy-api] github-copilot-generate: ${candidateModel} timed out, trying next fallback model`);
+              continue;
+            }
+            if (i < fallbackCandidates.length - 1) continue;
           }
-          if (resp.status === 429) {
-            return { success: false, error: 'Rate limit reached. Try again in a few minutes.', code: 'RATE_LIMITED' };
-          }
-          return { success: false, error: `GitHub Models API error (${resp.status}): ${errText.slice(0, 200)}` };
         }
 
-        const result = await resp.json();
-        const content = result.choices?.[0]?.message?.content || '';
-        const usage = result.usage || {};
-
-        return {
-          success: true,
-          data: {
-            content,
-            model: selectedModel,
-            usage,
-            genai: {
-              system: 'github_models',
-              model: result.model || selectedModel,
-              promptTokens: usage.prompt_tokens || 0,
-              completionTokens: usage.completion_tokens || 0,
-              totalTokens: (usage.prompt_tokens || 0) + (usage.completion_tokens || 0),
-              durationMs,
-              finishReason: result.choices?.[0]?.finish_reason || 'unknown',
-            },
-          },
-        };
+        if (timeoutLike(lastFallbackError)) {
+          return {
+            success: false,
+            error: 'Signal timed out across available models. Try again or choose a faster model like gpt-4o-mini.',
+            code: 'GEN_TIMEOUT',
+          };
+        }
+        return { success: false, error: lastFallbackError || 'AI generation failed' };
       } catch (err: any) {
         console.error('[proxy-api] github-copilot-generate error:', err.message);
         return { success: false, error: err.message || 'AI generation failed' };
