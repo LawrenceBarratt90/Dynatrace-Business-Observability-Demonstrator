@@ -26,10 +26,13 @@ class LoadRunnerManager {
   loadActiveTests() {
     try {
       if (fs.existsSync(ACTIVE_TESTS_FILE)) {
-        return JSON.parse(fs.readFileSync(ACTIVE_TESTS_FILE, 'utf8'));
+        const content = fs.readFileSync(ACTIVE_TESTS_FILE, 'utf8').trim();
+        if (content) return JSON.parse(content);
       }
     } catch (err) {
       console.error('[LR-Manager] Error loading active tests:', err.message);
+      // Corrupt/empty state file — reset it so next save is clean
+      try { fs.writeFileSync(ACTIVE_TESTS_FILE, '{}'); } catch (_) {}
     }
     return {};
   }

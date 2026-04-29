@@ -325,6 +325,9 @@ export function getAutoLoadStatus() {
 let watcherInterval = null;
 let previousCompanies = new Set();
 
+// Companies currently pending a delayed auto-load start (prevents double-scheduling)
+const pendingAutoLoadStart = new Set();
+
 /**
  * Start the service watcher that auto-manages load generation
  */
@@ -348,21 +351,54 @@ export function startAutoLoadWatcher() {
 
       const currentCompanyNames = new Set(companiesNow.keys());
 
-      // Start auto-load for NEW companies
+      // Start auto-load for NEW companies.
+      // Wait 15s after first detection so all services finish starting before we snapshot.
       for (const [company, services] of companiesNow.entries()) {
-        if (!activeAutoLoads.has(company)) {
-          // Small delay to let all services for this company spin up
+        if (!activeAutoLoads.has(company) && !pendingAutoLoadStart.has(company)) {
+          pendingAutoLoadStart.add(company);
+          console.log(`👁️  [Auto-Load] New company detected: ${company} — starting load in 15s`);
           setTimeout(() => {
-            // Re-check it still exists
+            pendingAutoLoadStart.delete(company);
+            if (activeAutoLoads.has(company)) return; // already started elsewhere
             const freshMeta = getChildServiceMeta();
             const freshServices = {};
             for (const [sn, sm] of Object.entries(freshMeta)) {
               if (sm.companyName === company) freshServices[sn] = sm;
             }
             if (Object.keys(freshServices).length > 0) {
+              console.log(`👁️  [Auto-Load] Starting auto-load for ${company} with ${Object.keys(freshServices).length} services`);
               startAutoLoad(company, freshServices);
             }
-          }, 5000);
+          }, 15000);
+        } else if (activeAutoLoads.has(company) && !pendingAutoLoadStart.has(company)) {
+          // If new services appeared (e.g. a second journey for the same company), restart with full count
+          const running = activeAutoLoads.get(company);
+          const currentCount = Object.keys(services).length;
+          if (currentCount > running.stepsCount) {
+            console.log(`👁️  [Auto-Load] ${company}: ${currentCount} services detected vs ${running.stepsCount} steps running — restarting in 15s to capture all`);
+            stopAutoLoad(company);
+            pendingAutoLoadStart.add(company);
+            setTimeout(() => {
+              pendingAutoLoadStart.delete(company);
+              if (activeAutoLoads.has(company)) return;
+              const freshMeta = getChildServiceMeta();
+              const freshServices = {};
+              for (const [sn, sm] of Object.entries(freshMeta)) {
+                if (sm.companyName === company) freshServices[sn] = sm;
+              }
+              if (Object.keys(freshServices).length > 0) {
+                console.log(`👁️  [Auto-Load] Restarting auto-load for ${company} with ${Object.keys(freshServices).length} services`);
+                startAutoLoad(company, freshServices);
+              }
+            }, 15000);
+          }
+        }
+      }
+
+      // Clean up pending set for companies that disappeared before the timer fired
+      for (const company of pendingAutoLoadStart) {
+        if (!currentCompanyNames.has(company)) {
+          pendingAutoLoadStart.delete(company);
         }
       }
 
@@ -377,7 +413,7 @@ export function startAutoLoadWatcher() {
     } catch (e) {
       // Ignore transient errors
     }
-  }, 10000); // Check every 10 seconds
+  }, 5000); // Check every 5 seconds
 }
 
 /**

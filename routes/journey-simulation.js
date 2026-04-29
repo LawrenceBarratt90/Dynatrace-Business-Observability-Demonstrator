@@ -591,46 +591,10 @@ function generateTraceMetadata(existingMetadata, correlationId, customerIndex) {
 
 // Generate dynamic service name based on AI/Copilot response details
 function generateDynamicServiceName(stepName, description = '', category = '', originalStep = {}) {
-  // If step already has a service-like name, use it
-  if (/Service$/.test(stepName)) {
-    return stepName;
-  }
-  
-  // Extract meaningful keywords from description
-  const descriptionKeywords = description.toLowerCase().match(/\b(api|service|endpoint|processor|handler|manager|controller|gateway|orchestrator)\b/g) || [];
-  
-  // Determine service type based on content analysis
-  let serviceType = 'Service'; // default
-  
-  if (description.toLowerCase().includes('api') || originalStep.endpoint) {
-    serviceType = 'API';
-  } else if (description.toLowerCase().includes('process') || description.toLowerCase().includes('handle')) {
-    serviceType = 'Processor';
-  } else if (description.toLowerCase().includes('manage') || description.toLowerCase().includes('control')) {
-    serviceType = 'Manager';
-  } else if (description.toLowerCase().includes('gateway') || description.toLowerCase().includes('proxy')) {
-    serviceType = 'Gateway';
-  } else if (category) {
-    // Use category as service type if available
-    serviceType = category.charAt(0).toUpperCase() + category.slice(1) + 'Service';
-  }
-  
-  // Clean and format the step name
-  const cleaned = String(stepName).replace(/[^a-zA-Z0-9_\-\s]/g, '').trim();
-  const serviceBase = cleaned
-    .replace(/[\-_]+/g, ' ')
-    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .split(' ')
-    .filter(Boolean)
-    .map(w => w.charAt(0).toUpperCase() + w.slice(1))
-    .join('');
-  
-  const dynamicServiceName = `${serviceBase}${serviceType}`;
-  console.log(`[journey-sim] Generated dynamic service name: ${stepName} -> ${dynamicServiceName}`);
-  
-  return dynamicServiceName;
+  const preferred = originalStep?.serviceName || stepName;
+  const normalized = getServiceNameFromStep(preferred, { description, category });
+  console.log(`[journey-sim] Generated dynamic service name: ${stepName} -> ${normalized}`);
+  return normalized;
 }
 
 // Circuit breaker state per service
@@ -1001,6 +965,7 @@ router.post('/simulate-journey', async (req, res) => {
             // Create intelligent service name based on available data
             serviceName = generateDynamicServiceName(stepName, description, category, step);
           }
+          serviceName = getServiceNameFromStep(serviceName, { description: step.description || '', category: step.category || step.type || '' });
           
           const extractedStep = {
             stepName,
@@ -2772,7 +2737,10 @@ router.post('/simulate-batch-chained', async (req, res) => {
         const category = step.category || step.type || step.phase || '';
         return {
           stepName,
-          serviceName: step.serviceName || generateDynamicServiceName(stepName, description, category, step),
+          serviceName: getServiceNameFromStep(
+            step.serviceName || generateDynamicServiceName(stepName, description, category, step),
+            { description, category }
+          ),
           description,
           category,
           originalStep: step

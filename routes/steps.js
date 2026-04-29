@@ -81,12 +81,12 @@ router.post('/step1-chained', async (req, res) => {
     if (customSteps && Array.isArray(customSteps)) {
       stepsArr = customSteps.map((step, idx) => ({
         stepName: step.stepName || step.name || `Step${idx+1}`,
-        serviceName: step.serviceName || getServiceNameFromStep(step.stepName || step.name || `Step${idx+1}`)
+        serviceName: getServiceNameFromStep(step.serviceName || step.stepName || step.name || `Step${idx+1}`)
       }));
     } else if (journey && journey.steps && Array.isArray(journey.steps)) {
       stepsArr = journey.steps.map((step, idx) => ({
         stepName: step.stepName || step.name || `Step${idx+1}`,
-        serviceName: step.serviceName || getServiceNameFromStep(step.stepName || step.name || `Step${idx+1}`),
+        serviceName: getServiceNameFromStep(step.serviceName || step.stepName || step.name || `Step${idx+1}`),
         estimatedDuration: step.estimatedDuration,
         businessRationale: step.businessRationale,
         timestamp: step.timestamp,
@@ -186,12 +186,12 @@ router.post('/full-chain', async (req, res) => {
     if (customSteps && Array.isArray(customSteps)) {
       stepsArr = customSteps.map((step, idx) => ({
         stepName: step.stepName || step.name || `Step${idx+1}`,
-        serviceName: step.serviceName || getServiceNameFromStep(step.stepName || step.name || `Step${idx+1}`)
+        serviceName: getServiceNameFromStep(step.serviceName || step.stepName || step.name || `Step${idx+1}`)
       }));
     } else if (journey && journey.steps && Array.isArray(journey.steps)) {
       stepsArr = journey.steps.map((step, idx) => ({
         stepName: step.stepName || step.name || `Step${idx+1}`,
-        serviceName: step.serviceName || getServiceNameFromStep(step.stepName || step.name || `Step${idx+1}`),
+        serviceName: getServiceNameFromStep(step.serviceName || step.stepName || step.name || `Step${idx+1}`),
         estimatedDuration: step.estimatedDuration,
         businessRationale: step.businessRationale,
         timestamp: step.timestamp,

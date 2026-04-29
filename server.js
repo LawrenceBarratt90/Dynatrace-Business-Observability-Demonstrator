@@ -5088,7 +5088,14 @@ process.on('SIGINT', () => {
 });
 
 // Prevent silent crashes — log unhandled errors instead of killing the process
+// Exception: EADDRINUSE means another server is already running on this port.
+// Exit immediately so the existing process stays in control and we don't run as a zombie.
 process.on('uncaughtException', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`🚨 Port ${err.port || PORT} is already in use. Another server instance is running.`);
+    console.error('   Run ./stop.sh first, then restart.');
+    process.exit(1);
+  }
   console.error('🚨 UNCAUGHT EXCEPTION (process kept alive):', err.message, err.stack);
 });
 
