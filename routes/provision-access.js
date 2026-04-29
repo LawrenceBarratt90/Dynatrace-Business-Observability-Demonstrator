@@ -13,8 +13,24 @@ function resolveTokenUrl() {
   }
   return 'https://sso-sprint.dynatracelabs.com/sso/oauth2/token';
 }
+
 const DT_IAM_BASE = 'https://api-hardening.internal.dynatracelabs.com/iam/v1/accounts';
-const ALLOWED_DOMAIN = process.env.ALLOWED_EMAIL_DOMAIN || 'dynatrace.com';
+const ALLOWED_DOMAIN_RAW = process.env.ALLOWED_EMAIL_DOMAIN || 'dynatrace.com';
+
+function parseAllowedDomains(raw) {
+  return raw
+    .split(',')
+    .map((d) => d.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function isDomainAllowed(domain, rawConfig) {
+  const allowed = parseAllowedDomains(rawConfig);
+  if (allowed.includes('*')) {
+    return true;
+  }
+  return allowed.includes(domain);
+}
 
 async function getDynatraceToken() {
   const tokenUrl = resolveTokenUrl();
@@ -40,6 +56,14 @@ async function getDynatraceToken() {
   return data.access_token;
 }
 
+function isAlreadyInvitedResponse(status, bodyText) {
+  if (status !== 400 || !bodyText) {
+    return false;
+  }
+  const text = bodyText.toLowerCase();
+  return text.includes('already been invited') || text.includes('already invited');
+}
+
 router.post('/', async (req, res) => {
   const { email } = req.body || {};
 
@@ -50,8 +74,8 @@ router.post('/', async (req, res) => {
   const normalizedEmail = email.trim().toLowerCase();
   const domain = normalizedEmail.split('@')[1];
 
-  if (domain !== ALLOWED_DOMAIN) {
-    return res.status(403).json({ success: false, error: `Only @${ALLOWED_DOMAIN} email addresses are permitted.` });
+  if (!isDomainAllowed(domain, ALLOWED_DOMAIN_RAW)) {
+    return res.status(403).json({ success: false, error: `Email domain not allowed by policy. Allowed: ${ALLOWED_DOMAIN_RAW}` });
   }
 
   const accountId = process.env.DT_ACCOUNT_ID;
@@ -64,6 +88,7 @@ router.post('/', async (req, res) => {
 
   try {
     const token = await getDynatraceToken();
+    let alreadyInvited = false;
 
     const createRes = await fetch(`${DT_IAM_BASE}/${accountId}/users`, {
       method: 'POST',
@@ -76,7 +101,11 @@ router.post('/', async (req, res) => {
 
     if (!createRes.ok && createRes.status !== 409) {
       const text = await createRes.text();
-      throw new Error(`Create user failed (${createRes.status}): ${text}`);
+      if (isAlreadyInvitedResponse(createRes.status, text)) {
+        alreadyInvited = true;
+      } else {
+        throw new Error(`Create user failed (${createRes.status}): ${text}`);
+      }
     }
 
     const groupRes = await fetch(`${DT_IAM_BASE}/${accountId}/users/${encodeURIComponent(normalizedEmail)}`, {
@@ -94,6 +123,13 @@ router.post('/', async (req, res) => {
     }
 
     console.log(`[provision-access] Provisioned access for ${normalizedEmail}`);
+    if (alreadyInvited) {
+      return res.json({
+        success: true,
+        message: `${normalizedEmail} is already invited and has been added to the access group.`
+      });
+    }
+
     return res.json({ success: true, message: `Access provisioned for ${normalizedEmail}. You will receive an invitation email shortly.` });
   } catch (err) {
     console.error('[provision-access] Error:', err.message);
