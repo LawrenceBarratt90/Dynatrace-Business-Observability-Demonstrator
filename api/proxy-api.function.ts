@@ -2122,17 +2122,21 @@ export default async function (payload: ProxyPayload) {
 
         const selectedModel = model || 'gpt-4.1';
         // Keep calls inside typical AppEngine function execution limits.
-        const proxyAttemptTimeoutMs = 12000;
+        // The traced EC2 integration path waits for the upstream GitHub Models response,
+        // which commonly takes 20-40s for larger prompts. Keep this comfortably above
+        // observed model latency so healthy requests are not misreported as unreachable.
+        const proxyAttemptTimeoutMs = 70000;
         const directCallTimeoutMs = 35000;
+        const allowUntracedFallback = String((globalThis as any)?.process?.env?.BIZOBS_ALLOW_UNTRACED_COPILOT_FALLBACK || '').toLowerCase() === 'true';
         const timeoutLike = (message?: string) => {
           const m = (message || '').toLowerCase();
           return m.includes('timed out') || m.includes('timeout') || m.includes('signal') || m.includes('abort');
         };
 
-        // 2. Route through EC2 server for OTel GenAI tracing (shows in DT AI Observability)
-        //    Falls back to direct GitHub Models API call if server unreachable
+        // 2. Route through EC2 server for OTel GenAI tracing (required for DT AI Observability)
+        //    Only allow direct fallback when explicitly opted in via env.
         try {
-          const proxyResp = await fetch(`${baseUrl}/api/ai-generate/github`, {
+          const proxyResp = await fetchWithRetry(`${baseUrl}/api/ai-generate/github`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -2140,21 +2144,45 @@ export default async function (payload: ProxyPayload) {
             },
             body: JSON.stringify({ prompt, model: selectedModel }),
             signal: AbortSignal.timeout(proxyAttemptTimeoutMs),
-          });
+          }, 3, 3000);
           if (proxyResp.ok) {
             const proxyResult = await proxyResp.json();
             if (proxyResult.success) {
               console.log('[proxy-api] GitHub Models call routed via EC2 server (OTel traced)');
               return proxyResult;
             }
+            return {
+              success: false,
+              error: proxyResult?.error || 'GitHub integration returned an unexpected response.',
+              code: proxyResult?.code || 'GITHUB_PROXY_FAILED',
+              routedVia: 'ec2-traced',
+            };
           }
-          // If proxy returned an error status, fall through to direct call
-          console.warn('[proxy-api] EC2 proxy returned non-ok, falling back to direct call');
+          const proxyErrorBody = await proxyResp.text().catch(() => '');
+          if (!allowUntracedFallback) {
+            return {
+              success: false,
+              error: 'GitHub Copilot generation requires the traced EC2 integration path. The integration endpoint is currently unavailable.',
+              code: 'GITHUB_PROXY_UNAVAILABLE',
+              details: `Status ${proxyResp.status}${proxyErrorBody ? `: ${proxyErrorBody.slice(0, 200)}` : ''}`,
+              routedVia: 'ec2-traced-required',
+            };
+          }
+          console.warn('[proxy-api] EC2 proxy returned non-ok, BIZOBS_ALLOW_UNTRACED_COPILOT_FALLBACK=true so falling back to direct call');
         } catch (proxyErr: any) {
-          console.warn('[proxy-api] EC2 proxy unreachable, falling back to direct GitHub Models call:', proxyErr.message);
+          if (!allowUntracedFallback) {
+            return {
+              success: false,
+              error: 'GitHub Copilot generation requires the traced EC2 integration path. The integration endpoint is unreachable.',
+              code: 'GITHUB_PROXY_UNREACHABLE',
+              details: proxyErr?.message || 'Unknown proxy error',
+              routedVia: 'ec2-traced-required',
+            };
+          }
+          console.warn('[proxy-api] EC2 proxy unreachable, BIZOBS_ALLOW_UNTRACED_COPILOT_FALLBACK=true so falling back to direct GitHub Models call:', proxyErr.message);
         }
 
-        // 3. Fallback: Call GitHub Models API directly (no OTel span, but still works)
+        // 3. Optional fallback: Call GitHub Models API directly (untraced)
         const fallbackCandidates = [selectedModel, 'gpt-4o-mini', 'gpt-4.1-mini']
           .filter((m, idx, arr) => !!m && arr.indexOf(m) === idx);
         let lastFallbackError = 'AI generation failed';

@@ -137,9 +137,12 @@ Include fields for: revenue/financial data, customer behaviour, conversion metri
 
 Requirements:
 - Create exactly 6 business-critical steps that generate measurable business events
+- Step names MUST be domain-specific business actions (e.g. "EligibilityCheck", "QuoteGeneration", "PaymentAuthorization").
+- NEVER use generic names like "Step1", "Step 2", "Stage1", "Phase2".
 - Every step needs estimatedDuration (minutes) and businessRationale explaining revenue/experience impact
 - Every substep needs duration (minutes) - substeps must add up to step duration
 - ServiceName = StepName + 'Service' in PascalCase format (for microservice architecture)
+- ServiceName MUST also be domain-specific and must not be generic (forbidden: "Step1Service", "Step2Service").
 - Use realistic durations that match industry performance expectations
 - Only step 1 needs timestamp field
 - Replace ALL placeholders with actual values based on ${companyName}'s business model

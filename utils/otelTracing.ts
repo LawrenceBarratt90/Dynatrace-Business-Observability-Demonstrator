@@ -59,15 +59,18 @@ export async function withGenAISpan<T>(
   extractResult?: (result: T) => GenAISpanResult,
 ): Promise<T> {
   const tracer = getTracer();
-  const spanName = `${options.operation} ${options.model}`;
+  // Normalize operation name to OTel GenAI spec values — span name MUST match gen_ai.operation.name
+  const normalizedOperation = (options.operation === 'chatJSON' || options.operation === 'warmup') ? 'chat' : options.operation;
+  const spanName = `${normalizedOperation} ${options.model}`;
 
   return tracer.startActiveSpan(spanName, {
     kind: SpanKind.CLIENT,
     attributes: {
-      // GenAI semantic conventions
+      // GenAI semantic conventions (Dynatrace AI Observability uses gen_ai.system + span name for detection)
       'gen_ai.system': 'ollama',
+      'gen_ai.operation.name': normalizedOperation,
       'gen_ai.request.model': options.model,
-      'llm.request.type': options.operation === 'chatJSON' ? 'chat' : options.operation,
+      'llm.request.type': normalizedOperation,
       'gen_ai.request.temperature': options.temperature ?? 0.3,
 
       // Prompt content (first user + system messages)
@@ -96,6 +99,8 @@ export async function withGenAISpan<T>(
           'gen_ai.completion.0.role': 'assistant',
           'gen_ai.completion.0.content': truncate(r.content, 4096),
           'gen_ai.response.model': options.model,
+          ...(r.promptTokens != null ? { 'gen_ai.usage.input_tokens': r.promptTokens } : {}),
+          ...(r.completionTokens != null ? { 'gen_ai.usage.output_tokens': r.completionTokens } : {}),
           ...(r.promptTokens != null ? { 'gen_ai.usage.prompt_tokens': r.promptTokens } : {}),
           ...(r.completionTokens != null ? { 'gen_ai.usage.completion_tokens': r.completionTokens } : {}),
           ...(r.toolCalls ? { 'gen_ai.response.tool_calls': r.toolCalls } : {}),

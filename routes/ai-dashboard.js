@@ -614,9 +614,12 @@ const _requestCounter = _genaiMeter.createCounter('gen_ai.client.operation.count
 console.log('[AI Dashboard OTel] ✅ GenAI tracing + metrics using global OTel provider from otel.cjs');
 
 function createGenAISpan(prompt, completion, model, promptTokens, completionTokens, duration, operationName) {
+  // Dynatrace AI Observability expects standard GenAI operations (chat/completion/embedding).
+  // Route all custom dashboard phases to chat so prompts/completions are detected reliably.
+  const normalizedOperation = (operationName === 'completion' || operationName === 'embedding') ? operationName : 'chat';
   return {
     'gen_ai.system': 'ollama',
-    'gen_ai.operation.name': operationName || 'chat',
+    'gen_ai.operation.name': normalizedOperation,
     'gen_ai.request.model': model,
     'gen_ai.response.model': model,
     'gen_ai.prompt.0.content': prompt?.substring(0, 4096) || '',
@@ -625,7 +628,7 @@ function createGenAISpan(prompt, completion, model, promptTokens, completionToke
     'gen_ai.completion.0.role': 'assistant',
     'gen_ai.usage.prompt_tokens': promptTokens || 0,
     'gen_ai.usage.completion_tokens': completionTokens || 0,
-    'llm.request.type': 'completion',
+    'llm.request.type': normalizedOperation,
     'gen_ai.response.duration_ms': Math.round(duration),
     'server.address': 'localhost',
     'server.port': 11434,
@@ -635,6 +638,8 @@ function createGenAISpan(prompt, completion, model, promptTokens, completionToke
 
 async function logGenAISpan(spanAttributes, operationName) {
   try {
+    const requestedOperation = operationName || spanAttributes['gen_ai.operation.name'] || 'chat';
+    const normalizedOperation = (requestedOperation === 'completion' || requestedOperation === 'embedding') ? requestedOperation : 'chat';
     const promptTokens = spanAttributes['gen_ai.usage.prompt_tokens'] || 0;
     const completionTokens = spanAttributes['gen_ai.usage.completion_tokens'] || 0;
     const durationMs = spanAttributes['gen_ai.response.duration_ms'] || 0;
@@ -642,7 +647,7 @@ async function logGenAISpan(spanAttributes, operationName) {
 
     // Always log to console for debugging
     console.log('[GenAI Span]', JSON.stringify({
-      operation: operationName || 'chat',
+      operation: normalizedOperation,
       model,
       prompt_tokens: promptTokens,
       completion_tokens: completionTokens,
@@ -650,17 +655,17 @@ async function logGenAISpan(spanAttributes, operationName) {
     }));
 
     // Record OTel metrics (always works via global meter from otel.cjs)
-    const metricAttrs = { 'gen_ai.system': 'ollama', 'gen_ai.request.model': model, 'gen_ai.operation.name': operationName || 'chat' };
+    const metricAttrs = { 'gen_ai.system': 'ollama', 'gen_ai.request.model': model, 'gen_ai.operation.name': normalizedOperation };
     _tokenCounter.add(promptTokens, { ...metricAttrs, 'gen_ai.token.type': 'input' });
     _tokenCounter.add(completionTokens, { ...metricAttrs, 'gen_ai.token.type': 'output' });
     _requestDuration.record(durationMs, metricAttrs);
     _requestCounter.add(1, metricAttrs);
 
     // Ensure gen_ai.operation.name is set on the span (required for Dynatrace AI Observability)
-    spanAttributes['gen_ai.operation.name'] = operationName || spanAttributes['gen_ai.operation.name'] || 'chat';
+    spanAttributes['gen_ai.operation.name'] = normalizedOperation;
 
     // Export GenAI span to Dynatrace via global tracer
-    const spanName = `chat ${model}`;
+    const spanName = `${normalizedOperation} ${model}`;
     const span = _genaiTracer.startSpan(spanName, {
       kind: SpanKind.CLIENT,
       attributes: spanAttributes,

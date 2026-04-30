@@ -1336,18 +1336,41 @@ export const HomePage = () => {
 
   // Retry helper for EdgeConnect calls — retries with exponential backoff to survive reconnection gaps and timeouts.
   const callProxyWithRetry = async (payload: any, attempts = 5, initialDelayMs = 2000, statusSetter?: (msg: string) => void) => {
+    const isRetryableMessage = (msg: string) => /connection error|edgeconnect|timed out|signal|rate limit|too many requests|429|try again in a few minutes/i.test(msg || '');
+
     let lastErr: any;
     for (let i = 1; i <= attempts; i++) {
       try {
         const res = await functions.call('proxy-api', { data: payload });
-        return await res.json();
+        const data = await res.json();
+
+        // Some proxy paths return HTTP 200 with success:false. Retry if it's a transient/rate-limit failure.
+        if (data && data.success === false) {
+          const errMsg = String(data.error || data.data?.error || data.message || 'Unknown proxy error');
+          const isRetryable = isRetryableMessage(errMsg);
+          if (i < attempts && isRetryable) {
+            const baseDelay = initialDelayMs * Math.pow(1.8, i - 1);
+            const delay = /rate limit|too many requests|429/i.test(errMsg)
+              ? Math.max(10000, baseDelay)
+              : baseDelay;
+            if (statusSetter) statusSetter(`⏳ ${/rate limit|too many requests|429/i.test(errMsg) ? 'Rate limited' : 'Transient issue'} — retry ${i}/${attempts - 1} in ${Math.round(delay / 1000)}s...`);
+            await new Promise(r => setTimeout(r, delay));
+            continue;
+          }
+        }
+
+        return data;
       } catch (err: any) {
         lastErr = err;
-        const isRetryable = err.message?.includes('Connection error') || err.message?.includes('EdgeConnect') || err.message?.includes('timed out') || err.message?.includes('Signal');
+        const errMsg = String(err?.message || err || 'Unknown error');
+        const isRetryable = isRetryableMessage(errMsg);
         console.warn(`[Proxy retry] Attempt ${i}/${attempts} failed:`, err.message);
         if (i < attempts && isRetryable) {
-          const delay = initialDelayMs * Math.pow(1.5, i - 1); // 2s, 3s, 4.5s, 6.75s
-          if (statusSetter) statusSetter(`⏳ Retrying — attempt ${i}/${attempts - 1}...`);
+          const baseDelay = initialDelayMs * Math.pow(1.5, i - 1); // 2s, 3s, 4.5s, 6.75s
+          const delay = /rate limit|too many requests|429/i.test(errMsg)
+            ? Math.max(10000, baseDelay)
+            : baseDelay;
+          if (statusSetter) statusSetter(`⏳ ${/rate limit|too many requests|429/i.test(errMsg) ? 'Rate limited' : 'Retrying'} — attempt ${i}/${attempts - 1} in ${Math.round(delay / 1000)}s...`);
           await new Promise(r => setTimeout(r, delay));
         } else if (!isRetryable) {
           throw err; // Non-retryable errors should not retry
@@ -1355,6 +1378,37 @@ export const HomePage = () => {
       }
     }
     throw lastErr;
+  };
+
+  const callGithubCopilotGenerateWithBackoff = async (
+    prompt: string,
+    model: string,
+    statusSetter?: (msg: string) => void,
+    phaseLabel = 'Generation'
+  ) => {
+    const maxRateLimitCycles = 4;
+    for (let cycle = 1; cycle <= maxRateLimitCycles; cycle++) {
+      const res = await callProxyWithRetry({
+        action: 'github-copilot-generate',
+        apiHost: apiSettings.host,
+        apiPort: apiSettings.port,
+        apiProtocol: apiSettings.protocol,
+        body: { prompt, model },
+      }, 5, 2000, statusSetter);
+
+      if (res?.success) return res;
+
+      const errMsg = String(res?.error || res?.message || 'Unknown error');
+      const rateLimited = /rate limit|too many requests|429|try again in a few minutes/i.test(errMsg);
+      if (!rateLimited || cycle === maxRateLimitCycles) return res;
+
+      const waitMs = Math.min(90000, 15000 * cycle);
+      if (statusSetter) {
+        statusSetter(`⏳ ${phaseLabel}: rate limited, waiting ${Math.round(waitMs / 1000)}s before retry ${cycle + 1}/${maxRateLimitCycles}...`);
+      }
+      await new Promise(r => setTimeout(r, waitMs));
+    }
+    return { success: false, error: `${phaseLabel}: rate limit retries exhausted` };
   };
 
   // Shared helper — generates dashboard via MCP server and deploys directly to Dynatrace.
@@ -1536,6 +1590,179 @@ export const HomePage = () => {
     showToast(`${promptName} copied to clipboard!`, 'success', 2500);
   };
 
+  const parseJourneyJsonWithRepair = (raw: string): { parsed: any; cleanJson: string } => {
+    let cleanJson = (raw || '').trim();
+    if (cleanJson.startsWith('```')) {
+      cleanJson = cleanJson.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '');
+    }
+
+    const firstBrace = cleanJson.indexOf('{');
+    const lastBrace = cleanJson.lastIndexOf('}');
+    if (firstBrace >= 0 && lastBrace > firstBrace) {
+      cleanJson = cleanJson.slice(firstBrace, lastBrace + 1);
+    }
+
+    const attempts: string[] = [cleanJson];
+
+    // Escapes stray quotes inside string values that LLMs sometimes emit unescaped,
+    // e.g. "stepName": "Quote "Reprice" Flow".
+    const repairUnescapedInnerQuotes = (text: string) => {
+      let out = '';
+      let inString = false;
+      let escape = false;
+
+      for (let i = 0; i < text.length; i++) {
+        const ch = text[i];
+        if (escape) {
+          out += ch;
+          escape = false;
+          continue;
+        }
+
+        if (ch === '\\') {
+          out += ch;
+          escape = true;
+          continue;
+        }
+
+        if (ch === '"') {
+          if (!inString) {
+            inString = true;
+            out += ch;
+            continue;
+          }
+
+          // If this quote doesn't look like a valid string terminator, escape it.
+          let j = i + 1;
+          while (j < text.length && /\s/.test(text[j])) j++;
+          const next = text[j] || '';
+          const looksLikeTerminator = next === ',' || next === '}' || next === ']' || next === ':';
+          if (looksLikeTerminator) {
+            inString = false;
+            out += ch;
+          } else {
+            out += '\\"';
+          }
+          continue;
+        }
+
+        out += ch;
+      }
+
+      return out;
+    };
+
+    // Generic cleanup for common LLM JSON issues.
+    const repairedBasic = cleanJson
+      .replace(/\r/g, '')
+      .replace(/\n/g, ' ')
+      .replace(/[\u0000-\u001F]/g, ' ')
+      .replace(/,\s*([}\]])/g, '$1')
+      .replace(/([{,]\s*)([A-Za-z_][A-Za-z0-9_]*)\s*:/g, '$1"$2":')
+      .replace(/'([^'\\]*(?:\\.[^'\\]*)*)'/g, '"$1"')
+      .replace(/\u201c|\u201d/g, '"')
+      .replace(/\u2018|\u2019/g, "'");
+    attempts.push(repairedBasic);
+
+    const repairedQuotes = repairUnescapedInnerQuotes(repairedBasic);
+    attempts.push(repairedQuotes);
+
+    // Repair likely truncation/unterminated string by balancing quotes/brackets.
+    const balanceLikelyTruncated = (text: string) => {
+      let inString = false;
+      let escape = false;
+      let curly = 0;
+      let square = 0;
+      for (let i = 0; i < text.length; i++) {
+        const ch = text[i];
+        if (escape) {
+          escape = false;
+          continue;
+        }
+        if (ch === '\\') {
+          escape = true;
+          continue;
+        }
+        if (ch === '"') {
+          inString = !inString;
+          continue;
+        }
+        if (inString) continue;
+        if (ch === '{') curly++;
+        else if (ch === '}') curly = Math.max(0, curly - 1);
+        else if (ch === '[') square++;
+        else if (ch === ']') square = Math.max(0, square - 1);
+      }
+      let out = text;
+      if (inString) out += '"';
+      out += ']'.repeat(square);
+      out += '}'.repeat(curly);
+      return out;
+    };
+    attempts.push(balanceLikelyTruncated(repairedBasic));
+    attempts.push(balanceLikelyTruncated(repairedQuotes));
+
+    const errors: string[] = [];
+    for (const attempt of attempts) {
+      try {
+        return { parsed: JSON.parse(attempt), cleanJson: attempt };
+      } catch (e: any) {
+        errors.push(e?.message || String(e));
+      }
+    }
+
+    throw new Error(errors[errors.length - 1] || 'Invalid JSON response');
+  };
+
+  const validateJourneyNamingConventions = (parsedResponse: any) => {
+    const journeyConfig = parsedResponse?.journey || parsedResponse;
+    const steps = journeyConfig?.steps || parsedResponse?.steps || [];
+    if (!Array.isArray(steps) || steps.length === 0) {
+      throw new Error('Invalid response: missing journey steps array');
+    }
+
+    const genericStepPattern = /^(step|stage|phase)\s*[-_]*\d+$/i;
+    const genericServicePattern = /^(step|stage|phase)\s*[-_]*\d+\s*service$/i;
+
+    const badStepNames: string[] = [];
+    const badServiceNames: string[] = [];
+
+    const normalizedSteps = steps.map((s: any, idx: number) => {
+      const stepName = String(s.stepName || s.name || '').trim();
+      if (!stepName) {
+        badStepNames.push(`(missing at index ${idx + 1})`);
+      } else if (genericStepPattern.test(stepName)) {
+        badStepNames.push(stepName);
+      }
+
+      const serviceNameRaw = String(s.serviceName || s.service || '').trim();
+      if (serviceNameRaw && genericServicePattern.test(serviceNameRaw)) {
+        badServiceNames.push(serviceNameRaw);
+      }
+
+      return {
+        ...s,
+        stepName: stepName || `UnnamedStep${idx + 1}`,
+        serviceName: normalizeServiceName(serviceNameRaw || stepName, stepName),
+      };
+    });
+
+    if (badStepNames.length || badServiceNames.length) {
+      const details: string[] = [];
+      if (badStepNames.length) details.push(`generic step names: ${[...new Set(badStepNames)].join(', ')}`);
+      if (badServiceNames.length) details.push(`generic service names: ${[...new Set(badServiceNames)].join(', ')}`);
+      throw new Error(`Naming convention failed (${details.join(' | ')}). Use domain-specific business step names, not Step1/Step2.`);
+    }
+
+    if (parsedResponse?.journey) {
+      parsedResponse.journey.steps = normalizedSteps;
+    } else {
+      parsedResponse.steps = normalizedSteps;
+    }
+
+    return { parsedResponse, journeyConfig: parsedResponse?.journey || parsedResponse };
+  };
+
   const processResponse = async () => {
     if (!copilotResponse.trim()) {
       showToast('Please paste the AI response before proceeding.', 'warning');
@@ -1543,12 +1770,8 @@ export const HomePage = () => {
     }
     
     try {
-      // Strip markdown code fences if present
-      let cleanResponse = copilotResponse.trim();
-      if (cleanResponse.startsWith('```')) {
-        cleanResponse = cleanResponse.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '');
-      }
-      const parsedResponse = JSON.parse(cleanResponse);
+      const { parsed: parsedResponse } = parseJourneyJsonWithRepair(copilotResponse);
+      validateJourneyNamingConventions(parsedResponse);
       setGenerationStatus('✅ JSON validated successfully');
       
       // Check if it looks like a journey config
@@ -1611,13 +1834,9 @@ export const HomePage = () => {
     try {
       setIsGeneratingServices(true);
       setGenerationStatus('🔄 Parsing journey data...');
-      
-      // Strip markdown code fences if present
-      let cleanResponse = copilotResponse.trim();
-      if (cleanResponse.startsWith('```')) {
-        cleanResponse = cleanResponse.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '');
-      }
-      const parsedResponse = JSON.parse(cleanResponse);
+
+      const { parsed: parsedResponse, cleanJson: cleanResponse } = parseJourneyJsonWithRepair(copilotResponse);
+      validateJourneyNamingConventions(parsedResponse);
       
       // Validate journey structure
       if (!parsedResponse.journey && !parsedResponse.steps) {
@@ -1749,11 +1968,12 @@ export const HomePage = () => {
       setGhResult1('');
       const csuite = generateCsuitePrompt({ companyName, domain, requirements });
       setPrompt1(csuite);
-      const res1 = await callProxyWithRetry({
-        action: 'github-copilot-generate',
-        apiHost: apiSettings.host, apiPort: apiSettings.port, apiProtocol: apiSettings.protocol,
-        body: { prompt: csuite, model: ghCopilotModel },
-      });
+      const res1 = await callGithubCopilotGenerateWithBackoff(
+        csuite,
+        ghCopilotModel,
+        (msg) => updateStep(stepIdx, { status: 'running', detail: msg }),
+        'C-Suite generation'
+      );
       setGhGenerating1(false);
       if (!res1.success) {
         throw new Error(`C-Suite generation failed: ${res1.error}`);
@@ -1794,11 +2014,12 @@ export const HomePage = () => {
       const journey = generateJourneyPrompt({ companyName, domain, requirements: journeyReqs });
       setPrompt2(journey);
       const contextPrefix = `Here is the C-suite analysis from the previous step:\n\n${res1.data.content}\n\nNow, based on that context, generate the "${journeyReqs}" journey:\n\n`;
-      const res2 = await callProxyWithRetry({
-        action: 'github-copilot-generate',
-        apiHost: apiSettings.host, apiPort: apiSettings.port, apiProtocol: apiSettings.protocol,
-        body: { prompt: contextPrefix + journey, model: ghCopilotModel },
-      });
+      const res2 = await callGithubCopilotGenerateWithBackoff(
+        contextPrefix + journey,
+        ghCopilotModel,
+        (msg) => updateStep(stepIdx, { status: 'running', detail: msg }),
+        'Journey generation'
+      );
       setGhGenerating2(false);
       if (!res2.success) {
         throw new Error(`Journey generation failed: ${res2.error}`);
@@ -1810,16 +2031,13 @@ export const HomePage = () => {
 
       // Validate JSON
       updateStep(stepIdx, { status: 'running' });
-      let cleanJson = res2.data.content.trim();
-      if (cleanJson.startsWith('```')) {
-        cleanJson = cleanJson.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '');
-      }
-      const parsedResponse = JSON.parse(cleanJson);
+      const { parsed: parsedResponse, cleanJson } = parseJourneyJsonWithRepair(res2.data.content);
+      const validated = validateJourneyNamingConventions(parsedResponse);
       if (!parsedResponse.journey && !parsedResponse.steps) {
         throw new Error('Invalid response: missing "journey" or "steps" field');
       }
       setCopilotResponse(cleanJson);
-      const journeyConfig = parsedResponse.journey || parsedResponse;
+      const journeyConfig = validated.journeyConfig;
       const jType = journeyConfig.journeyType || parsedResponse.journey?.journeyType || domain;
       const stepCount = (journeyConfig.steps || parsedResponse.steps || []).length;
       updateStep(stepIdx, { status: 'done', detail: `${stepCount} steps · ${jType}` });
@@ -2016,11 +2234,12 @@ export const HomePage = () => {
       const journey = generateJourneyPrompt({ companyName, domain, requirements: journeyReqs });
       setPrompt2(journey);
       const contextPrefix = `Here is the C-suite analysis from the previous step:\n\n${csuiteText}\n\nNow, based on that context, generate the "${journeyName}" journey:\n\n`;
-      const res2 = await callProxyWithRetry({
-        action: 'github-copilot-generate',
-        apiHost: apiSettings.host, apiPort: apiSettings.port, apiProtocol: apiSettings.protocol,
-        body: { prompt: contextPrefix + journey, model: ghCopilotModel },
-      });
+      const res2 = await callGithubCopilotGenerateWithBackoff(
+        contextPrefix + journey,
+        ghCopilotModel,
+        (msg) => updateStep(1, { status: 'running', detail: msg }),
+        'Journey generation'
+      );
       setGhGenerating2(false);
       if (!res2.success) {
         throw new Error(`Journey generation failed: ${res2.error}`);
@@ -2031,16 +2250,13 @@ export const HomePage = () => {
 
       // Step 3: Validate JSON
       updateStep(2, { status: 'running' });
-      let cleanJson = res2.data.content.trim();
-      if (cleanJson.startsWith('```')) {
-        cleanJson = cleanJson.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '');
-      }
-      const parsedResponse = JSON.parse(cleanJson);
+      const { parsed: parsedResponse, cleanJson } = parseJourneyJsonWithRepair(res2.data.content);
+      const validated = validateJourneyNamingConventions(parsedResponse);
       if (!parsedResponse.journey && !parsedResponse.steps) {
         throw new Error('Invalid response: missing "journey" or "steps" field');
       }
       setCopilotResponse(cleanJson);
-      const journeyConfig = parsedResponse.journey || parsedResponse;
+      const journeyConfig = validated.journeyConfig;
       const jType = journeyConfig.journeyType || parsedResponse.journey?.journeyType || domain;
       const stepCount = (journeyConfig.steps || parsedResponse.steps || []).length;
       updateStep(2, { status: 'done', detail: `${stepCount} steps · ${jType}` });
@@ -3550,11 +3766,12 @@ export const HomePage = () => {
                       setGhGenerating1(true);
                       setGhResult1('');
                       try {
-                        const res = await callProxyWithRetry({
-                          action: 'github-copilot-generate',
-                          apiHost: apiSettings.host, apiPort: apiSettings.port, apiProtocol: apiSettings.protocol,
-                          body: { prompt: prompt1, model: ghCopilotModel },
-                        });
+                        const res = await callGithubCopilotGenerateWithBackoff(
+                          prompt1,
+                          ghCopilotModel,
+                          undefined,
+                          'C-Suite generation'
+                        );
                         if (res.success) {
                           setGhResult1(res.data.content);
                           showToast(`✅ C-suite analysis generated (${res.data.model})`, 'success');
@@ -3637,11 +3854,12 @@ export const HomePage = () => {
                       try {
                         // Include the C-suite result as context so Prompt 2 builds on Prompt 1
                         const contextPrefix = ghResult1 ? `Here is the C-suite analysis from the previous step:\n\n${ghResult1}\n\nNow, based on that context:\n\n` : '';
-                        const res = await callProxyWithRetry({
-                          action: 'github-copilot-generate',
-                          apiHost: apiSettings.host, apiPort: apiSettings.port, apiProtocol: apiSettings.protocol,
-                          body: { prompt: contextPrefix + prompt2, model: ghCopilotModel },
-                        });
+                        const res = await callGithubCopilotGenerateWithBackoff(
+                          contextPrefix + prompt2,
+                          ghCopilotModel,
+                          undefined,
+                          'Journey generation'
+                        );
                         if (res.success) {
                           setGhResult2(res.data.content);
                           showToast(`✅ Journey config generated (${res.data.model})`, 'success');

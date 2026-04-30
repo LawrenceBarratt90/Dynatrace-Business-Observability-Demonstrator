@@ -42,6 +42,8 @@ export interface LLMResponse {
   toolCalls?: ToolCall[];
   model: string;
   totalDurationMs: number;
+  promptTokens?: number;
+  completionTokens?: number;
 }
 
 // ─── Core Chat ────────────────────────────────────────────────
@@ -72,6 +74,8 @@ export async function chat(
       content: result.content,
       toolCalls: result.toolCalls?.length,
       totalDurationMs: result.totalDurationMs,
+      promptTokens: result.promptTokens,
+      completionTokens: result.completionTokens,
     }),
   );
 }
@@ -136,6 +140,8 @@ async function _chatInternal(
       const content = (msg?.content as string) ?? '';
       const toolCalls = (msg?.tool_calls as ToolCall[]) ?? undefined;
       const totalDuration = (data.total_duration as number) ?? 0;
+      const promptTokens = (data.prompt_eval_count as number | undefined) ?? undefined;
+      const completionTokens = (data.eval_count as number | undefined) ?? undefined;
 
       log.debug('LLM response received', {
         model,
@@ -149,6 +155,8 @@ async function _chatInternal(
         toolCalls: toolCalls?.length ? toolCalls : undefined,
         model,
         totalDurationMs: Math.round(totalDuration / 1_000_000),
+        promptTokens,
+        completionTokens,
       };
     } catch (err: unknown) {
       lastError = err instanceof Error ? err : new Error(String(err));

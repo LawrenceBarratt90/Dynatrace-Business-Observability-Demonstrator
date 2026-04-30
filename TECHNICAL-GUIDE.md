@@ -91,6 +91,20 @@ Before you start, make sure you have **all of these** ready. Items marked with �
 | 9 | **Ollama** | Latest | Powers AI agents (Nemesis, Fix-It, Librarian) and dashboard generation | `ollama list` → should show `llama3.2:1b` |
 | 10 | **GitHub PAT** | — | Powers AI journey generation (GitHub Models) | Configure in Demonstrator UI → Settings → Copilot tab |
 
+### Recommended Server Size
+
+Use these sizes as a practical baseline for this app:
+
+| Deployment Profile | vCPU | RAM | Storage | Notes |
+|---|---:|---:|---:|---|
+| **Minimum (demo / light use)** | 2 | 8 GB | 40 GB SSD | Good for short demos and low concurrency |
+| **Recommended (default for customer demos)** | 4 | 16 GB | 80 GB SSD | Best balance for journey simulation + AI features + OTel export |
+| **High-load (multiple concurrent users/journeys)** | 8 | 32 GB | 120 GB SSD | Use when running many child services and frequent AI generation |
+
+**Default recommendation:** use at least **4 vCPU / 16 GB RAM / 80 GB SSD**.
+
+**If using local Ollama heavily:** prioritize RAM. For larger local models, plan for **24–32 GB RAM**.
+
 > **Don't have a Dynatrace API Token yet?** Stop here and create one. Nothing will work without it.
 
 **✅ What you MUST have before setup:**
