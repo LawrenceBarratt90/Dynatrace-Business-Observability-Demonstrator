@@ -83,6 +83,34 @@ export default async function (payload: ProxyPayload) {
   const { action, apiHost, apiPort, apiProtocol, body } = payload;
   const baseUrl = `${apiProtocol}://${apiHost}:${apiPort}`;
 
+  // Best-effort EdgeConnect host-pattern registration.
+  // This prevents traced EC2 calls from failing when the server host was configured
+  // in the app but not yet added to EdgeConnect host patterns.
+  const ensureEdgeConnectHostPattern = async (host?: string): Promise<boolean> => {
+    if (!host || host === 'localhost' || host === '127.0.0.1') return false;
+    try {
+      const listResult = await edgeConnectClient.listEdgeConnects({ addFields: 'metadata' });
+      const ecs = listResult.edgeConnects || [];
+      if (ecs.length === 0) return false;
+
+      const targetEc = ecs.find((ec: any) => (ec.metadata?.instances || []).length > 0) || ecs[0];
+      const existing: string[] = targetEc.hostPatterns || [];
+      if (existing.includes(host)) return false;
+
+      await edgeConnectClient.updateEdgeConnect({
+        edgeConnectId: targetEc.id!,
+        body: { name: targetEc.name!, hostPatterns: [...existing, host] },
+      });
+      // Allow route propagation before first request.
+      await new Promise(resolve => setTimeout(resolve, 3000));
+      console.log(`[proxy-api] EdgeConnect host pattern auto-added: ${host}`);
+      return true;
+    } catch (ecErr: any) {
+      console.error('[proxy-api] EdgeConnect host-pattern auto-register failed:', ecErr.message);
+      return false;
+    }
+  };
+
   // Retry-aware fetch — handles EdgeConnect reconnection gaps (server disconnects every ~3 min)
   const fetchWithRetry = async (url: string, init?: RequestInit, attempts = 4, delayMs = 2000): Promise<Response> => {
     let lastErr: any;
@@ -2139,6 +2167,7 @@ export default async function (payload: ProxyPayload) {
         }
 
         const selectedModel = model || 'gpt-4.1';
+        const ecAutoRegistered = await ensureEdgeConnectHostPattern(apiHost);
         // Keep calls inside typical AppEngine function execution limits.
         // The traced EC2 integration path waits for the upstream GitHub Models response,
         // which commonly takes 20-40s for larger prompts. Keep this comfortably above
@@ -2183,6 +2212,8 @@ export default async function (payload: ProxyPayload) {
               error: 'GitHub Copilot generation requires the traced EC2 integration path. The integration endpoint is currently unavailable.',
               code: 'GITHUB_PROXY_UNAVAILABLE',
               details: `Status ${proxyResp.status}${proxyErrorBody ? `: ${proxyErrorBody.slice(0, 200)}` : ''}`,
+              endpoint: `${baseUrl}/api/ai-generate/github`,
+              ecAutoRegistered,
               routedVia: 'ec2-traced-required',
             };
           }
@@ -2194,6 +2225,8 @@ export default async function (payload: ProxyPayload) {
               error: 'GitHub Copilot generation requires the traced EC2 integration path. The integration endpoint is unreachable.',
               code: 'GITHUB_PROXY_UNREACHABLE',
               details: proxyErr?.message || 'Unknown proxy error',
+              endpoint: `${baseUrl}/api/ai-generate/github`,
+              ecAutoRegistered,
               routedVia: 'ec2-traced-required',
             };
           }
