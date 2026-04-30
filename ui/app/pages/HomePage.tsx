@@ -942,6 +942,30 @@ export const HomePage = () => {
     setIsDeletingBizFlows(false);
   };
 
+  const deleteAllBizFlows = async () => {
+    if (bizFlows.length === 0) {
+      setBizFlowStatus('ℹ️ No business flows to delete');
+      return;
+    }
+    setIsDeletingBizFlows(true);
+    setBizFlowStatus(`🗑️ Deleting all ${bizFlows.length} business flow(s)...`);
+    try {
+      const result = await callProxyWithRetry({
+        action: 'delete-business-flows', apiHost: '', apiPort: '', apiProtocol: '',
+        body: { objectIds: bizFlows.map(f => f.objectId) },
+      }) as any;
+      if (result.success) {
+        setBizFlowStatus(`✅ Deleted ${result.data?.deletedCount || bizFlows.length} business flow(s).`);
+        await loadBizFlows();
+      } else {
+        setBizFlowStatus(`❌ ${result.error}`);
+      }
+    } catch (err: any) {
+      setBizFlowStatus(`❌ ${err.message}`);
+    }
+    setIsDeletingBizFlows(false);
+  };
+
   // ── Services Modal Logic ──────────────────────────────────
   const openServicesModal = async () => {
     setShowServicesModal(true);
@@ -4522,6 +4546,16 @@ export const HomePage = () => {
                       <button onClick={deleteNonEntityBizFlows} disabled={isDeletingBizFlows || bizFlows.filter(f => !f.isSmartscapeTopologyEnabled).length === 0}
                         style={{ flex: 1, padding: '6px 12px', borderRadius: 6, border: '1px solid rgba(220,50,47,0.4)', background: 'rgba(220,50,47,0.08)', cursor: isDeletingBizFlows ? 'wait' : 'pointer', fontSize: 12, fontWeight: 600, color: '#dc322f' }}>
                         {isDeletingBizFlows ? '🗑️ Deleting...' : `🗑️ Delete ${bizFlows.filter(f => !f.isSmartscapeTopologyEnabled).length} Non-Entity Flow(s)`}
+                      </button>
+                      <button
+                        onClick={() => setConfirmDialog({
+                          message: `⚠️ Delete ALL ${bizFlows.length} business flows? This will remove both entity and non-entity business flows from Dynatrace.`,
+                          onConfirm: () => deleteAllBizFlows(),
+                        })}
+                        disabled={isDeletingBizFlows || bizFlows.length === 0}
+                        style={{ flex: 1, padding: '6px 12px', borderRadius: 6, border: '1px solid rgba(220,50,47,0.6)', background: 'rgba(220,50,47,0.14)', cursor: isDeletingBizFlows ? 'wait' : 'pointer', fontSize: 12, fontWeight: 700, color: '#b71c1c' }}
+                      >
+                        {isDeletingBizFlows ? '🗑️ Deleting...' : `🧨 Delete All ${bizFlows.length} Flow(s)`}
                       </button>
                     </Flex>
                   </>

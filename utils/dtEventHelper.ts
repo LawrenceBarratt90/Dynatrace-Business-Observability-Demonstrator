@@ -57,6 +57,23 @@ export interface DynatraceEventResult {
   error?: string;
 }
 
+function escapeSelectorValue(value: string): string {
+  return String(value || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+}
+
+function buildChaosEntitySelectors(target: string): string[] {
+  const t = String(target || '').trim();
+  if (!t || t.toLowerCase() === 'all' || t.toLowerCase() === 'default') {
+    return [];
+  }
+
+  const safe = escapeSelectorValue(t);
+  return [
+    `type(PROCESS_GROUP_INSTANCE),entityName.contains("${safe}")`,
+    `type(SERVICE),entityName.contains("${safe}")`,
+  ];
+}
+
 // ─── Core Function ────────────────────────────────────────────
 
 /**
@@ -162,12 +179,12 @@ export async function sendChaosEvent(
   target: string,
   details: Record<string, unknown>
 ): Promise<DynatraceEventResult> {
-  return sendDynatraceEvent({
+  const selectors = buildChaosEntitySelectors(target);
+  const baseEvent: Omit<DynatraceEventOptions, 'entitySelector'> = {
     eventType: 'CUSTOM_DEPLOYMENT',
     title: `Configuration Change: ${chaosType} on ${target}`,
     description: `Feature flag configuration updated for ${target}. Change ID: ${chaosId}.`,
     source: 'config-manager',
-    entitySelector: `type(SERVICE),entityName.contains("${target}")`,
     keepOpen: true,
     properties: {
       'change.type': 'configuration-change',
@@ -177,7 +194,26 @@ export async function sendChaosEvent(
       'triggered.by': 'config-manager',
       ...details,
     },
-  });
+  };
+
+  if (selectors.length === 0) {
+    return sendDynatraceEvent(baseEvent);
+  }
+
+  const results = await Promise.all(
+    selectors.map((selector) => sendDynatraceEvent({ ...baseEvent, entitySelector: selector }))
+  );
+  const primary = results.find((r) => r.success) || results[0] || { success: false, error: 'no_results' };
+  return {
+    ...primary,
+    success: results.some((r) => r.success),
+    body: JSON.stringify({
+      primaryStatus: primary.status,
+      sent: results.length,
+      successCount: results.filter((r) => r.success).length,
+      statuses: results.map((r) => r.status ?? null),
+    }),
+  };
 }
 
 /**
@@ -188,12 +224,12 @@ export async function sendChaosRevertEvent(
   chaosType: string,
   target: string
 ): Promise<DynatraceEventResult> {
-  return sendDynatraceEvent({
+  const selectors = buildChaosEntitySelectors(target);
+  const baseEvent: Omit<DynatraceEventOptions, 'entitySelector'> = {
     eventType: 'CUSTOM_DEPLOYMENT',
     title: `Configuration Rollback: ${chaosType} on ${target}`,
     description: `Feature flag configuration rolled back for ${target}. Change ID: ${chaosId}.`,
     source: 'config-manager',
-    entitySelector: `type(SERVICE),entityName.contains("${target}")`,
     keepOpen: false,
     properties: {
       'change.type': 'configuration-rollback',
@@ -202,7 +238,26 @@ export async function sendChaosRevertEvent(
       'config.target': target,
       'triggered.by': 'config-manager',
     },
-  });
+  };
+
+  if (selectors.length === 0) {
+    return sendDynatraceEvent(baseEvent);
+  }
+
+  const results = await Promise.all(
+    selectors.map((selector) => sendDynatraceEvent({ ...baseEvent, entitySelector: selector }))
+  );
+  const primary = results.find((r) => r.success) || results[0] || { success: false, error: 'no_results' };
+  return {
+    ...primary,
+    success: results.some((r) => r.success),
+    body: JSON.stringify({
+      primaryStatus: primary.status,
+      sent: results.length,
+      successCount: results.filter((r) => r.success).length,
+      statuses: results.map((r) => r.status ?? null),
+    }),
+  };
 }
 
 /**

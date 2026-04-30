@@ -73,7 +73,7 @@ export async function injectChaos(params: {
 
   // Log to Librarian
   await recordChaosEvent({
-    chaosId: result.chaosId, type: chosenType, target: params.target,
+    chaosId: result.chaosId, type: chosenType, target: result.target,
     injectedAt: result.injectedAt,
     details: { intensity: chaosParams.intensity, durationMs: chaosParams.durationMs, recipe: recipe.name },
   });
@@ -82,7 +82,7 @@ export async function injectChaos(params: {
   await sendChaosEvent(
     result.chaosId,
     chosenType,
-    params.target,
+    result.target,
     {
       'chaos.intensity': chaosParams.intensity,
       'chaos.duration.ms': chaosParams.durationMs,

@@ -1446,13 +1446,30 @@ export default async function (payload: ProxyPayload) {
         const flow = genData.businessFlow;
 
         // 2. Deploy to Dynatrace using AppEngine SDK (uses AppEngine OAuth — no API token needed)
-        await settingsObjectsClient.postSettingsObjects({
-          body: [{
-            schemaId: 'app:dynatrace.biz.flow:biz-flow-settings',
-            scope: 'environment',
-            value: flow,
-          }],
+        //    Upsert by flow name to avoid "Conflicting resources" on repeat deploys.
+        const existing = await settingsObjectsClient.getSettingsObjects({
+          schemaIds: 'app:dynatrace.biz.flow:biz-flow-settings',
+          fields: 'objectId,value',
+          pageSize: 500,
         });
+
+        const existingItem = (existing.items || []).find((item: any) => item.value?.name === flow.name);
+        if (existingItem?.objectId) {
+          await settingsObjectsClient.putSettingsObjectByObjectId({
+            objectId: existingItem.objectId,
+            body: {
+              value: flow,
+            },
+          });
+        } else {
+          await settingsObjectsClient.postSettingsObjects({
+            body: [{
+              schemaId: 'app:dynatrace.biz.flow:biz-flow-settings',
+              scope: 'environment',
+              value: flow,
+            }],
+          });
+        }
 
         return {
           success: true,
@@ -1460,7 +1477,8 @@ export default async function (payload: ProxyPayload) {
             ok: true,
             name: flow.name,
             steps: flow.steps.length,
-            message: `Business Flow "${flow.name}" deployed successfully.`
+            updated: !!existingItem,
+            message: `Business Flow "${flow.name}" ${existingItem ? 'updated' : 'deployed'} successfully.`
           }
         };
       } catch (error: any) {
