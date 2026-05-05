@@ -1016,7 +1016,12 @@ export const PROVEN_LAYOUT = {
 // ============================================================================
 
 export function buildProvenDashboard(company, journeyType, steps, detected, industry) {
-  const dynatraceUrl = process.env.DT_ENVIRONMENT_URL || process.env.DYNATRACE_URL || 'https://your-environment.apps.dynatrace.com';
+  const dynatraceUrl = (
+    process.env.DT_ENVIRONMENT ||
+    process.env.DT_ENVIRONMENT_URL ||
+    process.env.DYNATRACE_URL ||
+    'https://your-environment.apps.dynatrace.com'
+  ).replace(/\/+$/, '');
 
   // Build data signal summary
   const signals = [];

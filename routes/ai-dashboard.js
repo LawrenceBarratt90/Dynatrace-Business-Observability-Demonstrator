@@ -2055,7 +2055,12 @@ function generateVariables(company) {
 // ============================================================================
 
 function generateMarkdownTiles(company, journeyType, steps, detected) {
-  const dynatraceUrl = process.env.DT_ENVIRONMENT_URL || process.env.DYNATRACE_URL || 'https://your-environment.apps.dynatrace.com';
+  const dynatraceUrl = (
+    process.env.DT_ENVIRONMENT ||
+    process.env.DT_ENVIRONMENT_URL ||
+    process.env.DYNATRACE_URL ||
+    'https://your-environment.apps.dynatrace.com'
+  ).replace(/\/+$/, '');
 
   const detectedSummary = [];
   if (detected.hasRevenue) detectedSummary.push('💰 Revenue');

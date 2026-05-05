@@ -34,11 +34,13 @@ function isDomainAllowed(domain, rawConfig) {
 
 async function getDynatraceToken() {
   const tokenUrl = resolveTokenUrl();
+  const accountId = process.env.DT_ACCOUNT_ID;
+  const resource = process.env.DT_ACCOUNT_RESOURCE || (accountId ? `urn:dtaccount:${accountId}` : '');
   const params = new URLSearchParams({
     grant_type: 'client_credentials',
     client_id: process.env.DT_ACCOUNT_OAUTH_CLIENT_ID,
     client_secret: process.env.DT_ACCOUNT_OAUTH_CLIENT_SECRET,
-    resource: process.env.DT_ACCOUNT_RESOURCE,
+    resource,
   });
 
   const res = await fetch(tokenUrl, {
@@ -80,8 +82,9 @@ router.post('/', async (req, res) => {
 
   const accountId = process.env.DT_ACCOUNT_ID;
   const groupUuid = process.env.DT_ACCESS_GROUP_UUID;
+  const resource = process.env.DT_ACCOUNT_RESOURCE || (accountId ? `urn:dtaccount:${accountId}` : '');
 
-  if (!accountId || !groupUuid || !process.env.DT_ACCOUNT_OAUTH_CLIENT_ID || !process.env.DT_ACCOUNT_OAUTH_CLIENT_SECRET || !process.env.DT_ACCOUNT_RESOURCE) {
+  if (!accountId || !groupUuid || !process.env.DT_ACCOUNT_OAUTH_CLIENT_ID || !process.env.DT_ACCOUNT_OAUTH_CLIENT_SECRET || !resource) {
     console.error('[provision-access] Missing required Dynatrace environment variables');
     return res.status(500).json({ success: false, error: 'Server not configured for provisioning. Contact an administrator.' });
   }

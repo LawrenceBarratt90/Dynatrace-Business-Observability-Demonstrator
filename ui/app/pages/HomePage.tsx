@@ -194,6 +194,14 @@ export const HomePage = () => {
   const [showDormantWarning, setShowDormantWarning] = useState<string | null>(null); // company name or 'all'
   const [clearingDormantCompany, setClearingDormantCompany] = useState<string | null>(null);
 
+  const journeyInventory: RunningService[] = [...runningServices, ...dormantServices].filter((service, index, all) => {
+    const key = [service.companyName, service.journeyType, service.baseServiceName || service.service, service.stepName].join('::');
+    return index === all.findIndex((candidate) => {
+      const candidateKey = [candidate.companyName, candidate.journeyType, candidate.baseServiceName || candidate.service, candidate.stepName].join('::');
+      return candidateKey === key;
+    });
+  });
+
   // Settings modal tab state
   const [settingsTab, setSettingsTab] = useState<'config' | 'edgeconnect' | 'system' | 'copilot'>('config');
 
@@ -1094,14 +1102,26 @@ export const HomePage = () => {
   const loadJourneysData = async () => {
     setIsLoadingJourneys(true);
     try {
-      const result = await callProxyWithRetry(
-        { action: 'get-services', apiHost: apiSettings.host, apiPort: apiSettings.port, apiProtocol: apiSettings.protocol }
-      ) as any;
+      const [result, dormantResult] = await Promise.all([
+        callProxyWithRetry(
+          { action: 'get-services', apiHost: apiSettings.host, apiPort: apiSettings.port, apiProtocol: apiSettings.protocol }
+        ) as Promise<any>,
+        callProxyWithRetry(
+          { action: 'get-dormant-services', apiHost: apiSettings.host, apiPort: apiSettings.port, apiProtocol: apiSettings.protocol }
+        ) as Promise<any>,
+      ]);
       if (result.success && result.data?.childServices) {
-        const services: RunningService[] = result.data.childServices;
+        const services: RunningService[] = [...(result.data.childServices || []), ...((dormantResult.success && dormantResult.data?.dormantServices) ? dormantResult.data.dormantServices : [])].filter((service, index, all) => {
+          const key = [service.companyName, service.journeyType, service.baseServiceName || service.service, service.stepName].join('::');
+          return index === all.findIndex((candidate) => {
+            const candidateKey = [candidate.companyName, candidate.journeyType, candidate.baseServiceName || candidate.service, candidate.stepName].join('::');
+            return candidateKey === key;
+          });
+        });
         setJourneysData(services);
         const count = services.length;
-        setJourneysStatus(count > 0 ? `${count} service(s) across active journeys` : 'No active journeys');
+        const activeCount = (result.data.childServices || []).length;
+        setJourneysStatus(count > 0 ? `${count} service(s) across active and dormant journeys (${activeCount} active)` : 'No journeys found');
 
         // Build unique company+journey pairs and check assets
         if (count > 0) {
@@ -5854,7 +5874,7 @@ export const HomePage = () => {
                     ) : !dashboardCompanyName ? (
                       <div style={{ padding: 12, textAlign: 'center', opacity: 0.6, fontSize: 12 }}>Select a company first.</div>
                     ) : (() => {
-                      const filtered = Array.from(new Set(runningServices.filter(s => s.companyName === dashboardCompanyName).map(s => s.journeyType).filter(Boolean))).sort();
+                      const filtered = Array.from(new Set(journeyInventory.filter(s => s.companyName === dashboardCompanyName).map(s => s.journeyType).filter(Boolean))).sort();
                       return filtered.length === 0 ? (
                         <div style={{ padding: 12, textAlign: 'center', opacity: 0.6, fontSize: 12 }}>No journey types found for {dashboardCompanyName}.</div>
                       ) : (
@@ -6123,7 +6143,7 @@ export const HomePage = () => {
                     ) : !dashboardCompanyName ? (
                       <div style={{ padding: 12, textAlign: 'center', opacity: 0.6, fontSize: 12 }}>Select a company first.</div>
                     ) : (() => {
-                      const filtered = Array.from(new Set(runningServices.filter(s => s.companyName === dashboardCompanyName).map(s => s.journeyType).filter(Boolean))).sort();
+                      const filtered = Array.from(new Set(journeyInventory.filter(s => s.companyName === dashboardCompanyName).map(s => s.journeyType).filter(Boolean))).sort();
                       return filtered.length === 0 ? (
                         <div style={{ padding: 12, textAlign: 'center', opacity: 0.6, fontSize: 12 }}>No journey types found for {dashboardCompanyName}.</div>
                       ) : (
@@ -6165,9 +6185,9 @@ export const HomePage = () => {
                               body: {
                                 journeyData: {
                                   companyName: dashboardCompanyName,
-                                  industryType: runningServices.find(s => s.companyName === dashboardCompanyName)?.industryType || 'Enterprise',
+                                  industryType: journeyInventory.find(s => s.companyName === dashboardCompanyName)?.industryType || 'Enterprise',
                                   journeyType: dashboardJourneyType,
-                                  steps: runningServices
+                                  steps: journeyInventory
                                     .filter(s => s.companyName === dashboardCompanyName)
                                     .map(s => ({ stepName: s.stepName || s.service, name: s.service })),
                                 },

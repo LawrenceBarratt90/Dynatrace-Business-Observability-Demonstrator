@@ -382,6 +382,36 @@ const serviceNameArg = process.argv.find((arg, index) => process.argv[index - 1]
 const serviceName = serviceNameArg || process.env.SERVICE_NAME;
 const stepName = process.env.STEP_NAME;
 
+function normalizeDynatraceTags(activeServiceName, activeStepName) {
+  const currentTags = String(process.env.DT_TAGS || '').trim();
+  const company = String(process.env.COMPANY_NAME || 'unknown').replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
+  const service = String(activeServiceName || process.env.SERVICE_NAME || 'unknown').replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+  const domain = String(process.env.DOMAIN || 'unknown').replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
+  const industry = String(process.env.INDUSTRY_TYPE || 'unknown').replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
+  const journeyType = String(process.env.JOURNEY_TYPE || 'unknown').replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
+  const step = String(activeStepName || process.env.STEP_NAME || 'unknown').replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
+
+  const baseTags = currentTags || [
+    `company=${company}`,
+    `service=${service}`,
+    'app=bizobs-journey',
+    'environment=ace-box',
+    `industry=${industry}`,
+    `journey-type=${journeyType}`,
+    `journey-detail=${step}`,
+  ].join(' ');
+
+  const ensureTag = (tags, key, value) => (tags.includes(`${key}=`) ? tags : `${tags} ${key}=${value}`);
+
+  let tags = baseTags;
+  tags = ensureTag(tags, 'companyName', company);
+  tags = ensureTag(tags, 'industryType', industry);
+  tags = ensureTag(tags, 'domain', domain);
+  tags = ensureTag(tags, 'journeyType', journeyType);
+  tags = ensureTag(tags, 'stepName', step);
+  process.env.DT_TAGS = tags.trim();
+}
+
 // CRITICAL: Set process title immediately for Dynatrace detection
 // This is what Dynatrace uses to identify the service
 if (serviceName) {
@@ -403,6 +433,7 @@ if (serviceName) {
     process.env.DYNATRACE_SERVICE_NAME = serviceName;
     process.env.DT_CLUSTER_ID = serviceName;
     process.env.DT_NODE_ID = `${serviceName}-node`;
+    normalizeDynatraceTags(serviceName, stepName);
     console.log(`[dynamic-step-service] Set process identity to: ${serviceName}`);
   } catch (e) {
     console.error(`[dynamic-step-service] Failed to set process identity: ${e.message}`);
@@ -413,6 +444,7 @@ if (serviceName) {
 function createStepService(serviceName, stepName) {
   // Convert stepName to proper service format if needed
   const properServiceName = getServiceNameFromStep(stepName || serviceName);
+  normalizeDynatraceTags(properServiceName, stepName);
   
   createService(properServiceName, (app) => {
     // Add error handling middleware
@@ -1268,6 +1300,7 @@ if (require.main === module) {
     if (!process.env.DT_CUSTOM_PROP || !process.env.DT_CUSTOM_PROP.includes('dtServiceName=')) {
       process.env.DT_CUSTOM_PROP = `dtServiceName=${serviceName} companyName=${process.env.COMPANY_NAME || 'unknown'} domain=${process.env.DOMAIN || 'unknown'} industryType=${process.env.INDUSTRY_TYPE || 'unknown'}`;
     }
+    normalizeDynatraceTags(serviceName, stepName);
     console.log(`[dynamic-step-service] Set process title to: ${serviceName}`);
     console.log(`[dynamic-step-service] DT_CUSTOM_PROP: ${process.env.DT_CUSTOM_PROP}`);
   } catch (e) {
