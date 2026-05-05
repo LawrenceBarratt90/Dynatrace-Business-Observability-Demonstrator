@@ -4377,15 +4377,33 @@ router.post('/deploy-dtctl', async (req, res) => {
       await execFileAsync('bash', ['-lc', installCmd], { timeout: 120000 });
     }
 
-    const sanitizedCompany = String(company).replace(/[^a-zA-Z0-9-]/g, '-').toLowerCase();
-    const sanitizedJourney = String(journeyType).replace(/[^a-zA-Z0-9-]/g, '-').toLowerCase();
+    const canonicalCompany = String(company || '').trim();
+    const canonicalJourney = String(journeyType || '').trim();
+    const canonicalDashboardName = `${canonicalCompany} - ${canonicalJourney}`;
+
+    const sanitizedCompany = canonicalCompany.replace(/[^a-zA-Z0-9-]/g, '-').toLowerCase();
+    const sanitizedJourney = canonicalJourney.replace(/[^a-zA-Z0-9-]/g, '-').toLowerCase();
     const aiSlug = String(dashboard.metadata?.dashboardSlug || '')
       .replace(/[^a-z0-9-]/gi, '-')
       .toLowerCase()
       .replace(/-+/g, '-')
       .replace(/^-|-$/g, '');
     const dashboardId = aiSlug ? `bizobs-${sanitizedCompany}-${aiSlug}` : `bizobs-${sanitizedCompany}-${sanitizedJourney}`;
-    const dashboardName = dashboard.name || `${company} - ${journeyType} Journey`;
+    const dashboardName = canonicalDashboardName;
+
+    const dashboardToDeploy = {
+      ...dashboard,
+      // Keep naming deterministic for generated dashboards instead of letting Dynatrace create "Untitled dashboard".
+      name: dashboardName,
+      type: dashboard.type || 'dashboard',
+      version: dashboard.version || 1,
+      content: dashboard.content,
+      metadata: {
+        ...(dashboard.metadata || {}),
+        company: canonicalCompany,
+        journeyType: canonicalJourney,
+      },
+    };
 
     const tmpBase = path.join(__dirname, '..', 'tmp', 'dtctl');
     await fs.mkdir(tmpBase, { recursive: true });
@@ -4395,7 +4413,7 @@ router.post('/deploy-dtctl', async (req, res) => {
     const configFile = path.join(tmpBase, `.dtctl-${nonce}.yaml`);
     tempPaths.push(dashboardFile, configFile);
 
-    await fs.writeFile(dashboardFile, JSON.stringify(dashboard.content, null, 2), 'utf8');
+    await fs.writeFile(dashboardFile, JSON.stringify(dashboardToDeploy, null, 2), 'utf8');
 
     const contextName = 'local';
     const tokenRef = 'default-token';
@@ -4407,6 +4425,7 @@ router.post('/deploy-dtctl', async (req, res) => {
       'apply',
       '-f', dashboardFile,
       '--id', dashboardId,
+      '--share-environment', 'read',
       '--context', contextName,
       '--config', configFile,
       '--output', 'json',
