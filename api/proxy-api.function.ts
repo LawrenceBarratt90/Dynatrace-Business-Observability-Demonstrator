@@ -2206,6 +2206,29 @@ export default async function (payload: ProxyPayload) {
             };
           }
           const proxyErrorBody = await proxyResp.text().catch(() => '');
+          let upstreamError = '';
+          let upstreamCode = '';
+          try {
+            const parsed = proxyErrorBody ? JSON.parse(proxyErrorBody) : null;
+            upstreamError = String(parsed?.error || '').trim();
+            upstreamCode = String(parsed?.code || '').trim();
+          } catch {
+            // Non-JSON response body (HTML/text); keep using status-based handling below.
+          }
+
+          // Preserve actionable upstream auth/quota errors from traced route.
+          if (!allowUntracedFallback && (proxyResp.status === 400 || proxyResp.status === 401 || proxyResp.status === 403 || proxyResp.status === 429)) {
+            return {
+              success: false,
+              error: upstreamError || `GitHub integration rejected the traced request (HTTP ${proxyResp.status}).`,
+              code: upstreamCode || 'GITHUB_PROXY_REQUEST_REJECTED',
+              details: `Status ${proxyResp.status}${proxyErrorBody ? `: ${proxyErrorBody.slice(0, 300)}` : ''}`,
+              endpoint: `${baseUrl}/api/ai-generate/github`,
+              ecAutoRegistered,
+              routedVia: 'ec2-traced-required',
+            };
+          }
+
           if (!allowUntracedFallback) {
             return {
               success: false,
