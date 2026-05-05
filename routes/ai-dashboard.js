@@ -619,13 +619,17 @@ function createGenAISpan(prompt, completion, model, promptTokens, completionToke
   const normalizedOperation = (operationName === 'completion' || operationName === 'embedding') ? operationName : 'chat';
   return {
     'gen_ai.system': 'ollama',
+    'gen_ai.provider.name': 'ollama',
     'gen_ai.operation.name': normalizedOperation,
+    'gen_ai.operation.kind': normalizedOperation,
     'gen_ai.request.model': model,
     'gen_ai.response.model': model,
     'gen_ai.prompt.0.content': prompt?.substring(0, 4096) || '',
     'gen_ai.prompt.0.role': 'user',
     'gen_ai.completion.0.content': completion?.substring(0, 4096) || '',
     'gen_ai.completion.0.role': 'assistant',
+    'gen_ai.usage.input_tokens': promptTokens || 0,
+    'gen_ai.usage.output_tokens': completionTokens || 0,
     'gen_ai.usage.prompt_tokens': promptTokens || 0,
     'gen_ai.usage.completion_tokens': completionTokens || 0,
     'llm.request.type': normalizedOperation,
@@ -640,8 +644,8 @@ async function logGenAISpan(spanAttributes, operationName) {
   try {
     const requestedOperation = operationName || spanAttributes['gen_ai.operation.name'] || 'chat';
     const normalizedOperation = (requestedOperation === 'completion' || requestedOperation === 'embedding') ? requestedOperation : 'chat';
-    const promptTokens = spanAttributes['gen_ai.usage.prompt_tokens'] || 0;
-    const completionTokens = spanAttributes['gen_ai.usage.completion_tokens'] || 0;
+    const promptTokens = spanAttributes['gen_ai.usage.input_tokens'] || spanAttributes['gen_ai.usage.prompt_tokens'] || 0;
+    const completionTokens = spanAttributes['gen_ai.usage.output_tokens'] || spanAttributes['gen_ai.usage.completion_tokens'] || 0;
     const durationMs = spanAttributes['gen_ai.response.duration_ms'] || 0;
     const model = spanAttributes['gen_ai.request.model'] || OLLAMA_MODEL;
 
@@ -655,7 +659,12 @@ async function logGenAISpan(spanAttributes, operationName) {
     }));
 
     // Record OTel metrics (always works via global meter from otel.cjs)
-    const metricAttrs = { 'gen_ai.system': 'ollama', 'gen_ai.request.model': model, 'gen_ai.operation.name': normalizedOperation };
+    const metricAttrs = {
+      'gen_ai.system': 'ollama',
+      'gen_ai.provider.name': 'ollama',
+      'gen_ai.request.model': model,
+      'gen_ai.operation.name': normalizedOperation,
+    };
     _tokenCounter.add(promptTokens, { ...metricAttrs, 'gen_ai.token.type': 'input' });
     _tokenCounter.add(completionTokens, { ...metricAttrs, 'gen_ai.token.type': 'output' });
     _requestDuration.record(durationMs, metricAttrs);

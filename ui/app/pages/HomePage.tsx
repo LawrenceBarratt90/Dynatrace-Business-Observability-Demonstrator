@@ -6709,7 +6709,7 @@ export const HomePage = () => {
                     View Results
                   </Button>
                   <a
-                    href="https://bko67471.sprint.apps.dynatracelabs.com/ui/apps/dynatrace.genai.observability/prompts?perspective=Prompts+Stream&sort=start_time%3Adescending"
+                    href="https://oku3826h.sprint.apps.dynatracelabs.com/ui/apps/dynatrace.genai.observability/prompts?perspective=Prompts+Stream&sort=start_time%3Adescending"
                     target="_blank"
                     rel="noopener noreferrer"
                     style={{
