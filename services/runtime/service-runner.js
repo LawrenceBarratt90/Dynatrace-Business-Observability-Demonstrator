@@ -29,6 +29,7 @@ const companyName = process.env.COMPANY_NAME || 'DefaultCompany';
 const domain = process.env.DOMAIN || 'default.com';
 const industryType = process.env.INDUSTRY_TYPE || 'general';
 const stepNameEnv = process.env.STEP_NAME || 'UnknownStep';
+const journeyTypeEnv = process.env.JOURNEY_TYPE || 'unknown';
 
 // Set Dynatrace environment variables for OneAgent
 const serviceName = process.argv[2] || 'UnknownService';
@@ -48,7 +49,36 @@ if (!process.env.DT_CUSTOM_PROP || !process.env.DT_CUSTOM_PROP.includes('dtServi
 // Internal env vars for app-level code
 process.env.DT_SERVICE_NAME = serviceName;
 process.env.DT_CLUSTER_ID = serviceName;
-process.env.DT_NODE_ID = `${serviceName}-node`;
+process.env.DT_NODE_ID = `-node`;
+
+function normalizeDtTags() {
+  const currentTags = String(process.env.DT_TAGS || '').trim();
+  const normalizedCompany = companyName.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
+  const normalizedService = serviceName.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+  const normalizedIndustry = industryType.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
+  const normalizedDomain = domain.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
+  const normalizedJourneyType = journeyTypeEnv.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
+  const normalizedStep = stepNameEnv.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
+  const baseTags = currentTags || [
+    `company=`,
+    `service=`,
+    'app=bizobs-journey',
+    'environment=ace-box',
+    `industry=`,
+    `journey-type=`,
+    `journey-detail=`,
+  ].join(' ');
+  const ensureTag = (tags, key, value) => tags.includes(`=`) ? tags : ` =`;
+  let tags = baseTags;
+  tags = ensureTag(tags, 'companyName', normalizedCompany);
+  tags = ensureTag(tags, 'industryType', normalizedIndustry);
+  tags = ensureTag(tags, 'domain', normalizedDomain);
+  tags = ensureTag(tags, 'journeyType', normalizedJourneyType);
+  tags = ensureTag(tags, 'stepName', normalizedStep);
+  process.env.DT_TAGS = tags.trim();
+}
+
+normalizeDtTags();
 
 function createService(serviceName, mountFn) {
   // CRITICAL: Set process identity for Dynatrace detection immediately
@@ -66,6 +96,7 @@ function createService(serviceName, mountFn) {
     // Internal env vars for app-level code
     process.env.DT_SERVICE_NAME = serviceName;
     process.env.DYNATRACE_SERVICE_NAME = serviceName;
+    normalizeDtTags();
     
     // CRITICAL: Set process argv[0] to help with service detection
     // This changes what 'ps' shows as the command name

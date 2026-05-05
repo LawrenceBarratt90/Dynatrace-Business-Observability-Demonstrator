@@ -366,8 +366,9 @@ export async function startChildService(internalServiceName, scriptPath, portPar
         // 🔑 DT_CUSTOM_PROP: Adds custom metadata properties to the service
         DT_CUSTOM_PROP: `dtServiceName=${dynatraceServiceName} companyName=${companyName} domain=${domain} industryType=${industryType} journeyType=${journeyType || 'unknown'} stepName=${stepName || 'unknown'}`,
         
-        // 🏷️ DT_TAGS: Space-separated key=value pairs for Dynatrace tags
-        DT_TAGS: `company=${companyName.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase()} service=${dynatraceServiceName.replace(/[^a-zA-Z0-9]/g, '').toLowerCase()} app=bizobs-journey environment=ace-box industry=${industryType.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase()} journey-type=${(journeyType || 'unknown').replace(/[^a-zA-Z0-9]/g, '_').toLowerCase()} journey-detail=${(env.JOURNEY_DETAIL || stepName || 'unknown_journey').replace(/[^a-zA-Z0-9]/g, '_').toLowerCase()}`,
+        // 🏷️ DT_TAGS: Space-separated key=value pairs for Dynatrace tags.
+        // Keep both legacy and canonical keys so existing dashboard filters continue to work.
+        DT_TAGS: `company=${companyName.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase()} companyName=${companyName.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase()} service=${dynatraceServiceName.replace(/[^a-zA-Z0-9]/g, '').toLowerCase()} app=bizobs-journey environment=ace-box industry=${industryType.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase()} industryType=${industryType.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase()} domain=${domain.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase()} journey-type=${(journeyType || 'unknown').replace(/[^a-zA-Z0-9]/g, '_').toLowerCase()} journeyType=${(journeyType || 'unknown').replace(/[^a-zA-Z0-9]/g, '_').toLowerCase()} journey-detail=${(env.JOURNEY_DETAIL || stepName || 'unknown_journey').replace(/[^a-zA-Z0-9]/g, '_').toLowerCase()} stepName=${(stepName || 'unknown_step').replace(/[^a-zA-Z0-9]/g, '_').toLowerCase()}`,
         
         // 📦 DT_RELEASE_*: Release tracking metadata
         DT_RELEASE_PRODUCT: 'BizObs-Demonstrator',
@@ -599,8 +600,8 @@ export async function ensureServiceRunning(stepName, companyContext = {}) {
 `// 🔑 DT_CUSTOM_PROP: Adds custom metadata properties to the service\n` +
 `process.env.DT_CUSTOM_PROP = 'dtServiceName=' + process.env.SERVICE_NAME + ' companyName=' + process.env.COMPANY_NAME + ' domain=' + process.env.DOMAIN + ' industryType=' + process.env.INDUSTRY_TYPE + ' journeyType=' + (process.env.JOURNEY_TYPE || 'unknown') + ' stepName=' + process.env.STEP_NAME;\n` +
 `\n` +
-`// 🏷️ DT_TAGS: Space-separated key=value pairs for Dynatrace tags\n` +
-`process.env.DT_TAGS = 'company=' + process.env.COMPANY_NAME.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase() + ' service=' + process.env.SERVICE_NAME.replace(/[^a-zA-Z0-9]/g, '').toLowerCase() + ' app=bizobs-journey environment=ace-box industry=' + process.env.INDUSTRY_TYPE.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase() + ' journey-type=' + (process.env.JOURNEY_TYPE || 'unknown').replace(/[^a-zA-Z0-9]/g, '_').toLowerCase() + ' journey-detail=' + (process.env.STEP_NAME || 'unknown_journey').replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();\n` +
+`// 🏷️ DT_TAGS: Space-separated key=value pairs for Dynatrace tags (legacy + canonical keys)\n` +
+`process.env.DT_TAGS = 'company=' + process.env.COMPANY_NAME.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase() + ' companyName=' + process.env.COMPANY_NAME.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase() + ' service=' + process.env.SERVICE_NAME.replace(/[^a-zA-Z0-9]/g, '').toLowerCase() + ' app=bizobs-journey environment=ace-box industry=' + process.env.INDUSTRY_TYPE.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase() + ' industryType=' + process.env.INDUSTRY_TYPE.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase() + ' domain=' + process.env.DOMAIN.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase() + ' journey-type=' + (process.env.JOURNEY_TYPE || 'unknown').replace(/[^a-zA-Z0-9]/g, '_').toLowerCase() + ' journeyType=' + (process.env.JOURNEY_TYPE || 'unknown').replace(/[^a-zA-Z0-9]/g, '_').toLowerCase() + ' journey-detail=' + (process.env.STEP_NAME || 'unknown_journey').replace(/[^a-zA-Z0-9]/g, '_').toLowerCase() + ' stepName=' + (process.env.STEP_NAME || 'unknown_step').replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();\n` +
 `\n` +
 `// 📦 DT_RELEASE_*: Release tracking\n` +
 `process.env.DT_RELEASE_PRODUCT = 'BizObs-Demonstrator';\n` +
