@@ -329,6 +329,7 @@ export const HomePage = () => {
   const [aiGenComplete, setAiGenComplete] = useState(false);
   const [aiGenError, setAiGenError] = useState('');
   const [aiGenDashboardUrl, setAiGenDashboardUrl] = useState<string | null>(null);
+  const [aiGenPresetDashboardsUrl, setAiGenPresetDashboardsUrl] = useState<string | null>(null);
 
   // "Use Your Own AI Prompt" (paste) flow state
   const [showPasteAiModal, setShowPasteAiModal] = useState(false);
@@ -2005,6 +2006,7 @@ export const HomePage = () => {
     setAiGenComplete(false);
     setAiGenError('');
     setAiGenDashboardUrl(null);
+    setAiGenPresetDashboardsUrl(null);
     setShowAiGenModal(true);
     let stepIdx = 0;
 
@@ -2148,6 +2150,7 @@ export const HomePage = () => {
         ? (rawDashboardUrl.startsWith('http') ? rawDashboardUrl : `${TENANT_URL}${rawDashboardUrl}`)
         : null;
       setAiGenDashboardUrl(resolvedDashboardUrl);
+      setAiGenPresetDashboardsUrl(getDashboardSearchUrl(jCompany));
 
       updateStep(stepIdx, {
         status: 'done',
@@ -2189,6 +2192,7 @@ export const HomePage = () => {
       setShowJourneyPickerModal(false);
       setJourneyPickerResolve(null);
       setAiGenDashboardUrl(null);
+      setAiGenPresetDashboardsUrl(null);
       const failedIdx = steps.findIndex(s => s.status === 'running');
       if (failedIdx >= 0) updateStep(failedIdx, { status: 'error', detail: err.message });
       setAiGenError(err.message);
@@ -5855,7 +5859,7 @@ export const HomePage = () => {
                       border: `1px solid ${dashboardGenerationStatus.includes('✅') ? Colors.Theme.Success['70'] : dashboardGenerationStatus.includes('❌') ? '#dc322f' : Colors.Theme.Primary['70']}` }}>
                       {dashboardGenerationStatus}
                       {dashboardUrl && dashboardGenerationStatus.includes('✅') && (
-                        <div style={{ marginTop: 8 }}>
+                        <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 10 }}>
                           <a
                             href={dashboardUrl ?? undefined}
                             target="_blank"
@@ -5864,6 +5868,16 @@ export const HomePage = () => {
                           >
                             📊 Open Dashboard in Dynatrace →
                           </a>
+                          {dashboardCompanyName && (
+                            <a
+                              href={getDashboardSearchUrl(dashboardCompanyName)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              style={{ color: '#6c2c9c', fontWeight: 700, textDecoration: 'none', fontSize: 14 }}
+                            >
+                              🗂️ Open Preset Dashboards for {dashboardCompanyName} →
+                            </a>
+                          )}
                         </div>
                       )}
                     </div>
@@ -6769,6 +6783,24 @@ export const HomePage = () => {
                       }}
                     >
                       📊 Open Bespoke Dashboard
+                    </a>
+                  )}
+                  {aiGenPresetDashboardsUrl && companyName && (
+                    <a
+                      href={aiGenPresetDashboardsUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{
+                        display: 'inline-flex', alignItems: 'center', gap: 6,
+                        padding: '9px 16px', borderRadius: 8, fontSize: 12, fontWeight: 600,
+                        background: 'linear-gradient(135deg, rgba(108,44,156,0.12), rgba(0,161,201,0.08))',
+                        border: '1px solid rgba(108,44,156,0.35)',
+                        color: Colors.Text.Neutral.Default,
+                        textDecoration: 'none',
+                        transition: 'all 0.2s ease',
+                      }}
+                    >
+                      🗂️ Open Preset Dashboards for {companyName}
                     </a>
                   )}
                 </Flex>
