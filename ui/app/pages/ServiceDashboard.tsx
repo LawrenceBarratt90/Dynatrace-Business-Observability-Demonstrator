@@ -13,13 +13,15 @@ const API_BASE = 'http://YOUR_SERVER_IP:8080/api';
 /** Build a URL to the Dynatrace Services Explorer filtered by [Environment] tags */
 const getServicesUiUrl = (companyName: string, journeyType?: string) => {
   const tenantUrl = (() => { try { return getEnvironmentUrl().replace(/\/$/, ''); } catch { return 'https://YOUR_TENANT_ID.apps.dynatracelabs.com'; } })();
-  // Match the DT_TAGS encoding: replace non-alphanumeric chars with underscore, then lowercase
-  const companyTag = companyName.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
-  let filter = `tags = "[Environment]company:${companyTag}"`;
+  const normalizeTagValue = (value: string) => value.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
+  const filterParts = [
+    'tags = "[Environment]app:bizobs-journey"',
+    `tags = "[Environment]company:${normalizeTagValue(companyName)}"`,
+  ];
   if (journeyType) {
-    const journeyTag = journeyType.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
-    filter += `  AND tags = "[Environment]journey-type:${journeyTag}" `;
+    filterParts.push(`tags = "[Environment]journey-type:${normalizeTagValue(journeyType)}"`);
   }
+  const filter = filterParts.join(' AND ');
   return `${tenantUrl}/ui/apps/dynatrace.services/explorer?perspective=performance&sort=entity%3Aascending#filtering=${encodeURIComponent(filter)}`;
 };
 
