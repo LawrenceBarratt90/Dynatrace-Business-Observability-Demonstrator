@@ -34,14 +34,22 @@ const SSO_ENDPOINT = TENANT_HOST.includes('sprint') || TENANT_HOST.includes('dyn
   : 'https://sso.dynatrace.com/sso/oauth2/token';
 
 /** Build a URL to the Dynatrace Services Explorer filtered by [Environment] tags */
-const getServicesUiUrl = (companyName: string, journeyType?: string) => {
-  // Match the DT_TAGS encoding: replace non-alphanumeric chars with underscore, then lowercase
-  const companyTag = companyName.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
-  let filter = `tags = "[Environment]company:${companyTag}"`;
+const normalizeTagValue = (value: string) => value.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
+const normalizeServiceTagValue = (value: string) => value.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+
+const getServicesUiUrl = (companyName: string, journeyType?: string, serviceName?: string) => {
+  // Match the DT_TAGS emitted by service-manager.js.
+  const filterParts = [
+    'tags = "[Environment]app:bizobs-journey"',
+    `tags = "[Environment]company:${normalizeTagValue(companyName)}"`,
+  ];
   if (journeyType) {
-    const journeyTag = journeyType.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
-    filter += `  AND tags = "[Environment]journey-type:${journeyTag}" `;
+    filterParts.push(`tags = "[Environment]journey-type:${normalizeTagValue(journeyType)}"`);
   }
+  if (serviceName) {
+    filterParts.push(`tags = "[Environment]service:${normalizeServiceTagValue(serviceName)}"`);
+  }
+  const filter = filterParts.join(' AND ');
   return `${TENANT_URL}/ui/apps/dynatrace.services/explorer?perspective=performance&sort=entity%3Aascending#filtering=${encodeURIComponent(filter)}`;
 };
 
@@ -4950,7 +4958,14 @@ export const HomePage = () => {
                             <Flex key={s.pid} alignItems="center" justifyContent="space-between" style={{ padding: '6px 8px', borderRadius: 6, marginBottom: 4, background: s.running ? 'rgba(115,190,40,0.06)' : 'rgba(220,50,47,0.06)' }}>
                               <Flex alignItems="center" gap={8}>
                                 <span style={{ fontSize: 10, color: s.running ? Colors.Theme.Success['70'] : '#dc322f' }}>●</span>
-                                <span style={{ fontSize: 13 }}>{s.baseServiceName || s.service}</span>
+                                <a
+                                  href={getServicesUiUrl(company, s.journeyType, s.baseServiceName || s.service)}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  style={{ fontSize: 13, textDecoration: 'none', color: 'inherit', borderBottom: '1px dashed rgba(0,161,201,0.35)' }}
+                                >
+                                  {s.baseServiceName || s.service}
+                                </a>
                                 {s.serviceVersion && (
                                   <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 3, background: 'rgba(115,190,40,0.15)', color: Colors.Theme.Success['70'], fontFamily: 'monospace', fontWeight: 600 }}>
                                     v{s.serviceVersion}.0.0
@@ -5032,7 +5047,14 @@ export const HomePage = () => {
                               <Flex key={idx} alignItems="center" justifyContent="space-between" style={{ padding: '5px 8px', borderRadius: 6, marginBottom: 3, background: 'rgba(181,137,0,0.04)' }}>
                                 <Flex alignItems="center" gap={8}>
                                   <span style={{ fontSize: 10, color: '#b58900' }}>○</span>
-                                  <span style={{ fontSize: 12 }}>{s.baseServiceName || s.serviceName}</span>
+                                  <a
+                                    href={getServicesUiUrl(company, s.journeyType, s.baseServiceName || s.serviceName)}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    style={{ fontSize: 12, textDecoration: 'none', color: 'inherit', borderBottom: '1px dashed rgba(181,137,0,0.35)' }}
+                                  >
+                                    {s.baseServiceName || s.serviceName}
+                                  </a>
                                   {s.serviceVersion && (
                                     <span style={{ fontSize: 9, padding: '1px 4px', borderRadius: 3, background: 'rgba(181,137,0,0.1)', color: '#b58900', fontFamily: 'monospace' }}>
                                       v{s.serviceVersion}
@@ -5211,7 +5233,14 @@ export const HomePage = () => {
                                     {services.map(s => (
                                       <Flex key={s.pid} alignItems="center" gap={6} style={{ padding: '5px 12px', borderRadius: 6, background: s.running ? 'rgba(115,190,40,0.06)' : 'rgba(220,50,47,0.06)', whiteSpace: 'nowrap' }}>
                                         <span style={{ fontSize: 8, color: s.running ? Colors.Theme.Success['70'] : '#dc322f' }}>●</span>
-                                        <span style={{ fontSize: 12 }}>{s.baseServiceName || s.service}</span>
+                                        <a
+                                          href={getServicesUiUrl(company, jType, s.baseServiceName || s.service)}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          style={{ fontSize: 12, textDecoration: 'none', color: 'inherit', borderBottom: '1px dashed rgba(115,190,40,0.35)' }}
+                                        >
+                                          {s.baseServiceName || s.service}
+                                        </a>
                                         {s.serviceVersion && (
                                           <span style={{ fontSize: 9, padding: '1px 4px', borderRadius: 3, background: 'rgba(115,190,40,0.12)', color: Colors.Theme.Success['70'], fontFamily: 'monospace', fontWeight: 600 }}>
                                             v{s.serviceVersion}.0.0
