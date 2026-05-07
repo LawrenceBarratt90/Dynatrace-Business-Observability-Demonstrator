@@ -284,7 +284,7 @@ const sendBusinessEvent = (eventType, data) => {
     const options = {
       hostname: '127.0.0.1',
       port: mainServerPort,
-      path: '/api/internal/bizevent',
+      path: '/process',
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

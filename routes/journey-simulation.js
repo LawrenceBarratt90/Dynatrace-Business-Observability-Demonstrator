@@ -1092,6 +1092,8 @@ router.post('/simulate-journey', async (req, res) => {
       domain: currentPayload.domain,
       industryType: currentPayload.industryType,
       journeyType: currentPayload.journeyType,
+      createdByUserEmail: String(req.headers['x-user-email'] || req.body?.userEmail || '').trim().toLowerCase(),
+      createdByUserName: String(req.headers['x-user-name'] || req.body?.userName || '').trim(),
       journeyDetail: journeyDetail
     };
     
@@ -2787,7 +2789,17 @@ router.post('/simulate-batch-chained', async (req, res) => {
 
     // Ensure services running with correct context
     for (const s of errorPlannedSteps) {
-      await ensureServiceRunning(s.stepName, { companyName, domain, industryType, stepName: s.stepName, serviceName: s.serviceName, description: s.description, category: s.category });
+      await ensureServiceRunning(s.stepName, {
+        companyName,
+        domain,
+        industryType,
+        createdByUserEmail: String(req.headers['x-user-email'] || req.body?.userEmail || '').trim().toLowerCase(),
+        createdByUserName: String(req.headers['x-user-name'] || req.body?.userName || '').trim(),
+        stepName: s.stepName,
+        serviceName: s.serviceName,
+        description: s.description,
+        category: s.category,
+      });
     }
 
     // Give time to boot

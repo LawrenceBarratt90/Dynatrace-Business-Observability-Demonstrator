@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { Flex } from '@dynatrace/strato-components';
 import { InfoButton } from '../components/InfoButton';
 import {
@@ -13,11 +13,27 @@ import {
   GaugeChart,
 } from '@dynatrace/strato-components-preview/charts';
 import { useDqlQuery } from '@dynatrace-sdk/react-hooks';
+import { getCurrentUserDetails } from '@dynatrace-sdk/app-environment';
 import { loadAppSettings, AppSettings } from '../services/app-settings';
 import { functions } from '@dynatrace-sdk/app-utils';
 import appConfig from '../../../app.config.json';
 
 const TENANT_BASE = appConfig.environmentUrl.replace(/\/$/, '');
+
+const getAuditUser = () => {
+  const details = getCurrentUserDetails();
+  const userEmail = details?.email && !String(details.email).startsWith('dt.missing.user.')
+    ? String(details.email).trim().toLowerCase()
+    : '';
+  const rawName = details?.name && !String(details.name).startsWith('dt.missing.user.')
+    ? String(details.name).trim()
+    : '';
+
+  return {
+    userEmail,
+    userName: rawName || (userEmail.includes('@') ? userEmail.split('@')[0] : 'unknown'),
+  };
+};
 
 /* ═══════════════════════════════════════════════════════════════
    TYPES
@@ -48,6 +64,17 @@ interface FieldProfile {
 }
 
 type DashboardPreset = 'developer' | 'operations' | 'executive' | 'intelligence' | 'security' | 'sre' | 'logs' | 'vcarb';
+
+const isDashboardPreset = (value: string | null): value is DashboardPreset => (
+  value === 'developer'
+  || value === 'operations'
+  || value === 'executive'
+  || value === 'intelligence'
+  || value === 'security'
+  || value === 'sre'
+  || value === 'logs'
+  || value === 'vcarb'
+);
 
 type Timeframe = 'now()-30m' | 'now()-1h' | 'now()-2h' | 'now()-6h' | 'now()-12h' | 'now()-24h' | 'now()-3d' | 'now()-7d';
 
@@ -164,7 +191,7 @@ const PRESET_OVERVIEW: Record<DashboardPreset, { headline: string; bullets: stri
 async function proxyDql(query: string, maxRecords = 100): Promise<{ success: boolean; records?: any[]; error?: string }> {
   try {
     const res = await functions.call('proxy-api', {
-      data: { action: 'execute-dql', body: { query, timeoutMs: 30000, maxRecords } },
+      data: { action: 'execute-dql', ...getAuditUser(), body: { query, timeoutMs: 30000, maxRecords } },
     });
     return (await res.json()) as any;
   } catch (err: any) {
@@ -2378,6 +2405,7 @@ async function exportToNotebook(tiles: TileDefinition[], presetLabel: string) {
     const res = await functions.call('proxy-api', {
       data: {
         action: 'create-notebook',
+        ...getAuditUser(),
         body: { name: `Engine — ${presetLabel} — ${new Date().toISOString().slice(0, 16)}`, content: JSON.stringify({ version: '1', defaultTimeframe: { from: 'now()-2h', to: 'now()' }, sections }) },
       },
     });
@@ -2590,8 +2618,8 @@ function useLibrarian() {
     try {
       // Fetch history + stats in parallel via proxy
       const [histRes, statsRes] = await Promise.all([
-        functions.call('proxy-api', { data: { action: 'librarian-history' as const, ...connSettings, body: { limit: 200 } } }),
-        functions.call('proxy-api', { data: { action: 'librarian-stats' as const, ...connSettings } }),
+        functions.call('proxy-api', { data: { action: 'librarian-history' as const, ...getAuditUser(), ...connSettings, body: { limit: 200 } } }),
+        functions.call('proxy-api', { data: { action: 'librarian-stats' as const, ...getAuditUser(), ...connSettings } }),
       ]);
       const histData = (await histRes.json()) as any;
       const statsData = (await statsRes.json()) as any;
@@ -2603,7 +2631,7 @@ function useLibrarian() {
 
       // Now call AI analysis
       setState(prev => ({ ...prev, loading: true, error: null }));
-      const analyzeRes = await functions.call('proxy-api', { data: { action: 'librarian-analyze' as const, ...connSettings } });
+      const analyzeRes = await functions.call('proxy-api', { data: { action: 'librarian-analyze' as const, ...getAuditUser(), ...connSettings } });
       const analyzeData = (await analyzeRes.json()) as any;
 
       if (analyzeData.success) {
@@ -2642,9 +2670,13 @@ function useLibrarian() {
    ═══════════════════════════════════════════════════════════════ */
 
 export const DemonstratorDashboardsPage = () => {
-  const [preset, setPreset] = useState<DashboardPreset>('developer');
-  const [companyName, setCompanyName] = useState('');
-  const [journeyType, setJourneyType] = useState('');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [preset, setPreset] = useState<DashboardPreset>(() => {
+    const requestedPreset = searchParams.get('preset');
+    return isDashboardPreset(requestedPreset) ? requestedPreset : 'developer';
+  });
+  const [companyName, setCompanyName] = useState(() => searchParams.get('company') || '');
+  const [journeyType, setJourneyType] = useState(() => searchParams.get('journey') || '');
   const [serviceName, setServiceName] = useState('');
   const [eventType, setEventType] = useState('');
   const [timeframe, setTimeframe] = useState<Timeframe>('now()-2h');
@@ -2656,6 +2688,25 @@ export const DemonstratorDashboardsPage = () => {
   useEffect(() => {
     loadAppSettings().then(({ settings: s }) => { setSettings(s); setLoading(false); });
   }, []);
+
+  useEffect(() => {
+    const nextSearchParams = new URLSearchParams(searchParams);
+
+    if (companyName) nextSearchParams.set('company', companyName);
+    else nextSearchParams.delete('company');
+
+    if (journeyType) nextSearchParams.set('journey', journeyType);
+    else nextSearchParams.delete('journey');
+
+    if (preset !== 'developer') nextSearchParams.set('preset', preset);
+    else nextSearchParams.delete('preset');
+
+    const currentQuery = searchParams.toString();
+    const nextQuery = nextSearchParams.toString();
+    if (nextQuery !== currentQuery) {
+      setSearchParams(nextSearchParams, { replace: true });
+    }
+  }, [companyName, journeyType, preset, searchParams, setSearchParams]);
 
   const { values: companyValues, error: companyError } = useCompanyValues(refreshKey);
   const { values: journeyValues, error: journeyError } = useJourneyValues(companyName, refreshKey);

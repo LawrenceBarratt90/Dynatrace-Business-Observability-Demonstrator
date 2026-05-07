@@ -29,6 +29,7 @@ fail() { echo -e "  ${RED}✗ $1${NC}"; exit 1; }
 install_or_refresh_service() {
   if command -v systemctl >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
     bash scripts/install-systemd-service.sh --enable >/dev/null
+    bash scripts/install-log-guard.sh >/dev/null 2>&1 || true
     ok "Refreshed systemd service definition"
     return 0
   fi

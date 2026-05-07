@@ -106,16 +106,26 @@ router.post('/step1-chained', async (req, res) => {
       ];
     }
 
-    // Ensure all dynamic services are running before chaining with company context if journey provided
+    // Ensure all dynamic services are running sequentially with company context
     const companyContext = {
       companyName: journey?.companyName || req.body.companyName,
       domain: journey?.domain || req.body.domain,
       industryType: journey?.industryType || req.body.industryType
     };
+    console.log(`[steps.js] Starting ${stepsArr.length} services in sequence for ${companyContext.companyName}...`);
+    const servicePorts = {};
     for (const s of stepsArr) {
-      ensureServiceRunning(s.stepName, { ...companyContext, stepName: s.stepName, serviceName: s.serviceName });
+      try {
+        const port = await ensureServiceRunning(s.stepName, { ...companyContext, stepName: s.stepName, serviceName: s.serviceName });
+        servicePorts[s.serviceName] = port;
+        console.log(`[steps.js] ✅ Started ${s.serviceName} on port ${port}`);
+        // Small delay between service starts to avoid race conditions
+        await new Promise(resolve => setTimeout(resolve, 200));
+      } catch (e) {
+        console.error(`[steps.js] ❌ Failed to start ${s.stepName}:`, e.message);
+        throw e;
+      }
     }
-    await new Promise(resolve => setTimeout(resolve, 1000));
 
   const first = stepsArr[0];
   const second = stepsArr[1] || null;
@@ -138,7 +148,8 @@ router.post('/step1-chained', async (req, res) => {
       steps: stepsArr,
       thinkTimeMs: req.body.thinkTimeMs,
       traceId: rootTraceId,
-      spanId: rootSpanId
+      spanId: rootSpanId,
+      servicePortMap: servicePorts  // CRITICAL: Pass port map for direct service-to-service calls
     };
 
     const options = {
@@ -211,17 +222,27 @@ router.post('/full-chain', async (req, res) => {
       ];
     }
 
-    // Start all services
+    // Start all services sequentially
     const companyContext = {
       companyName: journey?.companyName || req.body.companyName,
       domain: journey?.domain || req.body.domain,
       industryType: journey?.industryType || req.body.industryType
     };
     
+    console.log(`[steps.js] Starting ${stepsArr.length} services in sequence for full-chain...`);
+    const servicePorts = {};
     for (const s of stepsArr) {
-      ensureServiceRunning(s.stepName, { ...companyContext, stepName: s.stepName, serviceName: s.serviceName });
+      try {
+        const port = await ensureServiceRunning(s.stepName, { ...companyContext, stepName: s.stepName, serviceName: s.serviceName });
+        servicePorts[s.serviceName] = port;
+        console.log(`[steps.js] ✅ Started ${s.serviceName} on port ${port}`);
+        // Small delay between service starts to avoid race conditions
+        await new Promise(resolve => setTimeout(resolve, 200));
+      } catch (e) {
+        console.error(`[steps.js] ❌ Failed to start ${s.stepName}:`, e.message);
+        throw e;
+      }
     }
-    await new Promise(resolve => setTimeout(resolve, 2000)); // Wait for services to start
 
     // Execute all steps in sequence
     const http = await import('http');

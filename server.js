@@ -57,7 +57,7 @@ try {
 // import { startDetector as startFixitDetector } from './dist/agents/fixit/problemDetector.js';
 import mcpServerRouter from './routes/mcp-server.js';
 import provisionAccessRouter from './routes/provision-access.js';
-import { injectDynatraceMetadata, injectErrorMetadata, propagateMetadata, validateMetadata } from './middleware/dynatrace-metadata.js';
+import { injectDynatraceMetadata, injectErrorMetadata, propagateMetadata, validateMetadata, createBusinessEventMetadata } from './middleware/dynatrace-metadata.js';
 import { performComprehensiveHealthCheck } from './middleware/observability-hygiene.js';
 // MongoDB integration removed
 
@@ -521,11 +521,111 @@ function hostToLabel(host) {
   return host;
 }
 
+function sanitizeAuditToken(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+function extractAuditIdentity(req) {
+  const body = req.body && typeof req.body === 'object' ? req.body : {};
+  const query = req.query && typeof req.query === 'object' ? req.query : {};
+  const headerEmail = req.headers['x-user-email'] || req.headers['x-forwarded-email'] || req.headers['x-authenticated-user-email'];
+  const email = String(body.userEmail || body.email || query.userEmail || query.email || headerEmail || '').trim().toLowerCase();
+  const headerName = req.headers['x-user-name'] || req.headers['x-authenticated-user-name'];
+  const userName = String(body.userName || query.userName || headerName || (email.includes('@') ? email.split('@')[0] : 'unknown')).trim();
+  return {
+    userEmail: email,
+    userName: userName || 'unknown',
+  };
+}
+
+function shouldEmitApiAudit(req) {
+  if (!req.path || !req.path.startsWith('/api/')) return false;
+  if (req.path === '/api/internal/bizevent') return false;
+  if (req.path.startsWith('/api/health')) return false;
+  if (req.path === '/api/ready') return false;
+  return true;
+}
+
+async function emitApiUsageAudit(req, details) {
+  const pathname = req.path || '/api/unknown';
+  const pathParts = pathname.split('/').filter(Boolean);
+  const feature = sanitizeAuditToken(pathParts[1] || 'app') || 'app';
+  const action = sanitizeAuditToken(pathParts.slice(2).join('-') || req.method || 'request') || 'request';
+  const eventType = `bizevents.audit.usage.${feature}.${action}`;
+  const { userEmail, userName } = extractAuditIdentity(req);
+  const statusBucket = details.statusCode >= 500 ? 'failure' : details.statusCode >= 400 ? 'warning' : 'success';
+
+  const payload = {
+    companyName: process.env.ACCESS_REQUEST_COMPANY_NAME || 'Dynatrace Internal',
+    journeyType: process.env.ACCESS_REQUEST_JOURNEY_TYPE || 'Application Usage',
+    stepName: eventType,
+    serviceName: 'BizObsApiGateway',
+    correlationId: req.correlationId,
+    domain: req.hostname || 'localhost',
+    eventType,
+    userName,
+    userEmail,
+    feature,
+    journeyStatus: statusBucket === 'failure' ? 'Failed' : statusBucket === 'warning' ? 'Warning' : 'Success',
+    additionalFields: {
+      hasError: statusBucket === 'failure',
+      statusBucket,
+      statusCode: details.statusCode,
+      method: req.method,
+      path: pathname,
+      durationMs: details.durationMs,
+      frontendHost: req.frontendHostLabel || 'unknown',
+      userAgent: req.headers['user-agent'] || '',
+      source: 'api-usage-audit',
+      userName,
+      userEmail,
+      feature,
+    },
+  };
+
+  const headers = {
+    'Content-Type': 'application/json',
+    'x-correlation-id': req.correlationId,
+    ...createBusinessEventMetadata(eventType, eventType, {
+      companyName: payload.companyName,
+      domain: payload.domain,
+      industryType: 'application-observability',
+      customerId: userEmail || 'anonymous',
+      status: statusBucket,
+      source: 'api-usage-audit',
+      channel: 'web',
+    }),
+    'x-biz-correlation-id': req.correlationId || '',
+    'x-biz-user-name': userName,
+    'x-biz-user-email': userEmail,
+    'x-biz-feature': feature,
+    'x-biz-additional-status-code': String(details.statusCode),
+    'x-biz-additional-status-bucket': statusBucket,
+    'x-biz-additional-method': String(req.method || ''),
+    'x-biz-additional-path': pathname.substring(0, 100),
+    'x-biz-additional-duration-ms': String(details.durationMs),
+  };
+
+  try {
+    await fetch(`http://127.0.0.1:${process.env.PORT || 8080}/process`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload),
+    });
+  } catch (error) {
+    console.warn('[api-audit] Failed to emit usage audit event:', error.message);
+  }
+}
+
 // Attach helpful request context and distributed tracing
 app.use((req, res, next) => {
   const cid = req.headers['x-correlation-id'] || uuidv4();
   req.correlationId = cid;
   res.setHeader('x-correlation-id', cid);
+  const requestStartedAt = Date.now();
 
   // Extract and preserve all Dynatrace tracing headers for propagation
   req.tracingHeaders = {};
@@ -552,6 +652,17 @@ app.use((req, res, next) => {
 
   // Expose Socket.IO on request for route handlers
   req.io = io;
+
+  if (shouldEmitApiAudit(req)) {
+    res.once('finish', () => {
+      const durationMs = Date.now() - requestStartedAt;
+      emitApiUsageAudit(req, {
+        statusCode: res.statusCode,
+        durationMs,
+      });
+    });
+  }
+
   next();
 });
 
@@ -560,6 +671,10 @@ const eventService = {
   async emitEvent(eventType, data) {
     try {
       const { stepName, substeps } = data;
+      const companyName = data.companyName || 'DefaultCompany';
+      const domain = data.domain || 'default.com';
+      const industryType = data.industryType || 'general';
+      const journeyType = data.journeyType || data.journeyDetail || '';
       const correlationId = data.correlationId || uuidv4();
       
       // per-step logging removed — covered by traces
@@ -575,7 +690,15 @@ const eventService = {
           
           try {
             // Ensure the service is running using service manager
-            ensureServiceRunning(substepName);
+            ensureServiceRunning(substepName, {
+              companyName,
+              domain,
+              industryType,
+              journeyType,
+              journeyDetail: data.journeyDetail || journeyType,
+              stepName: substepName,
+              serviceName,
+            });
             
             // Wait a moment for service to be ready
             await new Promise(resolve => setTimeout(resolve, 100));
@@ -589,7 +712,7 @@ const eventService = {
               timestamp: new Date().toISOString()
             };
             
-            const servicePort = getServicePort(substepName);
+            const servicePort = await getServicePort(substepName, companyName);
             const result = await callChildService(serviceName, payload, servicePort);
             results.push(result);
             
@@ -1268,8 +1391,7 @@ export function getFeatureFlags() {
   return globalFeatureFlags;
 }
 
-// Internal business event endpoint for OneAgent capture
-app.post('/api/internal/bizevent', (req, res) => {
+function handleInternalBusinessEvent(req, res) {
   // This endpoint exists solely for OneAgent to capture HTTP requests with flattened headers
   // The real business event data is in the headers and request body
   const flattenedFields = {};
@@ -1290,7 +1412,13 @@ app.post('/api/internal/bizevent', (req, res) => {
     message: 'Business event captured',
     flattenedFieldCount: Object.keys(flattenedFields).length
   });
-});
+}
+
+// Main compatibility endpoint for Dynatrace BizEvent capture rules
+app.post('/process', handleInternalBusinessEvent);
+
+// Legacy internal endpoint kept for backward compatibility
+app.post('/api/internal/bizevent', handleInternalBusinessEvent);
 
 // Health check endpoint with metadata validation
 app.get('/health', (req, res) => {
@@ -2370,11 +2498,32 @@ app.get('/api/health', (req, res) => {
       domain: meta.domain || null,
       industryType: meta.industryType || null,
       journeyType: meta.journeyType || null,
+      journeyDetail: meta.journeyDetail || null,
       stepName: meta.stepName || null,
       baseServiceName: meta.baseServiceName || null,
+      createdByUserEmail: meta.createdByUserEmail || null,
+      createdByUserName: meta.createdByUserName || null,
       startTime: meta.startTime || null,
     };
   });
+
+  const duplicateBuckets = serviceStatuses.reduce((acc, svc) => {
+    const key = `${String(svc.companyName || '').toLowerCase()}::${String(svc.baseServiceName || svc.service || '').toLowerCase()}`;
+    if (!acc[key]) acc[key] = [];
+    acc[key].push(svc);
+    return acc;
+  }, {});
+
+  const duplicateServices = Object.values(duplicateBuckets)
+    .filter((group) => group.length > 1)
+    .map((group) => ({
+      companyName: group[0]?.companyName || null,
+      baseServiceName: group[0]?.baseServiceName || group[0]?.service || null,
+      count: group.length,
+      ports: group.map((item) => item.port).filter(Boolean),
+      services: group.map((item) => item.service),
+    }));
+
   res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
@@ -2383,7 +2532,8 @@ app.get('/api/health', (req, res) => {
       uptime: process.uptime(),
       port: PORT
     },
-    childServices: serviceStatuses
+    childServices: serviceStatuses,
+    duplicateServices
   });
 });
 

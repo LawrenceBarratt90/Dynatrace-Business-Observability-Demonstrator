@@ -9,10 +9,8 @@ import { TitleBar } from '@dynatrace/strato-components-preview/layouts';
 import Colors from '@dynatrace/strato-design-tokens/colors';
 import { InfoButton } from '../components/InfoButton';
 import { functions } from '@dynatrace-sdk/app-utils';
-import { loadAppSettings, saveAppSettings, type AppSettings } from '../services/app-settings';
-
-// localStorage fallback key (for when app-settings is unavailable)
-const LOCAL_STORAGE_KEY = 'bizobs_api_settings';
+import { getCurrentUserDetails } from '@dynatrace-sdk/app-environment';
+import { loadAppSettings, saveAppSettings, getLastAppSettingsSaveError, type AppSettings } from '../services/app-settings';
 
 const DEFAULT_SETTINGS: AppSettings = {
   apiHost: 'localhost',
@@ -21,24 +19,29 @@ const DEFAULT_SETTINGS: AppSettings = {
   enableAutoGeneration: false,
 };
 
+const getAuditUser = () => {
+  const details = getCurrentUserDetails();
+  const userEmail = details?.email && !String(details.email).startsWith('dt.missing.user.')
+    ? String(details.email).trim().toLowerCase()
+    : '';
+  const rawName = details?.name && !String(details.name).startsWith('dt.missing.user.')
+    ? String(details.name).trim()
+    : '';
+
+  return {
+    userEmail,
+    userName: rawName || (userEmail.includes('@') ? userEmail.split('@')[0] : 'unknown'),
+  };
+};
+
 export const SettingsPage = () => {
   const navigate = useNavigate();
-  const [settings, setSettings] = useState<AppSettings>(() => {
-    // Immediate render from localStorage while Document Service loads async
-    try {
-      const stored = localStorage.getItem(LOCAL_STORAGE_KEY);
-      if (stored) {
-        const p = JSON.parse(stored);
-        return { ...DEFAULT_SETTINGS, ...p };
-      }
-    } catch { /* ignore */ }
-    return DEFAULT_SETTINGS;
-  });
+  const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
   const [statusMessage, setStatusMessage] = useState('');
-  const [settingsSource, setSettingsSource] = useState<'document' | 'localStorage' | 'defaults'>('defaults');
+  const [settingsSource, setSettingsSource] = useState<'document' | 'defaults'>('defaults');
 
   // Load settings from shared Document Service on mount
   const settingsLoadedRef = useRef(false);
@@ -48,18 +51,15 @@ export const SettingsPage = () => {
 
     loadAppSettings().then(({ settings: loaded, source }) => {
       setSettingsSource(source);
-      if (source === 'document' && loaded.apiHost !== 'localhost') {
+      if (source === 'document') {
         setSettings(loaded);
         setStatusMessage('✅ Settings loaded from shared app config');
-      } else if (source === 'localStorage') {
-        setSettings(loaded);
-        setStatusMessage('💾 Settings loaded from local cache');
       } else {
         setStatusMessage('ℹ️ No saved settings found. Using defaults.');
       }
       setIsLoading(false);
     }).catch(() => {
-      setStatusMessage('⚠️ Could not load settings — using local cache');
+      setStatusMessage('⚠️ Could not load shared settings — using defaults');
       setIsLoading(false);
     });
   }, []);
@@ -68,13 +68,14 @@ export const SettingsPage = () => {
     setIsSaving(true);
     setStatusMessage('💾 Saving to shared app config...');
 
-    // Save to Document Service (also writes localStorage as fallback)
+    // Save to shared Document Service
     const docSaved = await saveAppSettings(settings);
 
     if (docSaved) {
       setStatusMessage('✅ Settings saved to shared app config (all users will see these)');
     } else {
-      setStatusMessage('⚠️ Saved locally only — shared document write failed');
+      const saveError = getLastAppSettingsSaveError();
+      setStatusMessage(`❌ Shared document write failed — settings were not saved globally${saveError ? ` (${saveError})` : ''}`);
     }
 
     // Auto-register host pattern with EdgeConnect
@@ -84,6 +85,7 @@ export const SettingsPage = () => {
         const ecRes = await functions.call('proxy-api', {
           data: {
             action: 'ec-update-patterns',
+            ...getAuditUser(),
             apiHost: '', apiPort: '', apiProtocol: '',
             body: { hostPatterns: [host] },
           },
@@ -109,6 +111,7 @@ export const SettingsPage = () => {
       const proxyResponse = await functions.call('proxy-api', {
         data: {
           action: 'test-connection',
+          ...getAuditUser(),
           apiHost: settings.apiHost,
           apiPort: settings.apiPort,
           apiProtocol: settings.apiProtocol,
@@ -169,7 +172,7 @@ export const SettingsPage = () => {
                   { label: '💾 Save Settings', detail: 'Persist settings via Dynatrace Document Service (shared across all users)' },
                   { label: '🔄 Reset to Defaults', detail: 'Revert to localhost:8080 defaults' },
                 ]}
-                footer="Settings are stored in Dynatrace Document Service (cloud) with localStorage fallback."
+                footer="Settings are stored globally in Dynatrace Document Service (cloud)."
               />
             </Flex>
           </TitleBar.Title>
@@ -217,13 +220,13 @@ export const SettingsPage = () => {
             borderRadius: 20,
             background: settingsSource === 'document'
               ? 'rgba(115, 190, 40, 0.15)'
-              : 'rgba(255, 210, 63, 0.15)',
-            border: `1px solid ${settingsSource === 'document' ? Colors.Theme.Success['70'] : 'rgba(255, 210, 63, 0.6)'}`,
+              : 'rgba(0, 161, 201, 0.12)',
+            border: `1px solid ${settingsSource === 'document' ? Colors.Theme.Success['70'] : Colors.Theme.Primary['70']}`,
             fontSize: 12,
             marginBottom: 24,
           }}>
-            <span>{settingsSource === 'document' ? '☁️' : '💾'}</span>
-            <span>{settingsSource === 'document' ? 'Shared App Config (all users)' : 'Local Storage'}</span>
+            <span>{settingsSource === 'document' ? '☁️' : 'ℹ️'}</span>
+            <span>{settingsSource === 'document' ? 'Shared App Config (all users)' : 'Using in-app defaults'}</span>
           </div>
 
           {/* API Connection Settings Card */}

@@ -136,7 +136,47 @@ const sendErrorEvent = (eventType, error, context = {}) => {
 };
 
 /**
- * Send a CUSTOM_INFO event to Dynatrace via Events API v2 when a feature flag fires.
+ * Helper to escape selector values in Dynatrace entity selectors.
+ * Escapes backslashes and quotes to prevent selector injection.
+ */
+const escapeSelectorValue = (value) => {
+  return String(value || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+};
+
+/**
+ * Build entity selectors for a specific service instance.
+ * Uses compound service names to target the specific service variant.
+ * @param {string} companyName - Company/domain name
+ * @param {string} serviceName - Service name (e.g., "DiscoveryService")
+ * @returns {string[]} Array of entity selectors
+ */
+const buildFeatureFlagEntitySelectors = (companyName, serviceName) => {
+  const selectors = [];
+  
+  // Build compound service name (e.g., "DiscoveryService-SmythsShoes")
+  if (companyName && serviceName) {
+    const compoundName = `${serviceName}-${companyName}`;
+    selectors.push(`type(SERVICE),entityName.contains("${escapeSelectorValue(compoundName)}")`);
+  }
+  
+  // Fallback to just the service name
+  if (serviceName) {
+    selectors.push(`type(SERVICE),entityName.contains("${escapeSelectorValue(serviceName)}")`);
+  }
+  
+  // Process group instance selector
+  if (companyName && serviceName) {
+    const compoundName = `${serviceName}-${companyName}`;
+    selectors.push(`type(PROCESS_GROUP_INSTANCE),entityName.contains("${escapeSelectorValue(compoundName)}")`);
+  }
+  
+  return selectors;
+};
+
+/**
+ * Send a CUSTOM_CONFIGURATION event to Dynatrace via Events API v2 when a feature flag fires.
+ * This creates a correlation point that allows Dynatrace to link the feature flag
+ * as a configuration change (root cause) to the service disruption that follows.
  * Also enriches the current OneAgent PurePath trace with custom request attributes.
  * @param {Object} details - { serviceName, stepName, featureFlag, errorType, httpStatus, correlationId, errorRate, domain, industryType, companyName }
  */
@@ -168,7 +208,8 @@ const sendFeatureFlagCustomEvent = async (details = {}) => {
     }
   }
 
-  // 2) Send CUSTOM_INFO event to Dynatrace Events API v2
+  // 2) Send CUSTOM_CONFIGURATION event to Dynatrace Events API v2
+  // Using CUSTOM_CONFIGURATION to better represent feature flag changes as root causes
   const DT_ENVIRONMENT = process.env.DT_ENVIRONMENT || process.env.DYNATRACE_URL;
   const DT_TOKEN = process.env.DT_PLATFORM_TOKEN || process.env.DYNATRACE_TOKEN;
 
@@ -177,10 +218,19 @@ const sendFeatureFlagCustomEvent = async (details = {}) => {
     return { success: false, reason: 'no_credentials' };
   }
 
+  // Build entity selectors to target the specific service
+  const entitySelectors = buildFeatureFlagEntitySelectors(companyName, serviceName);
+  const entitySelector = entitySelectors.length > 0 ? entitySelectors.join('|') : undefined;
+
+  console.log(`[dynatrace-sdk] Building feature flag event for ${serviceName}@${companyName}`, {
+    entitySelector,
+    featureFlag,
+    errorType
+  });
+
   const eventPayload = {
-    eventType: 'CUSTOM_INFO',
+    eventType: 'CUSTOM_CONFIGURATION',
     title: `Feature Flag Triggered: ${featureFlag}`,
-    timeout: 15,
     properties: {
       'feature_flag.name': featureFlag,
       'feature_flag.error_type': errorType,
@@ -194,9 +244,16 @@ const sendFeatureFlagCustomEvent = async (details = {}) => {
       'journey.company': companyName,
       'triggered.by': 'nemesis-agent',
       'event.source': 'bizobs-feature-flag',
-      'dt.event.description': `Feature flag "${featureFlag}" injected ${errorType} error (HTTP ${httpStatus}) on ${serviceName} / ${stepName}`
+      'dt.event.description': `Feature flag "${featureFlag}" injected ${errorType} error (HTTP ${httpStatus}) on ${serviceName} / ${stepName}`,
+      'dt.event.is_rootcause_relevant': 'true'
     }
   };
+
+  // Add entity selector if available to correlate with specific service
+  if (entitySelector) {
+    eventPayload.entitySelector = entitySelector;
+    console.log(`[dynatrace-sdk] ✅ Entity selector added: ${entitySelector}`);
+  }
 
   try {
     const response = await fetch(`${DT_ENVIRONMENT}/api/v2/events/ingest`, {

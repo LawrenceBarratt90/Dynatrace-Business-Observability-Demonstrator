@@ -18,8 +18,8 @@ class PortManager extends EventEmitter {
     // Use EasyTravel-style ports with environment variable support
     const portOffset = parseInt(process.env.PORT_OFFSET || '0');
   this.minPort = minPort || (parseInt(process.env.SERVICE_PORT_MIN || '8081') + portOffset);
-  // Extend default max port to cover 660 ports (8081-8740) for all 55 companies × 2 journeys × 6 steps
-  this.maxPort = maxPort || (parseInt(process.env.SERVICE_PORT_MAX || '8740') + portOffset);
+  // Extend default max port to cover 4000+ ports (8081-12080) for hundreds of concurrent journeys
+  this.maxPort = maxPort || (parseInt(process.env.SERVICE_PORT_MAX || '12080') + portOffset);
     this.allocatedPorts = new Map(); // port -> { service, company, timestamp }
     this.pendingAllocations = new Set(); // ports currently being allocated
     this.allocationLock = new Map(); // service key -> allocation promise

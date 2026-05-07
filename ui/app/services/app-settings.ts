@@ -5,15 +5,16 @@
  * when one user configures the EC2 IP / port / protocol, every other
  * user sees the same settings without needing to configure again.
  * 
- * Fallback chain:
- *   LOAD:  Document API → localStorage
- *   SAVE:  Document API + localStorage (both written)
+ * Global-only behavior:
+ *   LOAD:  Document API → defaults
+ *   SAVE:  Document API only
  */
 import { functions } from '@dynatrace-sdk/app-utils';
+import { getCurrentUserDetails } from '@dynatrace-sdk/app-environment';
 
 // Well-known document name shared across all users
 const APP_SETTINGS_DOC_NAME = 'bizobs-demonstrator-app-settings';
-const LOCAL_STORAGE_KEY = 'bizobs_api_settings';
+let lastSaveError: string | null = null;
 
 export interface AppSettings {
   apiHost: string;
@@ -22,6 +23,7 @@ export interface AppSettings {
   enableAutoGeneration: boolean;
   checklistState?: string;
   promptTemplates?: string;
+  demoSchedules?: string;
   connectionTested?: boolean;
 }
 
@@ -32,15 +34,30 @@ const DEFAULTS: AppSettings = {
   enableAutoGeneration: false,
 };
 
+function getAuditUser() {
+  const details = getCurrentUserDetails();
+  const userEmail = details?.email && !String(details.email).startsWith('dt.missing.user.')
+    ? String(details.email).trim().toLowerCase()
+    : '';
+  const rawName = details?.name && !String(details.name).startsWith('dt.missing.user.')
+    ? String(details.name).trim()
+    : '';
+
+  return {
+    userEmail,
+    userName: rawName || (userEmail.includes('@') ? userEmail.split('@')[0] : 'unknown'),
+  };
+}
+
 /**
  * Load app-wide settings from the shared Grail Document via the serverless proxy.
- * Falls back to localStorage if the document doesn't exist or can't be read.
+ * Falls back to defaults if the document doesn't exist or can't be read.
  */
-export async function loadAppSettings(): Promise<{ settings: AppSettings; source: 'document' | 'localStorage' | 'defaults' }> {
+export async function loadAppSettings(): Promise<{ settings: AppSettings; source: 'document' | 'defaults' }> {
   // Try Document API via serverless proxy
   try {
     const res = await functions.call('proxy-api', {
-      data: { action: 'load-app-settings' },
+      data: { action: 'load-app-settings', ...getAuditUser() },
     });
     const result = await res.json() as any;
     if (result.success && result.settings) {
@@ -52,10 +69,9 @@ export async function loadAppSettings(): Promise<{ settings: AppSettings; source
         enableAutoGeneration: s.enableAutoGeneration || false,
         checklistState: s.checklistState,
         promptTemplates: s.promptTemplates,
+        demoSchedules: s.demoSchedules,
         connectionTested: s.connectionTested,
       };
-      // Sync to localStorage for fast initial render next time
-      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(settings));
       console.log('[AppSettings] ✅ Loaded from shared document:', settings.apiHost);
       return { settings, source: 'document' };
     }
@@ -63,36 +79,22 @@ export async function loadAppSettings(): Promise<{ settings: AppSettings; source
     console.warn('[AppSettings] Document load failed:', err.message);
   }
 
-  // Fallback to localStorage
-  try {
-    const stored = localStorage.getItem(LOCAL_STORAGE_KEY);
-    if (stored) {
-      const parsed = JSON.parse(stored);
-      return {
-        settings: { ...DEFAULTS, ...parsed },
-        source: 'localStorage',
-      };
-    }
-  } catch { /* ignore */ }
-
   return { settings: DEFAULTS, source: 'defaults' };
 }
 
 /**
- * Save settings to the shared Grail Document (app-wide) AND localStorage.
+ * Save settings to the shared Grail Document (app-wide).
  * Returns true if the document write succeeded.
  */
 export async function saveAppSettings(settings: AppSettings): Promise<boolean> {
-  // Always write localStorage immediately
-  localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(settings));
-  localStorage.setItem('bizobs_api_host', settings.apiHost);
-  localStorage.setItem('bizobs_api_port', settings.apiPort);
+  lastSaveError = null;
 
   // Write to shared Document via serverless proxy
   try {
     const res = await functions.call('proxy-api', {
       data: {
         action: 'save-app-settings',
+        ...getAuditUser(),
         body: settings,
       },
     });
@@ -101,11 +103,18 @@ export async function saveAppSettings(settings: AppSettings): Promise<boolean> {
       console.log('[AppSettings] ✅ Saved to shared document');
       return true;
     } else {
-      console.warn('[AppSettings] Document save returned:', result.error);
+      const detail = [result.error, result.code ? `code=${result.code}` : ''].filter(Boolean).join(' ');
+      lastSaveError = detail || 'Shared document write failed';
+      console.warn('[AppSettings] Document save returned:', detail || result.error);
       return false;
     }
   } catch (err: any) {
+    lastSaveError = err?.message || 'Shared document write failed';
     console.warn('[AppSettings] Document save failed:', err.message);
     return false;
   }
+}
+
+export function getLastAppSettingsSaveError(): string | null {
+  return lastSaveError;
 }

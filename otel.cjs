@@ -57,6 +57,31 @@ const {
 const { logs: logsAPI } = require("@opentelemetry/api-logs");
 const fs = require("fs");
 
+// Surface exporter/runtime issues in logs without flooding normal output.
+opentelemetry.diag.setLogger(
+  new opentelemetry.DiagConsoleLogger(),
+  opentelemetry.DiagLogLevel.ERROR
+);
+
+function deriveOtlpBaseUrl(rawUrl) {
+  const base = String(rawUrl || "").trim().replace(/\/+$/, "");
+  if (!base) return "";
+
+  // Sprint/labs: UI + platform uses *.sprint.apps.dynatracelabs.com,
+  // OTLP ingest uses *.sprint.dynatracelabs.com.
+  if (base.includes(".sprint.apps.dynatracelabs.com")) {
+    return base.replace(".sprint.apps.dynatracelabs.com", ".sprint.dynatracelabs.com");
+  }
+
+  // Dynatrace SaaS: UI uses *.apps.dynatrace.com,
+  // OTLP ingest uses *.live.dynatrace.com.
+  if (base.includes(".apps.dynatrace.com")) {
+    return base.replace(".apps.dynatrace.com", ".live.dynatrace.com");
+  }
+
+  return base;
+}
+
 // ===== LOAD CREDENTIALS =====
 // Prefer the dedicated otelToken from .dt-credentials.json (has ingest scopes)
 // Fall back to env vars or the general apiToken
@@ -65,19 +90,22 @@ let DT_API_URL = "";
 let DT_API_TOKEN = "";
 
 // 1. Try env vars first
-if (process.env.DT_ENVIRONMENT) {
-  DT_API_URL = process.env.DT_ENVIRONMENT.replace(/\/+$/, "") + "/api/v2/otlp";
+if (process.env.DT_OTLP_ENDPOINT) {
+  DT_API_URL = process.env.DT_OTLP_ENDPOINT.replace(/\/+$/, "") + "/api/v2/otlp";
+} else if (process.env.DT_ENVIRONMENT) {
+  DT_API_URL = deriveOtlpBaseUrl(process.env.DT_ENVIRONMENT) + "/api/v2/otlp";
 }
-DT_API_TOKEN = process.env.DT_OTEL_TOKEN || process.env.DT_PLATFORM_TOKEN || "";
+DT_API_TOKEN = process.env.DT_OTEL_TOKEN || "";
 
 // 2. Fill gaps from .dt-credentials.json (resolve relative to this file's directory, not cwd)
 const credentialsPath = require("path").resolve(__dirname, ".dt-credentials.json");
 try {
   const creds = JSON.parse(fs.readFileSync(credentialsPath, "utf-8"));
   if (!DT_API_URL && creds.environmentUrl) {
-    DT_API_URL = creds.environmentUrl.replace(/\/+$/, "") + "/api/v2/otlp";
+    DT_API_URL = deriveOtlpBaseUrl(creds.environmentUrl) + "/api/v2/otlp";
   }
-  // Prefer the dedicated otelToken (has ingest scopes)
+  // Prefer the dedicated otelToken (has ingest scopes).
+  // Do not use the platform token for OTLP export; it often lacks ingest scopes.
   if (!DT_API_TOKEN) {
     DT_API_TOKEN = creds.otelToken || creds.apiToken || "";
   }

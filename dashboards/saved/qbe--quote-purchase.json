@@ -1,7 +1,7 @@
 {
-  "id": "sky--subscription-signup",
+  "id": "qbe--quote-purchase",
   "dashboard": {
-    "name": "Build a financial services dashboard for Sky focused on the  [MCP Custom]",
+    "name": "Build a financial services dashboard for QBE focused on the  [MCP Custom]",
     "type": "dashboard",
     "version": 1,
     "content": {
@@ -14,7 +14,7 @@
           "version": 2,
           "editable": true,
           "multiple": false,
-          "input": "fetch bizevents | filter event.kind == \"BIZ_EVENT\" | filter json.companyName == \"Sky\" | fields json.companyName | dedup json.companyName"
+          "input": "fetch bizevents | filter event.kind == \"BIZ_EVENT\" | filter json.companyName == \"QBE\" | fields json.companyName | dedup json.companyName"
         },
         {
           "key": "JourneyType",
@@ -34,7 +34,7 @@
           "editable": true,
           "multiple": true,
           "defaultValue": "3420b2ac-f1cf-4b24-b62d-61ba1ba8ed05*",
-          "input": "fetch bizevents | filter event.kind == \"BIZ_EVENT\" | filter in(json.journeyType, $JourneyType) | filter json.companyName == \"Sky\" | fields json.stepName | dedup json.stepName"
+          "input": "fetch bizevents | filter event.kind == \"BIZ_EVENT\" | filter in(json.journeyType, $JourneyType) | filter json.companyName == \"QBE\" | fields json.stepName | dedup json.stepName"
         },
         {
           "key": "Service",
@@ -61,7 +61,7 @@
         "0": {
           "title": "",
           "type": "markdown",
-          "content": "# Build a financial services dashboard for Sky focused on the \n## Sky | Subscription Signup Journey | Business Observability\n**Data Signals:** 🔧 Services\n---"
+          "content": "# Build a financial services dashboard for QBE focused on the \n## QBE | Quote Purchase Journey | Business Observability\n**Data Signals:** 🔧 Services\n---"
         },
         "1": {
           "title": "",
@@ -1444,8 +1444,8 @@
       "generatedBy": "ai-dashboard-generator",
       "generationMethod": "prompt-driven-keywords",
       "model": "llama3.2:1b",
-      "company": "Sky",
-      "journeyType": "Subscription Signup",
+      "company": "QBE",
+      "journeyType": "Quote Purchase",
       "dashboardSlug": "executive-customer-geo-trends",
       "totalTiles": 36,
       "dynamicFieldTiles": 0,
@@ -1480,12 +1480,12 @@
           "services": false
         }
       },
-      "generatedAt": "2026-05-07T20:48:53.654Z"
+      "generatedAt": "2026-05-07T16:50:19.694Z"
     }
   },
   "generationMethod": "prompt-driven-keywords",
-  "company": "Sky",
-  "journeyType": "Subscription Signup",
+  "company": "QBE",
+  "journeyType": "Quote Purchase",
   "tileCount": 36,
-  "savedAt": "2026-05-07T20:48:53.659Z"
+  "savedAt": "2026-05-07T16:50:19.694Z"
 }

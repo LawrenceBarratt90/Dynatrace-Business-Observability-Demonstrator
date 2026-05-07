@@ -546,6 +546,10 @@ if command -v systemctl >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
     sudo systemctl stop bizobs-server.service 2>/dev/null || true
     ok "Stopped existing bizobs-server.service"
   fi
+
+  # Keep host logs bounded before starting workloads.
+  bash "$SCRIPT_DIR/scripts/install-log-guard.sh" >/dev/null 2>&1 || true
+  ok "Log guard installed (journald + logrotate + timer)"
 fi
 
 # Stop PID-managed/background server and free port 8080.
@@ -563,13 +567,22 @@ if [ -f "$SCRIPT_DIR/logs/server.log" ]; then
     ok "Rotated previous server.log ($(( LOG_SIZE / 1048576 ))MB)"
   fi
 fi
-nohup npm start >> "$SCRIPT_DIR/logs/server.log" 2>&1 &
-SERVER_PID=$!
-echo "$SERVER_PID" > "$SCRIPT_DIR/server.pid"
+if command -v systemctl >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
+  bash "$SCRIPT_DIR/scripts/install-systemd-service.sh" --enable --restart >/dev/null
+  ok "Server started via systemd (bizobs-server.service)"
+else
+  nohup npm start >> "$SCRIPT_DIR/logs/server.log" 2>&1 &
+  SERVER_PID=$!
+  echo "$SERVER_PID" > "$SCRIPT_DIR/server.pid"
+fi
 
 for i in {1..20}; do
   if curl -s http://localhost:8080/api/health > /dev/null 2>&1; then
-    ok "Server running on port 8080 (PID: $SERVER_PID)"
+    if [ -n "${SERVER_PID:-}" ]; then
+      ok "Server running on port 8080 (PID: $SERVER_PID)"
+    else
+      ok "Server running on port 8080 (managed by systemd)"
+    fi
     break
   fi
   sleep 1

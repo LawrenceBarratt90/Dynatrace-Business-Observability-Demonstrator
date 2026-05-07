@@ -60,15 +60,18 @@ export async function withGenAISpan<T>(
 ): Promise<T> {
   const tracer = getTracer();
   // Normalize operation name to OTel GenAI spec values — span name MUST match gen_ai.operation.name
-  const normalizedOperation = (options.operation === 'chatJSON' || options.operation === 'warmup') ? 'chat' : options.operation;
+  const normalizedOperation = normalizeGenAIOperation(options.operation);
   const spanName = `${normalizedOperation} ${options.model}`;
+  const startTime = Date.now();
 
   return tracer.startActiveSpan(spanName, {
     kind: SpanKind.CLIENT,
     attributes: {
       // GenAI semantic conventions (Dynatrace AI Observability uses gen_ai.system + span name for detection)
       'gen_ai.system': 'ollama',
+      'gen_ai.provider.name': 'ollama',
       'gen_ai.operation.name': normalizedOperation,
+      'gen_ai.operation.kind': normalizedOperation,
       'gen_ai.request.model': options.model,
       'llm.request.type': normalizedOperation,
       'gen_ai.request.temperature': options.temperature ?? 0.3,
@@ -109,6 +112,7 @@ export async function withGenAISpan<T>(
 
         span.setStatus({ code: SpanStatusCode.OK });
       } else {
+        span.setAttribute('gen_ai.response.duration_ms', Date.now() - startTime);
         span.setStatus({ code: SpanStatusCode.OK });
       }
 
@@ -175,4 +179,11 @@ export async function shutdownTracing(): Promise<void> {
 
 function truncate(s: string, max: number): string {
   return s.length <= max ? s : s.substring(0, max) + '...[truncated]';
+}
+
+function normalizeGenAIOperation(operation: string): string {
+  if (operation === 'chatJSON' || operation === 'warmup') return 'chat';
+  if (operation === 'embeddings' || operation === 'embedding') return 'embedding';
+  if (operation === 'completion' || operation === 'chat') return operation;
+  return 'chat';
 }

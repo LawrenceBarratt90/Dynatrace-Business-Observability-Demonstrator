@@ -290,6 +290,14 @@ step 4 "Preparing runtime"
 mkdir -p logs services/.dynamic-runners public/assets saved-configs
 ok "Directories created"
 
+# Install host-level log guard to prevent disk exhaustion from logs.
+if command -v systemctl >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
+  bash scripts/install-log-guard.sh >/dev/null 2>&1 || true
+  ok "Log guard installed (journald + logrotate + timer)"
+else
+  warn "Skipped log guard install (systemctl unavailable or sudo requires password)"
+fi
+
 # Kill any existing server
 if [[ -f server.pid ]]; then
   kill "$(cat server.pid)" 2>/dev/null && echo "  Stopped previous server" || true
@@ -304,10 +312,15 @@ sleep 1
 step 5 "Starting BizObs Demonstrator with OpenTelemetry"
 
 truncate -s 0 logs/server.log 2>/dev/null || true
-node --require ./otel.cjs server.js >> logs/server.log 2>&1 &
-SERVER_PID=$!
-echo "$SERVER_PID" > server.pid
-echo "  PID: $SERVER_PID"
+if command -v systemctl >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
+  bash scripts/install-systemd-service.sh --enable --restart >/dev/null
+  echo "  Started via systemd: bizobs-server.service"
+else
+  node --require ./otel.cjs server.js >> logs/server.log 2>&1 &
+  SERVER_PID=$!
+  echo "$SERVER_PID" > server.pid
+  echo "  PID: $SERVER_PID"
+fi
 
 # Wait for startup
 echo -n "  Waiting for server"

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Page } from '@dynatrace/strato-components-preview/layouts';
 import { Flex } from '@dynatrace/strato-components/layouts';
@@ -7,50 +7,66 @@ import { Button } from '@dynatrace/strato-components/buttons';
 import { TextInput } from '@dynatrace/strato-components-preview/forms';
 import { TitleBar } from '@dynatrace/strato-components-preview/layouts';
 import Colors from '@dynatrace/strato-design-tokens/colors';
-import { loadAppSettings, saveAppSettings, type AppSettings } from '../services/app-settings';
+import { loadAppSettings, saveAppSettings, getLastAppSettingsSaveError, type AppSettings } from '../services/app-settings';
 import { edgeConnectClient } from '@dynatrace-sdk/client-app-engine-edge-connect';
 
 import { functions } from '@dynatrace-sdk/app-utils';
-import { getEnvironmentUrl } from '@dynatrace-sdk/app-environment';
+import { getCurrentUserDetails, getEnvironmentUrl } from '@dynatrace-sdk/app-environment';
 
 import { generateCsuitePrompt, generateJourneyPrompt, PROMPT_DESCRIPTIONS } from '../constants/promptTemplates';
 import { INITIAL_TEMPLATES, InitialTemplate } from '../constants/initialTemplates';
 import { DEMONSTRATOR_LOGO } from '../constants/demonstratorLogo';
 import { VCARB_CAR } from '../constants/vcarbCar';
 import { InfoButton } from '../components/InfoButton';
+import { trackUiUsage } from '../services/usage-audit';
 import appConfig from '../../../app.config.json';
 
 const APP_VERSION = appConfig.app.version;
-const LOCAL_STORAGE_KEY = 'bizobs_api_settings';
 
 // Dynamic tenant URL — works in any environment
 const TENANT_URL = (() => {
   try { return getEnvironmentUrl().replace(/\/$/, ''); } catch { return 'https://YOUR_TENANT_ID.apps.dynatracelabs.com'; }
 })();
+const AI_PROMPTS_URL = 'https://oku3826h.sprint.apps.dynatracelabs.com/ui/apps/dynatrace.genai.observability/prompts?perspective=Prompts+Stream&sort=start_time%3Adescending';
 const TENANT_HOST = TENANT_URL.replace(/^https?:\/\//, '');
 const TENANT_ID = TENANT_HOST.split('.')[0];
 const SSO_ENDPOINT = TENANT_HOST.includes('sprint') || TENANT_HOST.includes('dynatracelabs')
   ? 'https://sso.dynatracelabs.com/sso/oauth2/token'
   : 'https://sso.dynatrace.com/sso/oauth2/token';
 
-/** Build a URL to the Dynatrace Services Explorer filtered by [Environment] tags */
-const normalizeTagValue = (value: string) => value.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
-const normalizeServiceTagValue = (value: string) => value.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+const getAuditUser = () => {
+  const details = getCurrentUserDetails();
+  const userEmail = details?.email && !String(details.email).startsWith('dt.missing.user.')
+    ? String(details.email).trim().toLowerCase()
+    : '';
+  const rawName = details?.name && !String(details.name).startsWith('dt.missing.user.')
+    ? String(details.name).trim()
+    : '';
 
-const getServicesUiUrl = (companyName: string, journeyType?: string, serviceName?: string) => {
-  // Match the DT_TAGS emitted by service-manager.js.
-  const filterParts = [
-    'tags = "[Environment]app:bizobs-journey"',
-    `tags = "[Environment]company:${normalizeTagValue(companyName)}"`,
-  ];
+  return {
+    userEmail,
+    userName: rawName || (userEmail.includes('@') ? userEmail.split('@')[0] : 'unknown'),
+  };
+};
+
+/** Build a URL to the Dynatrace Services Explorer filtered by [Environment] tags */
+const getServicesUiUrl = (companyName: string, journeyType?: string) => {
+  // Match the DT_TAGS encoding: replace non-alphanumeric chars with underscore, then lowercase
+  const companyTag = companyName.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
+  let filter = `tags = "[Environment]company:${companyTag}"`;
   if (journeyType) {
-    filterParts.push(`tags = "[Environment]journey-type:${normalizeTagValue(journeyType)}"`);
+    const journeyTag = journeyType.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
+    filter += `  AND tags = "[Environment]journey-type:${journeyTag}" `;
   }
-  if (serviceName) {
-    filterParts.push(`tags = "[Environment]service:${normalizeServiceTagValue(serviceName)}"`);
-  }
-  const filter = filterParts.join(' AND ');
   return `${TENANT_URL}/ui/apps/dynatrace.services/explorer?perspective=performance&sort=entity%3Aascending#filtering=${encodeURIComponent(filter)}`;
+};
+
+const getDemonstratorDashboardsPath = (companyName: string, journeyType: string) => {
+  const searchParams = new URLSearchParams();
+  if (companyName) searchParams.set('company', companyName);
+  if (journeyType) searchParams.set('journey', journeyType);
+  const query = searchParams.toString();
+  return query ? `/demonstrator-dashboards?${query}` : '/demonstrator-dashboards';
 };
 
 interface ApiSettingsFull {
@@ -76,12 +92,28 @@ interface RunningService {
   domain?: string;
   industryType?: string;
   journeyType?: string;
+  journeyDetail?: string;
   stepName?: string;
   baseServiceName?: string;
+  createdByUserEmail?: string;
+  createdByUserName?: string;
   serviceVersion?: number;
   releaseStage?: string;
   startTime?: number;
 }
+
+const getServiceCreatorValue = (service: Partial<RunningService>) => {
+  const email = String(service.createdByUserEmail || '').trim().toLowerCase();
+  if (email) return email;
+  return String(service.createdByUserName || '').trim().toLowerCase();
+};
+
+const getServiceCreatorLabel = (service: Partial<RunningService>) => {
+  const email = String(service.createdByUserEmail || '').trim();
+  if (email) return email;
+  const name = String(service.createdByUserName || '').trim();
+  return name || 'unknown creator';
+};
 
 interface PromptTemplate {
   id: string;
@@ -98,6 +130,22 @@ interface PromptTemplate {
 }
 
 const TEMPLATES_STORAGE_KEY = 'bizobs_prompt_templates';
+const DEMO_SCHEDULES_STORAGE_KEY = 'bizobs_demo_schedules';
+
+interface DemoScheduleEntry {
+  id: string;
+  customerName: string;
+  companyName: string;
+  journeyType: string;
+  fromAt: string;
+  toAt: string;
+  timezone: string;
+  tenantTimezone: string;
+  schedulerEmail: string;
+  schedulerName: string;
+  createdAt: string;
+  notes?: string;
+}
 
 function mergePromptTemplates(localTemplates: PromptTemplate[], sharedTemplates: PromptTemplate[]): PromptTemplate[] {
   const byId = new Map<string, PromptTemplate>();
@@ -131,6 +179,62 @@ function mergePromptTemplates(localTemplates: PromptTemplate[], sharedTemplates:
   });
 }
 
+const toLocalDateInput = (d: Date) => {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const buildCalendarDays = (monthStart: Date) => {
+  const year = monthStart.getFullYear();
+  const month = monthStart.getMonth();
+  const firstDay = new Date(year, month, 1);
+  const weekdayOffset = firstDay.getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const days: Array<{ date: Date; inCurrentMonth: boolean }> = [];
+
+  for (let i = 0; i < weekdayOffset; i++) {
+    const date = new Date(year, month, i - weekdayOffset + 1);
+    days.push({ date, inCurrentMonth: false });
+  }
+
+  for (let day = 1; day <= daysInMonth; day++) {
+    days.push({ date: new Date(year, month, day), inCurrentMonth: true });
+  }
+
+  while (days.length % 7 !== 0) {
+    const next = days.length - (weekdayOffset + daysInMonth) + 1;
+    days.push({ date: new Date(year, month + 1, next), inCurrentMonth: false });
+  }
+
+  return days;
+};
+
+const startOfWeek = (d: Date) => {
+  const copy = new Date(d);
+  copy.setHours(0, 0, 0, 0);
+  copy.setDate(copy.getDate() - copy.getDay());
+  return copy;
+};
+
+const endOfWeek = (d: Date) => {
+  const start = startOfWeek(d);
+  const end = new Date(start);
+  end.setDate(start.getDate() + 7);
+  return end;
+};
+
+const formatScheduleRange = (fromIso: string, toIso: string) => {
+  const from = new Date(fromIso);
+  const to = new Date(toIso);
+  return `${from.toLocaleString()} - ${to.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+};
+
+const toJourneyKey = (companyName: string, journeyType: string) => {
+  return `${String(companyName || '').trim().toLowerCase()}::${String(journeyType || '').trim().toLowerCase()}`;
+};
+
 export const HomePage = () => {
   const [activeTab, setActiveTab] = useState('welcome');
   const [selectedPathway, setSelectedPathway] = useState<'ai' | 'manual' | null>(null);
@@ -151,37 +255,17 @@ export const HomePage = () => {
     myTemplates: false,
     vcarbDemo: false 
   });
-  // Initialize apiSettings from localStorage immediately (before SDK loads)
-  const [apiSettings, setApiSettingsState] = useState(() => {
-    try {
-      const stored = localStorage.getItem(LOCAL_STORAGE_KEY);
-      if (stored) {
-        const p = JSON.parse(stored);
-        return { host: p.apiHost || 'localhost', port: p.apiPort || '8080', protocol: p.apiProtocol || 'http' };
-      }
-    } catch { /* ignore */ }
-    return { host: 'localhost', port: '8080', protocol: 'http' };
+  const [apiSettings, setApiSettingsState] = useState({
+    host: DEFAULT_SETTINGS.apiHost,
+    port: DEFAULT_SETTINGS.apiPort,
+    protocol: DEFAULT_SETTINGS.apiProtocol,
   });
 
   // ── Settings via shared Document Service ──────────────────────────────────
 
   // Settings modal state
   const [showSettingsModal, setShowSettingsModal] = useState(false);
-  const [settingsForm, setSettingsForm] = useState<ApiSettingsFull>(() => {
-    try {
-      const stored = localStorage.getItem(LOCAL_STORAGE_KEY);
-      if (stored) {
-        const p = JSON.parse(stored);
-        return {
-          apiHost: p.apiHost || 'localhost',
-          apiPort: p.apiPort || '8080',
-          apiProtocol: p.apiProtocol || 'http',
-          enableAutoGeneration: p.enableAutoGeneration || false,
-        };
-      }
-    } catch { /* ignore */ }
-    return DEFAULT_SETTINGS;
-  });
+  const [settingsForm, setSettingsForm] = useState<ApiSettingsFull>(DEFAULT_SETTINGS);
   const [settingsStatus, setSettingsStatus] = useState('');
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [isTestingConnection, setIsTestingConnection] = useState(false);
@@ -237,8 +321,173 @@ export const HomePage = () => {
   const [showServicesTooltip, setShowServicesTooltip] = useState(false);
   const [showSettingsTooltip, setShowSettingsTooltip] = useState(false);
   const [showGetStartedTooltip, setShowGetStartedTooltip] = useState(false);
+  const [showScheduleTooltip, setShowScheduleTooltip] = useState(false);
   const [showNavMenu, setShowNavMenu] = useState(false);
   const navMenuRef = useRef<HTMLDivElement>(null);
+  const [showScheduleMenu, setShowScheduleMenu] = useState(false);
+  const scheduleMenuRef = useRef<HTMLDivElement>(null);
+  const [showSupportMenu, setShowSupportMenu] = useState(false);
+  const supportMenuRef = useRef<HTMLDivElement>(null);
+  const [showBugReportModal, setShowBugReportModal] = useState(false);
+  const [isSubmittingBugReport, setIsSubmittingBugReport] = useState(false);
+  const [bugReportStatus, setBugReportStatus] = useState('');
+  const [bugReportIssueUrl, setBugReportIssueUrl] = useState<string | null>(null);
+  const [bugReportForm, setBugReportForm] = useState({
+    title: '',
+    summary: '',
+    stepsToReproduce: '',
+    expectedBehavior: '',
+    actualBehavior: '',
+  });
+  const [demoSchedules, setDemoSchedules] = useState<DemoScheduleEntry[]>([]);
+  const [scheduleStatus, setScheduleStatus] = useState('');
+  const [scheduleForm, setScheduleForm] = useState({
+    customerName: '',
+    companyName: '',
+    journeyType: '',
+    fromAt: '',
+    toAt: '',
+    notes: '',
+  });
+  const tenantCalendarTimezone = useMemo(() => {
+    try {
+      return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+    } catch {
+      return 'UTC';
+    }
+  }, []);
+  const [scheduleTimezone, setScheduleTimezone] = useState('');
+  const [scheduleAuditView, setScheduleAuditView] = useState<'day' | 'week' | 'month'>('week');
+  const [scheduleCalendarMonth, setScheduleCalendarMonth] = useState(() => {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), 1);
+  });
+  const [scheduleDate, setScheduleDate] = useState(() => toLocalDateInput(new Date()));
+  const [scheduleFromTime, setScheduleFromTime] = useState('09:00');
+  const [scheduleToTime, setScheduleToTime] = useState('10:00');
+  const [bizEventJourneyOptions, setBizEventJourneyOptions] = useState<Array<{ customerName: string; companyName: string; journeyType: string }>>([]);
+  const [isLoadingScheduleOptions, setIsLoadingScheduleOptions] = useState(false);
+  const [lastScheduleOptionsRefresh, setLastScheduleOptionsRefresh] = useState<number | null>(null);
+
+  const runningJourneyOptions = useMemo(() => {
+    const seen = new Set<string>();
+    const rows: Array<{ customerName: string; companyName: string; journeyType: string }> = [];
+    journeyInventory.forEach((service) => {
+      const company = String(service.companyName || '').trim();
+      const journey = String(service.journeyType || service.journeyDetail || '').trim();
+      if (!company || !journey) return;
+      const key = `${company}::${journey}`.toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      rows.push({
+        customerName: company,
+        companyName: company,
+        journeyType: journey,
+      });
+    });
+    return rows.sort((a, b) => {
+      const companyCmp = a.companyName.localeCompare(b.companyName);
+      return companyCmp !== 0 ? companyCmp : a.journeyType.localeCompare(b.journeyType);
+    });
+  }, [journeyInventory]);
+
+  const scheduleJourneyOptions = useMemo(() => {
+    return bizEventJourneyOptions.length > 0 ? bizEventJourneyOptions : runningJourneyOptions;
+  }, [bizEventJourneyOptions, runningJourneyOptions]);
+
+  const journeyRuntimeByKey = useMemo(() => {
+    const map = new Map<string, { running: number; dormant: number }>();
+
+    runningServices.forEach((service) => {
+      const key = toJourneyKey(String(service.companyName || ''), String(service.journeyType || service.journeyDetail || ''));
+      if (!key || key === '::') return;
+      const curr = map.get(key) || { running: 0, dormant: 0 };
+      map.set(key, { ...curr, running: curr.running + 1 });
+    });
+
+    dormantServices.forEach((service) => {
+      const key = toJourneyKey(String(service.companyName || ''), String(service.journeyType || service.journeyDetail || ''));
+      if (!key || key === '::') return;
+      const curr = map.get(key) || { running: 0, dormant: 0 };
+      map.set(key, { ...curr, dormant: curr.dormant + 1 });
+    });
+
+    return map;
+  }, [runningServices, dormantServices]);
+
+  const getScheduleReadiness = useCallback((entry: DemoScheduleEntry) => {
+    const key = toJourneyKey(entry.companyName, entry.journeyType);
+    const counts = journeyRuntimeByKey.get(key) || { running: 0, dormant: 0 };
+    const now = Date.now();
+    const fromMs = Date.parse(entry.fromAt);
+    const toMs = Date.parse(entry.toAt);
+    const isLiveWindow = Number.isFinite(fromMs) && Number.isFinite(toMs) && now >= fromMs && now <= toMs;
+    const minsToStart = Number.isFinite(fromMs) ? Math.floor((fromMs - now) / 60000) : Number.POSITIVE_INFINITY;
+    const isUpcomingSoon = minsToStart >= 0 && minsToStart <= 60;
+    const fullyUp = counts.running > 0 && counts.dormant === 0;
+    const partiallyUp = counts.running > 0 && counts.dormant > 0;
+
+    if (isLiveWindow && fullyUp) {
+      return { label: 'LIVE READY', detail: `${counts.running} running`, color: '#73be28', bg: 'rgba(115,190,40,0.15)', border: 'rgba(115,190,40,0.4)' };
+    }
+    if (isLiveWindow && partiallyUp) {
+      return { label: 'LIVE AT RISK', detail: `${counts.running} running, ${counts.dormant} dormant`, color: '#f39c12', bg: 'rgba(243,156,18,0.14)', border: 'rgba(243,156,18,0.38)' };
+    }
+    if (isLiveWindow) {
+      return { label: 'LIVE DOWN', detail: 'no running services', color: '#dc322f', bg: 'rgba(220,50,47,0.14)', border: 'rgba(220,50,47,0.4)' };
+    }
+
+    if (isUpcomingSoon && fullyUp) {
+      return { label: 'READY', detail: `${counts.running} running`, color: '#73be28', bg: 'rgba(115,190,40,0.15)', border: 'rgba(115,190,40,0.4)' };
+    }
+    if (isUpcomingSoon && partiallyUp) {
+      return { label: 'AT RISK', detail: `${counts.running} running, ${counts.dormant} dormant`, color: '#f39c12', bg: 'rgba(243,156,18,0.14)', border: 'rgba(243,156,18,0.38)' };
+    }
+    if (isUpcomingSoon) {
+      return { label: 'NOT READY', detail: 'no running services', color: '#dc322f', bg: 'rgba(220,50,47,0.14)', border: 'rgba(220,50,47,0.4)' };
+    }
+
+    if (fullyUp) {
+      return { label: 'UP', detail: `${counts.running} running`, color: '#8ec7ff', bg: 'rgba(0,161,201,0.14)', border: 'rgba(0,161,201,0.38)' };
+    }
+    if (partiallyUp) {
+      return { label: 'PARTIAL', detail: `${counts.running} running, ${counts.dormant} dormant`, color: '#f1c40f', bg: 'rgba(243,156,18,0.14)', border: 'rgba(243,156,18,0.38)' };
+    }
+    return { label: 'UNKNOWN/DOWN', detail: 'no running services', color: '#aabbd0', bg: 'rgba(112,150,205,0.14)', border: 'rgba(112,150,205,0.35)' };
+  }, [journeyRuntimeByKey]);
+
+  const runningCustomerCompanyOptions = useMemo(() => {
+    return Array.from(new Set(scheduleJourneyOptions.map((option) => option.companyName))).sort((a, b) => a.localeCompare(b));
+  }, [scheduleJourneyOptions]);
+
+  const runningJourneyTypesForSelectedCompany = useMemo(() => {
+    if (!scheduleForm.companyName) return [] as string[];
+    return Array.from(new Set(
+      scheduleJourneyOptions
+        .filter((option) => option.companyName === scheduleForm.companyName)
+        .map((option) => option.journeyType)
+    )).sort((a, b) => a.localeCompare(b));
+  }, [scheduleJourneyOptions, scheduleForm.companyName]);
+
+  const scheduleCalendarDays = useMemo(() => buildCalendarDays(scheduleCalendarMonth), [scheduleCalendarMonth]);
+
+  const filteredDemoSchedules = useMemo(() => {
+    const anchor = new Date(`${scheduleDate}T00:00:00`);
+    return demoSchedules
+      .filter((entry) => {
+        const from = new Date(entry.fromAt);
+        if (scheduleAuditView === 'day') {
+          return from.toDateString() === anchor.toDateString();
+        }
+        if (scheduleAuditView === 'week') {
+          const start = startOfWeek(anchor);
+          const end = endOfWeek(anchor);
+          return from >= start && from < end;
+        }
+        return from.getMonth() === anchor.getMonth() && from.getFullYear() === anchor.getFullYear();
+      })
+      .sort((a, b) => Date.parse(a.fromAt) - Date.parse(b.fromAt));
+  }, [demoSchedules, scheduleDate, scheduleAuditView]);
 
   // Close nav menu when clicking outside
   useEffect(() => {
@@ -246,10 +495,138 @@ export const HomePage = () => {
       if (navMenuRef.current && !navMenuRef.current.contains(e.target as Node)) {
         setShowNavMenu(false);
       }
+      if (scheduleMenuRef.current && !scheduleMenuRef.current.contains(e.target as Node)) {
+        setShowScheduleMenu(false);
+      }
+      if (supportMenuRef.current && !supportMenuRef.current.contains(e.target as Node)) {
+        setShowSupportMenu(false);
+      }
     };
-    if (showNavMenu) document.addEventListener('mousedown', handleClickOutside);
+    if (showNavMenu || showScheduleMenu || showSupportMenu) document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [showNavMenu]);
+  }, [showNavMenu, showScheduleMenu, showSupportMenu]);
+
+  useEffect(() => {
+    if (!scheduleDate || !scheduleFromTime || !scheduleToTime) return;
+    setScheduleForm((prev) => ({
+      ...prev,
+      fromAt: `${scheduleDate}T${scheduleFromTime}`,
+      toAt: `${scheduleDate}T${scheduleToTime}`,
+    }));
+  }, [scheduleDate, scheduleFromTime, scheduleToTime]);
+
+  useEffect(() => {
+    if (!scheduleTimezone) setScheduleTimezone(tenantCalendarTimezone);
+  }, [scheduleTimezone, tenantCalendarTimezone]);
+
+  const loadScheduleOptionsFromBizEvents = useCallback(async (silent = false) => {
+    if (!silent) setIsLoadingScheduleOptions(true);
+    try {
+      const query = `fetch bizevents, from: now()-30d
+| filter isNotNull(json.companyName) and isNotNull(json.journeyType)
+| fields timestamp, companyName = json.companyName, journeyType = json.journeyType
+| sort timestamp desc
+| limit 2000`;
+
+      const res = await functions.call('proxy-api', {
+        data: {
+          action: 'execute-dql',
+          apiHost: apiSettings.host,
+          apiPort: apiSettings.port,
+          apiProtocol: apiSettings.protocol,
+          ...getAuditUser(),
+          body: { query, timeoutMs: 15000, maxRecords: 2000 },
+        },
+      });
+      const data = await res.json() as any;
+      if (!data?.success) {
+        if (!silent) setScheduleStatus(`❌ Could not load BizEvents options: ${data?.error || 'Unknown error'}`);
+        return;
+      }
+
+      const seen = new Set<string>();
+      const options: Array<{ customerName: string; companyName: string; journeyType: string }> = [];
+      (data.records || []).forEach((record: any) => {
+        const company = String(record.companyName || '').trim();
+        const journey = String(record.journeyType || '').trim();
+        if (!company || !journey) return;
+        const key = `${company}::${journey}`.toLowerCase();
+        if (seen.has(key)) return;
+        seen.add(key);
+        options.push({ customerName: company, companyName: company, journeyType: journey });
+      });
+
+      options.sort((a, b) => {
+        const byCompany = a.companyName.localeCompare(b.companyName);
+        return byCompany !== 0 ? byCompany : a.journeyType.localeCompare(b.journeyType);
+      });
+
+      setBizEventJourneyOptions(options);
+      setLastScheduleOptionsRefresh(Date.now());
+      if (!silent) {
+        setScheduleStatus(options.length > 0
+          ? `✅ Loaded ${options.length} journey option(s) from BizEvents`
+          : '⚠️ No recent BizEvents found. Falling back to running journeys.');
+      }
+    } catch (err: any) {
+      if (!silent) setScheduleStatus(`❌ BizEvents load failed: ${err?.message || 'Unknown error'}`);
+    } finally {
+      if (!silent) setIsLoadingScheduleOptions(false);
+    }
+  }, [apiSettings.host, apiSettings.port, apiSettings.protocol]);
+
+  useEffect(() => {
+    if (!showScheduleMenu) return;
+    void loadScheduleOptionsFromBizEvents(true);
+    const id = setInterval(() => {
+      void loadScheduleOptionsFromBizEvents(true);
+    }, 60000);
+    return () => clearInterval(id);
+  }, [showScheduleMenu, loadScheduleOptionsFromBizEvents]);
+
+  const refreshScheduleRuntime = useCallback(async () => {
+    try {
+      const [runningRes, dormantRes] = await Promise.all([
+        functions.call('proxy-api', {
+          data: {
+            action: 'get-services',
+            apiHost: apiSettings.host,
+            apiPort: apiSettings.port,
+            apiProtocol: apiSettings.protocol,
+          },
+        }),
+        functions.call('proxy-api', {
+          data: {
+            action: 'get-dormant-services',
+            apiHost: apiSettings.host,
+            apiPort: apiSettings.port,
+            apiProtocol: apiSettings.protocol,
+          },
+        }),
+      ]);
+
+      const runningJson = await runningRes.json() as any;
+      const dormantJson = await dormantRes.json() as any;
+
+      if (runningJson?.success && Array.isArray(runningJson?.data?.childServices)) {
+        setRunningServices(runningJson.data.childServices);
+      }
+      if (dormantJson?.success && Array.isArray(dormantJson?.data?.dormantServices)) {
+        setDormantServices(dormantJson.data.dormantServices);
+      }
+    } catch {
+      // Keep current runtime snapshot if refresh fails.
+    }
+  }, [apiSettings.host, apiSettings.port, apiSettings.protocol]);
+
+  useEffect(() => {
+    if (!showScheduleMenu) return;
+    void refreshScheduleRuntime();
+    const id = setInterval(() => {
+      void refreshScheduleRuntime();
+    }, 30000);
+    return () => clearInterval(id);
+  }, [showScheduleMenu, refreshScheduleRuntime]);
 
   // VCARB Race state
   const navigate = useNavigate();
@@ -305,6 +682,8 @@ export const HomePage = () => {
   const [smartChaosGoal, setSmartChaosGoal] = useState('');
   const [isSmartChaosRunning, setIsSmartChaosRunning] = useState(false);
   const [injectForm, setInjectForm] = useState({ type: 'enable_errors', target: '', intensity: 5, duration: 60 });
+  const [chaosFilterCompany, setChaosFilterCompany] = useState('all');
+  const [chaosFilterCreator, setChaosFilterCreator] = useState('all');
 
   // Step 2 guided sub-step state
   const [step2Phase, setStep2Phase] = useState<'prompts' | 'response' | 'generate'>(  'prompts');
@@ -329,7 +708,8 @@ export const HomePage = () => {
   const [aiGenComplete, setAiGenComplete] = useState(false);
   const [aiGenError, setAiGenError] = useState('');
   const [aiGenDashboardUrl, setAiGenDashboardUrl] = useState<string | null>(null);
-  const [aiGenPresetDashboardsUrl, setAiGenPresetDashboardsUrl] = useState<string | null>(null);
+  const [aiGenDashboardCompany, setAiGenDashboardCompany] = useState('');
+  const [aiGenDashboardJourney, setAiGenDashboardJourney] = useState('');
 
   // "Use Your Own AI Prompt" (paste) flow state
   const [showPasteAiModal, setShowPasteAiModal] = useState(false);
@@ -373,7 +753,7 @@ export const HomePage = () => {
       try {
         const current = await loadAppSettings();
         await saveAppSettings({ ...current.settings, checklistState: JSON.stringify(next) });
-      } catch { /* silent — localStorage is fallback */ }
+      } catch { /* silent */ }
     }, 1500);
   }, []);
 
@@ -385,7 +765,7 @@ export const HomePage = () => {
       try {
         const current = await loadAppSettings();
         await saveAppSettings({ ...current.settings, ...partial } as AppSettings);
-      } catch { /* silent — localStorage is fallback */ }
+      } catch { /* silent */ }
     }, debounceMs);
   }, []);
 
@@ -441,6 +821,112 @@ export const HomePage = () => {
     toastTimerRef.current = setTimeout(() => setToastVisible(false), duration);
   }, []);
 
+  const resetBugReportState = useCallback(() => {
+    setBugReportForm({
+      title: '',
+      summary: '',
+      stepsToReproduce: '',
+      expectedBehavior: '',
+      actualBehavior: '',
+    });
+    setBugReportStatus('');
+    setBugReportIssueUrl(null);
+  }, []);
+
+  const closeBugReportModal = useCallback(() => {
+    if (isSubmittingBugReport) return;
+    setShowBugReportModal(false);
+    resetBugReportState();
+  }, [isSubmittingBugReport, resetBugReportState]);
+
+  const openBugReportModal = useCallback(() => {
+    setShowSupportMenu(false);
+    resetBugReportState();
+    setShowBugReportModal(true);
+    void trackUiUsage('open-bug-report', 'feedback', {
+      pagePath: '/',
+      destination: 'github-direct-issue',
+    });
+  }, [resetBugReportState]);
+
+  const submitBugReport = useCallback(async () => {
+    const title = bugReportForm.title.trim();
+    const summary = bugReportForm.summary.trim();
+    const stepsToReproduce = bugReportForm.stepsToReproduce.trim();
+    const expectedBehavior = bugReportForm.expectedBehavior.trim();
+    const actualBehavior = bugReportForm.actualBehavior.trim();
+
+    if (!title) {
+      showToast('Please enter a short bug title.', 'warning');
+      return;
+    }
+    if (!summary && !stepsToReproduce && !actualBehavior) {
+      showToast('Add the bug summary or reproduction details before submitting.', 'warning', 5000);
+      return;
+    }
+
+    setIsSubmittingBugReport(true);
+    setBugReportIssueUrl(null);
+    setBugReportStatus('Submitting issue to GitHub...');
+
+    try {
+      const res = await functions.call('proxy-api', {
+        data: {
+          action: 'github-create-issue',
+          apiHost: apiSettings.host,
+          apiPort: apiSettings.port,
+          apiProtocol: apiSettings.protocol,
+          ...getAuditUser(),
+          body: {
+            repoOwner: 'LawrenceBarratt90',
+            repoName: 'Business-Observability-Demonstrator-Internal',
+            title,
+            summary,
+            stepsToReproduce,
+            expectedBehavior,
+            actualBehavior,
+            labels: ['bug'],
+            appVersion: APP_VERSION,
+            tenantUrl: TENANT_URL,
+            pagePath: '/',
+          },
+        },
+      });
+      const data = await res.json() as any;
+
+      if (!data?.success) {
+        const failureReason = String(data?.details || data?.error || 'Unknown error').trim();
+        setBugReportStatus(`❌ ${failureReason}`);
+        showToast(`Bug report failed: ${data?.error || 'Unknown error'}`, 'error', 7000);
+        return;
+      }
+
+      const issueNumber = String(data?.data?.issueNumber || '').trim();
+      const issueUrl = String(data?.data?.issueUrl || '').trim();
+      setBugReportStatus(`✅ Issue #${issueNumber || '?'} created successfully.`);
+      setBugReportIssueUrl(issueUrl || null);
+      setBugReportForm({
+        title: '',
+        summary: '',
+        stepsToReproduce: '',
+        expectedBehavior: '',
+        actualBehavior: '',
+      });
+      showToast(`Bug report submitted as issue #${issueNumber || '?'}`, 'success', 7000);
+      void trackUiUsage('submit-bug-report', 'feedback', {
+        pagePath: '/',
+        destination: 'github-direct-issue',
+        issueNumber,
+      });
+    } catch (err: any) {
+      const message = err?.message || 'Unknown error';
+      setBugReportStatus(`❌ ${message}`);
+      showToast(`Bug report failed: ${message}`, 'error', 7000);
+    } finally {
+      setIsSubmittingBugReport(false);
+    }
+  }, [apiSettings.host, apiSettings.port, apiSettings.protocol, bugReportForm, showToast]);
+
 
 
   // Load saved templates from localStorage on mount
@@ -477,7 +963,7 @@ export const HomePage = () => {
     loadAppSettings().then(({ settings: loaded, source }) => {
       console.log('[BizObs] Settings loaded from', source, ':', loaded.apiHost);
 
-      if (source !== 'defaults' && loaded.apiHost !== 'localhost') {
+      if (source === 'document') {
         setApiSettingsState({ host: loaded.apiHost, port: loaded.apiPort, protocol: loaded.apiProtocol });
         setSettingsForm({
           apiHost: loaded.apiHost,
@@ -485,10 +971,9 @@ export const HomePage = () => {
           apiProtocol: loaded.apiProtocol,
           enableAutoGeneration: loaded.enableAutoGeneration,
         });
-        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(loaded));
         console.log('[BizObs] Applied shared settings → apiHost:', loaded.apiHost);
       } else {
-        console.log('[BizObs] Shared doc has localhost — keeping localStorage values');
+        console.log('[BizObs] Shared settings unavailable or default — using in-memory defaults');
       }
 
       // Restore checklist
@@ -524,6 +1009,44 @@ export const HomePage = () => {
           }
         } catch { /* ignore */ }
       }
+
+      // Restore demo schedules
+      if (loaded.demoSchedules) {
+        try {
+          const restoredSchedules = JSON.parse(loaded.demoSchedules);
+          if (Array.isArray(restoredSchedules)) {
+            const normalized = restoredSchedules
+              .filter((entry: any) => entry && entry.companyName && entry.journeyType && (entry.fromAt || entry.scheduledAt))
+              .map((entry: any) => ({
+                id: String(entry.id || `${entry.companyName}-${entry.journeyType}-${(entry.fromAt || entry.scheduledAt)}-${Date.now()}`),
+                customerName: String(entry.customerName || entry.companyName || 'Unknown Customer'),
+                companyName: String(entry.companyName),
+                journeyType: String(entry.journeyType),
+                fromAt: String(entry.fromAt || entry.scheduledAt),
+                toAt: String(entry.toAt || new Date(Date.parse(String(entry.fromAt || entry.scheduledAt)) + 60 * 60 * 1000).toISOString()),
+                timezone: String(entry.timezone || tenantCalendarTimezone),
+                tenantTimezone: String(entry.tenantTimezone || tenantCalendarTimezone),
+                schedulerEmail: String(entry.schedulerEmail || '').trim().toLowerCase(),
+                schedulerName: String(entry.schedulerName || '').trim(),
+                createdAt: String(entry.createdAt || new Date().toISOString()),
+                notes: String(entry.notes || ''),
+              })) as DemoScheduleEntry[];
+            const sorted = normalized.sort((a, b) => Date.parse(a.fromAt) - Date.parse(b.fromAt));
+            setDemoSchedules(sorted);
+            localStorage.setItem(DEMO_SCHEDULES_STORAGE_KEY, JSON.stringify(sorted));
+          }
+        } catch { /* ignore */ }
+      } else {
+        try {
+          const localSchedulesRaw = localStorage.getItem(DEMO_SCHEDULES_STORAGE_KEY);
+          const localSchedules = localSchedulesRaw ? JSON.parse(localSchedulesRaw) : [];
+          if (Array.isArray(localSchedules) && localSchedules.length > 0) {
+            setDemoSchedules(localSchedules as DemoScheduleEntry[]);
+            saveTenantField({ demoSchedules: JSON.stringify(localSchedules) }, 0);
+          }
+        } catch { /* ignore */ }
+      }
+
       // Restore connectionTested
       if (loaded.connectionTested === true) {
         setConnectionTestedOk(true);
@@ -533,6 +1056,70 @@ export const HomePage = () => {
       console.warn('[BizObs] Settings load failed:', err);
     });
   }, []);
+
+  const scheduleDemo = () => {
+    const customer = scheduleForm.customerName.trim();
+    const company = scheduleForm.companyName.trim();
+    const journey = scheduleForm.journeyType.trim();
+    const fromAt = scheduleForm.fromAt;
+    const toAt = scheduleForm.toAt;
+
+    if (!customer || !company || !journey || !fromAt || !toAt) {
+      setScheduleStatus('❌ Select customer/company, journey type, and a start/end time for the demo readiness window');
+      return;
+    }
+
+    const existsInRunning = scheduleJourneyOptions.some((option) => option.companyName === company && option.journeyType === journey);
+    if (!existsInRunning) {
+      setScheduleStatus('❌ Select a journey from BizEvents/running journey options so readiness can be validated');
+      return;
+    }
+
+    const parsedFrom = Date.parse(fromAt);
+    const parsedTo = Date.parse(toAt);
+    if (!Number.isFinite(parsedFrom) || !Number.isFinite(parsedTo) || parsedFrom < Date.now() - 60000) {
+      setScheduleStatus('❌ Please choose a valid upcoming timeframe');
+      return;
+    }
+    if (parsedTo <= parsedFrom) {
+      setScheduleStatus('❌ "To" time must be after "From" time');
+      return;
+    }
+
+    const { userEmail, userName } = getAuditUser();
+    const entry: DemoScheduleEntry = {
+      id: `demo_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      customerName: customer,
+      companyName: company,
+      journeyType: journey,
+      fromAt: new Date(parsedFrom).toISOString(),
+      toAt: new Date(parsedTo).toISOString(),
+      timezone: scheduleTimezone || tenantCalendarTimezone,
+      tenantTimezone: tenantCalendarTimezone,
+      schedulerEmail: userEmail,
+      schedulerName: userName,
+      createdAt: new Date().toISOString(),
+      notes: scheduleForm.notes.trim(),
+    };
+
+    const updated = [...demoSchedules, entry].sort((a, b) => Date.parse(a.fromAt) - Date.parse(b.fromAt));
+    setDemoSchedules(updated);
+    localStorage.setItem(DEMO_SCHEDULES_STORAGE_KEY, JSON.stringify(updated));
+    saveTenantField({ demoSchedules: JSON.stringify(updated) }, 0);
+
+    setScheduleStatus(`✅ Demo readiness window saved in tenant timezone (${tenantCalendarTimezone})`);
+    showToast(`Scheduled ${entry.customerName} · ${entry.companyName} (${entry.journeyType})`, 'success', 3000);
+    setScheduleTimezone(tenantCalendarTimezone);
+    setScheduleForm((prev) => ({ ...prev, notes: '' }));
+  };
+
+  const removeScheduledDemo = (id: string) => {
+    const updated = demoSchedules.filter((entry) => entry.id !== id);
+    setDemoSchedules(updated);
+    localStorage.setItem(DEMO_SCHEDULES_STORAGE_KEY, JSON.stringify(updated));
+    saveTenantField({ demoSchedules: JSON.stringify(updated) }, 0);
+    showToast('Removed scheduled demo', 'info', 2500);
+  };
 
   // ── Check if GitHub Copilot credential is configured + fetch available models ──
   useEffect(() => {
@@ -690,20 +1277,29 @@ export const HomePage = () => {
   const ecAutoPopulatedRef = useRef(false);
   useEffect(() => {
     if (ecAutoPopulatedRef.current || edgeConnects.length === 0) return;
-    // Only auto-populate if settings are still at defaults (no user-saved value)
     const currentHost = apiSettings.host;
-    if (currentHost && currentHost !== 'localhost' && currentHost !== 'bizobs-demonstrator') return;
     // Extract the first valid host pattern from an online EdgeConnect (prefer online, fallback to any)
     const onlineEc = edgeConnects.find((ec: any) => (ec.metadata?.instances || []).length > 0) || edgeConnects[0];
     const patterns: string[] = onlineEc?.hostPatterns || [];
-    const hostIp = patterns.find((p: string) => p && p !== 'localhost' && p !== '127.0.0.1');
-    if (!hostIp) return;
+    const candidateHost = patterns.find((p: string) => p && p !== 'localhost' && p !== '127.0.0.1');
+    if (!candidateHost) return;
+
+    // Auto-sync if host is default OR stale (no longer present in current EC host patterns).
+    const isDefaultHost = !currentHost || currentHost === 'localhost' || currentHost === 'bizobs-demonstrator';
+    const isStaleHost = !!currentHost && !patterns.includes(currentHost);
+    if (!isDefaultHost && !isStaleHost) return;
+
     ecAutoPopulatedRef.current = true;
-    console.log('[BizObs] Auto-populating API host from EdgeConnect hostPattern:', hostIp);
-    const autoSettings = { apiHost: hostIp, apiPort: '8080', apiProtocol: 'http', enableAutoGeneration: false };
-    setApiSettingsState({ host: hostIp, port: '8080', protocol: 'http' });
+    console.log('[BizObs] Auto-syncing API host from EdgeConnect hostPattern:', candidateHost, '(current:', currentHost || 'none', ')');
+    const autoSettings: AppSettings = {
+      apiHost: candidateHost,
+      apiPort: '8080',
+      apiProtocol: 'http',
+      enableAutoGeneration: false,
+    };
+    setApiSettingsState({ host: candidateHost, port: '8080', protocol: 'http' });
     setSettingsForm(autoSettings);
-    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(autoSettings));
+    void saveAppSettings(autoSettings);
   }, [edgeConnects, apiSettings.host]);
 
   const deleteEdgeConnect = async (ecId: string, ecName: string) => {
@@ -817,7 +1413,8 @@ export const HomePage = () => {
     if (docSaved) {
       setSettingsStatus('✅ Settings saved to shared app config (all users will see these)');
     } else {
-      setSettingsStatus('⚠️ Saved locally only — shared document write failed');
+      const saveError = getLastAppSettingsSaveError();
+      setSettingsStatus(`❌ Shared document write failed — settings were not saved globally${saveError ? ` (${saveError})` : ''}`);
     }
 
     setApiSettingsState({ host: settingsForm.apiHost, port: settingsForm.apiPort, protocol: settingsForm.apiProtocol });
@@ -1121,9 +1718,11 @@ export const HomePage = () => {
       ]);
       if (result.success && result.data?.childServices) {
         const services: RunningService[] = [...(result.data.childServices || []), ...((dormantResult.success && dormantResult.data?.dormantServices) ? dormantResult.data.dormantServices : [])].filter((service, index, all) => {
-          const key = [service.companyName, service.journeyType, service.baseServiceName || service.service, service.stepName].join('::');
+          const journeyKey = service.journeyType || service.journeyDetail || 'Unknown';
+          const key = [service.companyName, journeyKey, service.baseServiceName || service.service, service.stepName].join('::');
           return index === all.findIndex((candidate) => {
-            const candidateKey = [candidate.companyName, candidate.journeyType, candidate.baseServiceName || candidate.service, candidate.stepName].join('::');
+            const candidateJourneyKey = candidate.journeyType || candidate.journeyDetail || 'Unknown';
+            const candidateKey = [candidate.companyName, candidateJourneyKey, candidate.baseServiceName || candidate.service, candidate.stepName].join('::');
             return candidateKey === key;
           });
         });
@@ -1137,7 +1736,7 @@ export const HomePage = () => {
           const pairs = new Map<string, { company: string; journeyType: string }>();
           services.forEach(s => {
             const company = s.companyName || 'Unknown';
-            const jType = s.journeyType || 'Unknown';
+            const jType = s.journeyType || s.journeyDetail || 'Unknown';
             pairs.set(`${company}::${jType}`, { company, journeyType: jType });
           });
           try {
@@ -1198,6 +1797,8 @@ export const HomePage = () => {
     setShowChaosModal(true);
     setChaosStatus('');
     setChaosTab('active');
+    setChaosFilterCompany('all');
+    setChaosFilterCreator('all');
     await Promise.all([loadChaosData(), loadRunningServices()]);
   };
 
@@ -1217,6 +1818,26 @@ export const HomePage = () => {
     }
     setIsLoadingChaos(false);
   };
+
+  const chaosCompanyOptions = Array.from(new Set(
+    runningServices
+      .map((service) => String(service.companyName || '').trim())
+      .filter(Boolean)
+  )).sort((a, b) => a.localeCompare(b));
+
+  const chaosCreatorOptions = Array.from(new Set(
+    runningServices
+      .map((service) => getServiceCreatorValue(service))
+      .filter(Boolean)
+  )).sort((a, b) => a.localeCompare(b));
+
+  const chaosTargetServices = runningServices.filter((service) => {
+    const company = String(service.companyName || '').trim();
+    const creator = getServiceCreatorValue(service);
+    if (chaosFilterCompany !== 'all' && company !== chaosFilterCompany) return false;
+    if (chaosFilterCreator !== 'all' && creator !== chaosFilterCreator) return false;
+    return true;
+  });
 
   const injectChaos = async () => {
     if (!injectForm.target) { setChaosStatus('⚠️ Select a target service'); return; }
@@ -1390,11 +2011,12 @@ export const HomePage = () => {
   // Retry helper for EdgeConnect calls — retries with exponential backoff to survive reconnection gaps and timeouts.
   const callProxyWithRetry = async (payload: any, attempts = 5, initialDelayMs = 2000, statusSetter?: (msg: string) => void) => {
     const isRetryableMessage = (msg: string) => /connection error|edgeconnect|timed out|signal|rate limit|too many requests|429|try again in a few minutes/i.test(msg || '');
+    const enrichedPayload = { ...payload, ...getAuditUser() };
 
     let lastErr: any;
     for (let i = 1; i <= attempts; i++) {
       try {
-        const res = await functions.call('proxy-api', { data: payload });
+        const res = await functions.call('proxy-api', { data: enrichedPayload });
         const data = await res.json();
 
         // Some proxy paths return HTTP 200 with success:false. Retry if it's a transient/rate-limit failure.
@@ -1462,6 +2084,31 @@ export const HomePage = () => {
       await new Promise(r => setTimeout(r, waitMs));
     }
     return { success: false, error: `${phaseLabel}: rate limit retries exhausted` };
+  };
+
+  const commitJourneyToRepo = async (journeyPayload: any, source: 'manual' | 'ai-agent' | 'pasted-ai' = 'manual') => {
+    try {
+      const result = await callProxyWithRetry({
+        action: 'github-journey-commit',
+        apiHost: apiSettings.host,
+        apiPort: apiSettings.port,
+        apiProtocol: apiSettings.protocol,
+        body: {
+          repoOwner: 'LawrenceBarratt90',
+          repoName: 'Business-Observability-Demonstrator---Journeys',
+          branch: 'main',
+          source,
+          appVersion: APP_VERSION,
+          journey: journeyPayload,
+        },
+      }, 2, 1200) as any;
+
+      if (!result?.success) {
+        console.warn('[journey-commit] commit failed:', result?.error || 'unknown error');
+      }
+    } catch (err: any) {
+      console.warn('[journey-commit] commit request failed:', err?.message || err);
+    }
   };
 
   // Shared helper — generates dashboard via MCP server and deploys directly to Dynatrace.
@@ -1641,6 +2288,27 @@ export const HomePage = () => {
   const copyToClipboard = (text: string, promptName: string) => {
     navigator.clipboard.writeText(text);
     showToast(`${promptName} copied to clipboard!`, 'success', 2500);
+  };
+
+  // Normalize journey payload to prevent duplicate steps at both journey.steps and top-level steps
+  const normalizeJourneyPayload = (parsedResponse: any) => {
+    if (!parsedResponse) return parsedResponse;
+    
+    const hasJourneySteps = Array.isArray(parsedResponse.journey?.steps) && parsedResponse.journey.steps.length > 0;
+    const hasTopLevelSteps = Array.isArray(parsedResponse.steps) && parsedResponse.steps.length > 0;
+    
+    // If both exist, ensure we only send one set of steps via journey.steps
+    if (hasJourneySteps && hasTopLevelSteps) {
+      console.log('[normalization] Found steps in both journey.steps and top-level steps. Keeping journey.steps only.');
+      const normalized = {
+        ...parsedResponse,
+        steps: undefined // Remove top-level steps to prevent duplication
+      };
+      delete normalized.steps; // Explicitly delete
+      return normalized;
+    }
+    
+    return parsedResponse;
   };
 
   const parseJourneyJsonWithRepair = (raw: string): { parsed: any; cleanJson: string } => {
@@ -1897,14 +2565,25 @@ export const HomePage = () => {
       }
 
       setGenerationStatus(`🚀 Creating services on ${apiSettings.host}:${apiSettings.port}...`);
+      void trackUiUsage('create-journey-manual', 'journey', {
+        pagePath: '/',
+        companyName: parsedResponse.journey?.companyName || parsedResponse.steps?.[0]?.companyName || companyName,
+        journeyType: parsedResponse.journey?.journeyType || domain,
+      });
+      const { userEmail, userName } = getAuditUser();
       
       // Call via serverless proxy function (bypasses CSP)
+      const normalizedPayload = normalizeJourneyPayload(parsedResponse);
       const result = await callProxyWithRetry({
           action: 'simulate-journey',
           apiHost: apiSettings.host,
           apiPort: apiSettings.port,
           apiProtocol: apiSettings.protocol,
-          body: parsedResponse,
+          body: {
+            ...normalizedPayload,
+            userEmail,
+            userName,
+          },
       }, 5, 2000, setGenerationStatus) as any;
 
       if (!result.success) {
@@ -1933,6 +2612,12 @@ export const HomePage = () => {
         journeyConfig.journeyType || parsedResponse.journey?.journeyType || domain,
         fullSteps
       );
+
+      void commitJourneyToRepo({
+        ...journeyConfig,
+        companyName: journeyConfig.companyName || jCompany,
+        journeyType: journeyConfig.journeyType || parsedResponse.journey?.journeyType || domain,
+      }, 'manual');
 
       // Auto-save to My Templates (same as manual path)
       const autoTemplateName = `${companyName} - ${domain}`;
@@ -2006,7 +2691,8 @@ export const HomePage = () => {
     setAiGenComplete(false);
     setAiGenError('');
     setAiGenDashboardUrl(null);
-    setAiGenPresetDashboardsUrl(null);
+    setAiGenDashboardCompany('');
+    setAiGenDashboardJourney('');
     setShowAiGenModal(true);
     let stepIdx = 0;
 
@@ -2100,12 +2786,23 @@ export const HomePage = () => {
       // Generate Services
       updateStep(stepIdx, { status: 'running' });
       setIsGeneratingServices(true);
+      const { userEmail, userName } = getAuditUser();
+      void trackUiUsage('create-journey-ai-agent', 'journey', {
+        pagePath: '/',
+        companyName: parsedResponse.journey?.companyName || parsedResponse.steps?.[0]?.companyName || companyName,
+        journeyType: jType,
+      });
+      const normalizedPayload = normalizeJourneyPayload(parsedResponse);
       const result = await callProxyWithRetry({
         action: 'simulate-journey',
         apiHost: apiSettings.host,
         apiPort: apiSettings.port,
         apiProtocol: apiSettings.protocol,
-        body: parsedResponse,
+        body: {
+          ...normalizedPayload,
+          userEmail,
+          userName,
+        },
       }, 5, 2000) as any;
       setIsGeneratingServices(false);
       if (!result.success) {
@@ -2150,7 +2847,8 @@ export const HomePage = () => {
         ? (rawDashboardUrl.startsWith('http') ? rawDashboardUrl : `${TENANT_URL}${rawDashboardUrl}`)
         : null;
       setAiGenDashboardUrl(resolvedDashboardUrl);
-      setAiGenPresetDashboardsUrl(getDashboardSearchUrl(jCompany));
+      setAiGenDashboardCompany(jCompany);
+      setAiGenDashboardJourney(jType);
 
       updateStep(stepIdx, {
         status: 'done',
@@ -2159,6 +2857,12 @@ export const HomePage = () => {
           : 'Dashboard deployed',
       });
       stepIdx++;
+
+      await commitJourneyToRepo({
+        ...journeyConfig,
+        companyName: journeyConfig.companyName || jCompany,
+        journeyType: jType,
+      }, 'ai-agent');
 
       // Auto-save to My Templates
       updateStep(stepIdx, { status: 'running' });
@@ -2192,7 +2896,8 @@ export const HomePage = () => {
       setShowJourneyPickerModal(false);
       setJourneyPickerResolve(null);
       setAiGenDashboardUrl(null);
-      setAiGenPresetDashboardsUrl(null);
+      setAiGenDashboardCompany('');
+      setAiGenDashboardJourney('');
       const failedIdx = steps.findIndex(s => s.status === 'running');
       if (failedIdx >= 0) updateStep(failedIdx, { status: 'error', detail: err.message });
       setAiGenError(err.message);
@@ -2320,12 +3025,18 @@ export const HomePage = () => {
       // Step 4: Generate Services
       updateStep(3, { status: 'running' });
       setIsGeneratingServices(true);
+      const { userEmail, userName } = getAuditUser();
+      const normalizedPayload = normalizeJourneyPayload(parsedResponse);
       const result = await callProxyWithRetry({
         action: 'simulate-journey',
         apiHost: apiSettings.host,
         apiPort: apiSettings.port,
         apiProtocol: apiSettings.protocol,
-        body: parsedResponse,
+        body: {
+          ...normalizedPayload,
+          userEmail,
+          userName,
+        },
       }, 5, 2000) as any;
       setIsGeneratingServices(false);
       if (!result.success) {
@@ -2345,6 +3056,11 @@ export const HomePage = () => {
         companyName: s.companyName || jCompany,
       }));
       autoDeployBusinessFlow(jCompany, jType, fullSteps);
+      void commitJourneyToRepo({
+        ...journeyConfig,
+        companyName: journeyConfig.companyName || jCompany,
+        journeyType: jType,
+      }, 'pasted-ai');
 
       // Step 5: Auto-save to My Templates
       updateStep(4, { status: 'running' });
@@ -3519,9 +4235,9 @@ export const HomePage = () => {
 
   const renderStep1Tab = () => (
     <Flex flexDirection="column" gap={20}>
-      <Flex gap={24}>
+      <Flex gap={24} style={{ flexWrap: 'wrap', alignItems: 'stretch' }}>
         {/* Left Column: Form */}
-        <div style={{ flex: 3, padding: 20, background: Colors.Background.Surface.Default, borderRadius: 12, boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
+        <div style={{ flex: '3 1 460px', minWidth: 0, padding: 20, background: Colors.Background.Surface.Default, borderRadius: 12, boxShadow: '0 2px 8px rgba(0,0,0,0.1)', boxSizing: 'border-box' }}>
           <Flex alignItems="center" gap={12} style={{ marginBottom: 20 }}>
             <div style={{ fontSize: 28 }}>👤</div>
             <Heading level={3} style={{ marginBottom: 0 }}>Step 1 - Customer Details</Heading>
@@ -3534,7 +4250,7 @@ export const HomePage = () => {
                 value={companyName}
                 onChange={(value) => setCompanyName(value)}
                 placeholder="e.g., ShopMart, TechCorp, HealthPlus"
-                style={{ width: '100%' }}
+                style={{ width: '100%', minWidth: 0 }}
               />
               <Paragraph style={{ fontSize: 12, marginTop: 4, opacity: 0.7, lineHeight: 1.4 }}>
                 Company name for your business scenario
@@ -3547,7 +4263,7 @@ export const HomePage = () => {
                 value={domain}
                 onChange={(value) => setDomain(value)}
                 placeholder="e.g., shopmart.com, techcorp.io"
-                style={{ width: '100%' }}
+                style={{ width: '100%', minWidth: 0 }}
               />
               <Paragraph style={{ fontSize: 12, marginTop: 4, opacity: 0.7, lineHeight: 1.4 }}>
                 Domain for the customer journey simulation
@@ -3562,6 +4278,7 @@ export const HomePage = () => {
                 placeholder="e.g., Order journey from website to delivery, Banking loan application process"
                 style={{ 
                   width: '100%', 
+                  boxSizing: 'border-box',
                   minHeight: 80,
                   padding: 12,
                   background: Colors.Background.Base.Default,
@@ -3645,7 +4362,7 @@ export const HomePage = () => {
         </div>
 
         {/* Right Column: Instructions & Stats */}
-        <div style={{ flex: 2 }}>
+        <div style={{ flex: '2 1 320px', minWidth: 0 }}>
           <div style={{ 
             padding: 20, 
             background: `linear-gradient(135deg, ${Colors.Background.Surface.Default}, rgba(0, 161, 201, 0.05))`,
@@ -3807,13 +4524,14 @@ export const HomePage = () => {
               marginBottom: 16, padding: 16,
               background: 'linear-gradient(135deg, rgba(0,161,201,0.08), rgba(0,161,201,0.03))',
               borderRadius: 10, border: '2px solid rgba(0,161,201,0.4)',
+              overflow: 'hidden',
             }}>
-              <Flex justifyContent="space-between" alignItems="center" style={{ marginBottom: 8 }}>
-                <Flex alignItems="center" gap={8}>
+              <Flex justifyContent="space-between" alignItems="center" style={{ marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
+                <Flex alignItems="center" gap={8} style={{ minWidth: 0 }}>
                   <div style={{ fontSize: 18 }}>💼</div>
                   <Strong style={{ fontSize: 14 }}>Prompt 1 — C-suite Analysis</Strong>
                 </Flex>
-                <Flex gap={8}>
+                <Flex gap={8} style={{ flexWrap: 'wrap' }}>
                   <Button onClick={() => copyToClipboard(prompt1, 'Prompt 1')} variant="emphasized">📋 Copy</Button>
                   <Button
                     disabled={!ghCopilotConfigured || ghGenerating1}
@@ -3858,6 +4576,7 @@ export const HomePage = () => {
                 readOnly value={prompt1}
                 style={{
                   width: '100%', height: 130, padding: 12,
+                  boxSizing: 'border-box',
                   background: Colors.Background.Base.Default,
                   border: '1px solid rgba(0,161,201,0.4)', borderRadius: 8,
                   color: Colors.Text.Neutral.Default, fontFamily: 'monospace', fontSize: 12,
@@ -3867,8 +4586,8 @@ export const HomePage = () => {
               {/* AI Generated Result */}
               {ghResult1 && (
                 <div style={{ marginTop: 12 }}>
-                  <Flex justifyContent="space-between" alignItems="center" style={{ marginBottom: 6 }}>
-                    <Flex alignItems="center" gap={6}>
+                  <Flex justifyContent="space-between" alignItems="center" style={{ marginBottom: 6, flexWrap: 'wrap', gap: 8 }}>
+                    <Flex alignItems="center" gap={6} style={{ minWidth: 0 }}>
                       <span style={{ fontSize: 14 }}>🤖</span>
                       <Strong style={{ fontSize: 12, color: 'rgba(115,190,40,0.9)' }}>AI-Generated Response</Strong>
                     </Flex>
@@ -3878,6 +4597,7 @@ export const HomePage = () => {
                     readOnly value={ghResult1}
                     style={{
                       width: '100%', height: 200, padding: 12,
+                      boxSizing: 'border-box',
                       background: 'rgba(115,190,40,0.04)',
                       border: '1px solid rgba(115,190,40,0.3)', borderRadius: 8,
                       color: Colors.Text.Neutral.Default, fontFamily: 'monospace', fontSize: 12,
@@ -3893,13 +4613,14 @@ export const HomePage = () => {
               marginBottom: 16, padding: 16,
               background: 'linear-gradient(135deg, rgba(108,44,156,0.08), rgba(108,44,156,0.03))',
               borderRadius: 10, border: '2px solid rgba(108,44,156,0.4)',
+              overflow: 'hidden',
             }}>
-              <Flex justifyContent="space-between" alignItems="center" style={{ marginBottom: 8 }}>
-                <Flex alignItems="center" gap={8}>
+              <Flex justifyContent="space-between" alignItems="center" style={{ marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
+                <Flex alignItems="center" gap={8} style={{ minWidth: 0 }}>
                   <div style={{ fontSize: 18 }}>🗺️</div>
                   <Strong style={{ fontSize: 14 }}>Prompt 2 — Customer Journey</Strong>
                 </Flex>
-                <Flex gap={8}>
+                <Flex gap={8} style={{ flexWrap: 'wrap' }}>
                   <Button onClick={() => copyToClipboard(prompt2, 'Prompt 2')} variant="emphasized">📋 Copy</Button>
                   <Button
                     disabled={!ghCopilotConfigured || ghGenerating2}
@@ -3946,6 +4667,7 @@ export const HomePage = () => {
                 readOnly value={prompt2}
                 style={{
                   width: '100%', height: 130, padding: 12,
+                  boxSizing: 'border-box',
                   background: Colors.Background.Base.Default,
                   border: '1px solid rgba(108,44,156,0.4)', borderRadius: 8,
                   color: Colors.Text.Neutral.Default, fontFamily: 'monospace', fontSize: 12,
@@ -3955,12 +4677,12 @@ export const HomePage = () => {
               {/* AI Generated Result */}
               {ghResult2 && (
                 <div style={{ marginTop: 12 }}>
-                  <Flex justifyContent="space-between" alignItems="center" style={{ marginBottom: 6 }}>
-                    <Flex alignItems="center" gap={6}>
+                  <Flex justifyContent="space-between" alignItems="center" style={{ marginBottom: 6, flexWrap: 'wrap', gap: 8 }}>
+                    <Flex alignItems="center" gap={6} style={{ minWidth: 0 }}>
                       <span style={{ fontSize: 14 }}>🤖</span>
                       <Strong style={{ fontSize: 12, color: 'rgba(115,190,40,0.9)' }}>AI-Generated Response</Strong>
                     </Flex>
-                    <Flex gap={8}>
+                    <Flex gap={8} style={{ flexWrap: 'wrap' }}>
                       <Button onClick={() => copyToClipboard(ghResult2, 'AI Response 2')} variant="default" style={{ fontSize: 11 }}>📋 Copy Result</Button>
                       <Button
                         variant="emphasized"
@@ -3984,6 +4706,7 @@ export const HomePage = () => {
                     readOnly value={ghResult2}
                     style={{
                       width: '100%', height: 200, padding: 12,
+                      boxSizing: 'border-box',
                       background: 'rgba(115,190,40,0.04)',
                       border: '1px solid rgba(115,190,40,0.3)', borderRadius: 8,
                       color: Colors.Text.Neutral.Default, fontFamily: 'monospace', fontSize: 12,
@@ -3994,7 +4717,7 @@ export const HomePage = () => {
               )}
             </div>
 
-            <Flex justifyContent="space-between" style={{ marginTop: 8 }}>
+            <Flex justifyContent="space-between" style={{ marginTop: 8, flexWrap: 'wrap', gap: 8 }}>
               <Button onClick={() => setActiveTab('step1')}>← Back to Details</Button>
               <Button variant="emphasized" onClick={() => setStep2Phase('response')} style={{ padding: '10px 24px', fontWeight: 600 }}>
                 Continue to Paste Response →
@@ -4031,6 +4754,7 @@ export const HomePage = () => {
                 placeholder="Paste the JSON response from the AI assistant here..."
                 style={{
                   width: '100%', height: 260, padding: 16,
+                  boxSizing: 'border-box',
                   background: Colors.Background.Base.Default,
                   border: `1px solid ${Colors.Border.Neutral.Default}`, borderRadius: 8,
                   color: Colors.Text.Neutral.Default, fontFamily: 'monospace', fontSize: 12,
@@ -4049,9 +4773,9 @@ export const HomePage = () => {
               )}
             </div>
 
-            <Flex justifyContent="space-between" style={{ marginTop: 16 }}>
+            <Flex justifyContent="space-between" style={{ marginTop: 16, flexWrap: 'wrap', gap: 8 }}>
               <Button onClick={() => setStep2Phase('prompts')}>← Back to Prompts</Button>
-              <Flex gap={8}>
+              <Flex gap={8} style={{ flexWrap: 'wrap' }}>
                 <Button variant="emphasized" onClick={processResponse} disabled={!copilotResponse.trim()} style={{ padding: '10px 20px', fontWeight: 600 }}>
                   ⚡ Validate Response
                 </Button>
@@ -4162,18 +4886,19 @@ export const HomePage = () => {
                   <div
                     onClick={openSettingsModal}
                     style={{
-                      display: 'flex', alignItems: 'center', gap: 8,
-                      padding: '6px 14px', borderRadius: 20,
+                      display: 'flex', alignItems: 'center', gap: 6,
+                      minHeight: 36,
+                      padding: '7px 12px', borderRadius: 12,
                       background: isConnected
-                        ? 'linear-gradient(135deg, rgba(0,180,0,0.12), rgba(115,190,40,0.08))'
+                        ? 'linear-gradient(135deg, rgba(0,180,0,0.10), rgba(115,190,40,0.06))'
                         : hasIp
-                          ? 'linear-gradient(135deg, rgba(220,160,0,0.12), rgba(220,160,0,0.06))'
-                          : 'linear-gradient(135deg, rgba(120,120,120,0.12), rgba(120,120,120,0.06))',
+                          ? 'linear-gradient(135deg, rgba(220,160,0,0.10), rgba(220,160,0,0.05))'
+                          : 'linear-gradient(135deg, rgba(120,120,120,0.10), rgba(120,120,120,0.05))',
                       border: isConnected
-                        ? '1.5px solid rgba(0,180,0,0.4)'
+                        ? '1px solid rgba(0,180,0,0.35)'
                         : hasIp
-                          ? '1.5px solid rgba(220,160,0,0.4)'
-                          : '1.5px solid rgba(120,120,120,0.3)',
+                          ? '1px solid rgba(220,160,0,0.35)'
+                          : '1px solid rgba(120,120,120,0.28)',
                       cursor: 'pointer',
                       transition: 'all 0.2s ease',
                     }}
@@ -4191,10 +4916,10 @@ export const HomePage = () => {
                       {hasIp ? apiSettings.host : 'Not configured'}
                     </span>
                     <span style={{
-                      fontSize: 10, fontWeight: 700, textTransform: 'uppercase' as const, letterSpacing: 0.5,
+                      fontSize: 9, fontWeight: 700, textTransform: 'uppercase' as const, letterSpacing: 0.6,
                       color: isConnected ? '#2e7d32' : hasIp ? '#b58900' : '#888',
                     }}>
-                      {isConnected ? '● Online' : hasIp ? '○ Unverified' : '○ Offline'}
+                      {isConnected ? 'Online' : hasIp ? 'Unverified' : 'Offline'}
                     </span>
                   </div>
                 );
@@ -4203,35 +4928,36 @@ export const HomePage = () => {
               {/* === Uniform header buttons — each 140px wide, same height, consistent style === */}
 
               {/* Get Started */}
-              <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+              <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                 <button
                   onClick={() => setShowGetStartedModal(true)}
                   style={{
                     display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                    width: 140, padding: '8px 0', borderRadius: 8,
+                    minHeight: 36,
+                    width: 178, padding: '8px 12px', borderRadius: 10,
                     background: completedCount === totalSteps
-                      ? 'linear-gradient(135deg, rgba(0,180,0,0.15), rgba(115,190,40,0.08))'
-                      : 'linear-gradient(135deg, #6c2c9c, #00a1c9)',
+                      ? 'linear-gradient(135deg, rgba(0,180,0,0.14), rgba(115,190,40,0.08))'
+                      : 'linear-gradient(135deg, rgba(108,44,156,0.22), rgba(0,161,201,0.12))',
                     border: completedCount === totalSteps
-                      ? '1.5px solid rgba(0,180,0,0.5)'
-                      : '1.5px solid rgba(108,44,156,0.7)',
-                    color: completedCount === totalSteps ? '#2e7d32' : 'white',
+                      ? '1px solid rgba(0,180,0,0.45)'
+                      : '1px solid rgba(108,44,156,0.55)',
+                    color: completedCount === totalSteps ? '#2e7d32' : '#d8e9ff',
                     fontWeight: 600, fontSize: 12,
                     cursor: 'pointer', transition: 'all 0.2s ease',
-                    boxShadow: completedCount < totalSteps ? '0 2px 8px rgba(108,44,156,0.3)' : 'none',
+                    boxShadow: '0 2px 10px rgba(6,10,24,0.25)',
                   }}
                   onMouseOver={e => { e.currentTarget.style.transform = 'translateY(-1px)'; }}
                   onMouseOut={e => { e.currentTarget.style.transform = 'none'; }}
                 >
-                  <span style={{ fontSize: 14 }}>{completedCount === totalSteps ? '✅' : '🚀'}</span>
+                  <span style={{ fontSize: 13 }}>{completedCount === totalSteps ? '✅' : '🚀'}</span>
                   Get Started
-                  <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 6, background: completedCount === totalSteps ? 'rgba(0,180,0,0.2)' : 'rgba(255,255,255,0.25)', fontWeight: 700 }}>{completedCount}/{totalSteps}</span>
+                  <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, background: completedCount === totalSteps ? 'rgba(0,180,0,0.16)' : 'rgba(255,255,255,0.16)', fontWeight: 700 }}>{completedCount}/{totalSteps}</span>
                 </button>
                 <div style={{ position: 'relative', display: 'inline-block' }}
                   onMouseEnter={() => setShowGetStartedTooltip(true)}
                   onMouseLeave={() => setShowGetStartedTooltip(false)}
                 >
-                  <div style={{ width: 18, height: 18, borderRadius: '50%', background: 'rgba(108,44,156,0.12)', border: '1.5px solid rgba(108,44,156,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'help', fontSize: 10, fontWeight: 700, color: Colors.Theme.Primary['70'] }}>?</div>
+                  <div style={{ width: 16, height: 16, borderRadius: '50%', background: 'rgba(108,44,156,0.12)', border: '1px solid rgba(108,44,156,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'help', fontSize: 9, fontWeight: 700, color: Colors.Theme.Primary['70'] }}>?</div>
                   {showGetStartedTooltip && (
                     <div style={{ position: 'absolute', top: 24, right: 0, width: 260, padding: 12, borderRadius: 10, background: Colors.Background.Surface.Default, border: `1.5px solid ${Colors.Border.Neutral.Default}`, boxShadow: '0 8px 24px rgba(0,0,0,0.25)', zIndex: 10000, fontSize: 12, lineHeight: 1.6 }}>
                       <Strong style={{ fontSize: 13, marginBottom: 6, display: 'block' }}>🚀 Get Started Checklist</Strong>
@@ -4251,12 +4977,13 @@ export const HomePage = () => {
                   onClick={() => setShowNavMenu(prev => !prev)}
                   style={{
                     display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-                    padding: '8px 18px', borderRadius: 8,
+                    minHeight: 36,
+                    padding: '8px 14px', borderRadius: 10,
                     background: showNavMenu
-                      ? 'linear-gradient(135deg, rgba(108,44,156,0.25), rgba(0,161,201,0.15))'
+                      ? 'linear-gradient(135deg, rgba(108,44,156,0.22), rgba(0,161,201,0.12))'
                       : 'linear-gradient(135deg, rgba(108,44,156,0.12), rgba(0,161,201,0.06))',
-                    border: '1.5px solid rgba(108,44,156,0.5)',
-                    color: Colors.Theme.Primary['70'], fontWeight: 600, fontSize: 12,
+                    border: '1px solid rgba(108,44,156,0.5)',
+                    color: '#c8d8ff', fontWeight: 600, fontSize: 12,
                     cursor: 'pointer', transition: 'all 0.2s ease',
                   }}
                   onMouseOver={e => { if (!showNavMenu) e.currentTarget.style.transform = 'translateY(-1px)'; }}
@@ -4286,24 +5013,67 @@ export const HomePage = () => {
                     </div>
                     {[
                       { icon: '🗺️', label: 'Journeys', color: '#00a1c9', action: () => { openJourneysModal(); setShowNavMenu(false); } },
+                      { icon: '📖', label: 'Demo Guide', color: '#00b4dc', route: '/demo-guide' },
+                      { icon: '📊', label: 'Dashboards', color: '#3498db', route: '/demonstrator-dashboards' },
                       { icon: '👹', label: 'Nemesis', color: '#b58900', badge: activeFaults.length > 0 ? activeFaults.length : undefined, action: () => { openChaosModal(); setShowNavMenu(false); } },
                       { icon: '🎨', label: 'Generate Visuals', color: '#00a1c9', action: () => { openGenerateDashboardModal(); setShowNavMenu(false); } },
-                      { icon: '📖', label: 'Demo Guide', color: '#00b4dc', route: '/demo-guide' },
                       { icon: '🏢', label: 'Solutions', color: '#27ae60', route: '/solutions' },
-                      { icon: '📊', label: 'Dashboards', color: '#3498db', route: '/demonstrator-dashboards' },
                       { icon: '⚙️', label: 'Settings', color: Colors.Theme.Primary['70'] as string, action: () => { openSettingsModal(); setShowNavMenu(false); } },
+                      {
+                        icon: '📅',
+                        label: 'Demo Calendar',
+                        color: '#00a1c9',
+                        action: () => {
+                          setShowScheduleMenu(true);
+                          setShowNavMenu(false);
+                          setScheduleStatus('');
+                          setScheduleForm((prev) => {
+                            const defaultCompany = prev.companyName || runningCustomerCompanyOptions[0] || companyName;
+                            const defaultJourney = prev.journeyType
+                              || scheduleJourneyOptions.find((option) => option.companyName === defaultCompany)?.journeyType
+                              || requirements;
+                            const now = new Date();
+                            setScheduleCalendarMonth(new Date(now.getFullYear(), now.getMonth(), 1));
+                            if (!prev.fromAt) {
+                              setScheduleDate(toLocalDateInput(now));
+                              const h = String(now.getHours()).padStart(2, '0');
+                              const m = String(now.getMinutes()).padStart(2, '0');
+                              setScheduleFromTime(`${h}:${m}`);
+                              setScheduleToTime(`${String((now.getHours() + 1) % 24).padStart(2, '0')}:${m}`);
+                            }
+                            return {
+                              ...prev,
+                              customerName: prev.customerName || defaultCompany,
+                              companyName: defaultCompany,
+                              journeyType: defaultJourney,
+                            };
+                          });
+                        }
+                      },
                     ].map((item, idx) => (
                       <div
                         key={idx}
                         onClick={() => {
-                          if (item.route) { navigate(item.route); setShowNavMenu(false); }
-                          else if (item.action) item.action();
+                          if (item.route) {
+                            void trackUiUsage(`open-link-${item.label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`, 'navigation', {
+                              pagePath: '/',
+                              targetPath: item.route,
+                            });
+                            navigate(item.route);
+                            setShowNavMenu(false);
+                          }
+                          else if (item.action) {
+                            void trackUiUsage(`open-panel-${item.label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`, 'navigation', {
+                              pagePath: '/',
+                            });
+                            item.action();
+                          }
                         }}
                         style={{
                           display: 'flex', alignItems: 'center', gap: 12,
                           padding: '10px 16px', cursor: 'pointer',
                           transition: 'background 0.15s ease',
-                          borderBottom: idx < 6 ? `1px solid rgba(255,255,255,0.04)` : 'none',
+                          borderBottom: idx < 7 ? `1px solid rgba(255,255,255,0.04)` : 'none',
                         }}
                         onMouseOver={e => { e.currentTarget.style.background = `linear-gradient(90deg, ${item.color}18, transparent)`; }}
                         onMouseOut={e => { e.currentTarget.style.background = 'transparent'; }}
@@ -4331,26 +5101,416 @@ export const HomePage = () => {
                 )}
               </div>
 
-              {/* Feedback */}
-              <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-              <a
-                href="https://forms.office.com/r/bTZPypxQh9"
-                target="_blank"
-                rel="noopener noreferrer"
+              <div ref={scheduleMenuRef} style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
+                {showScheduleMenu && (
+                  <div style={{
+                    position: 'absolute', top: '100%', right: 0, marginTop: 8,
+                    width: 'min(640px, 94vw)', borderRadius: 12,
+                    background: Colors.Background.Surface.Default,
+                    border: `1.5px solid ${Colors.Border.Neutral.Default}`,
+                    boxShadow: '0 12px 40px rgba(0,0,0,0.3)',
+                    zIndex: 10002,
+                    maxHeight: '82vh',
+                    overflowY: 'auto',
+                    overflowX: 'hidden',
+                    overscrollBehavior: 'contain',
+                  }}>
+                    <div style={{ padding: '10px 14px', borderBottom: `1px solid ${Colors.Border.Neutral.Default}` }}>
+                      <Flex alignItems="center" justifyContent="space-between">
+                        <Strong style={{ fontSize: 13 }}>📅 Demo Calendar Availability Window</Strong>
+                        <button
+                          onClick={() => void loadScheduleOptionsFromBizEvents(false)}
+                          disabled={isLoadingScheduleOptions}
+                          style={{
+                            padding: '4px 8px', borderRadius: 6, fontSize: 11,
+                            border: `1px solid ${Colors.Border.Neutral.Default}`,
+                            background: isLoadingScheduleOptions ? 'rgba(128,128,128,0.12)' : 'rgba(0,161,201,0.08)',
+                            color: '#00a1c9', cursor: isLoadingScheduleOptions ? 'not-allowed' : 'pointer',
+                          }}
+                        >
+                          {isLoadingScheduleOptions ? '⏳ Refreshing…' : '🔄 Refresh'}
+                        </button>
+                      </Flex>
+                      <div style={{ fontSize: 11, opacity: 0.7, marginTop: 4 }}>Use this to tell the app when your demo is happening so the selected journey is up and available before start time.</div>
+                      {lastScheduleOptionsRefresh && (
+                        <div style={{ fontSize: 10, opacity: 0.55, marginTop: 3 }}>
+                          Last refresh: {new Date(lastScheduleOptionsRefresh).toLocaleTimeString()}
+                        </div>
+                      )}
+                    </div>
+
+                    <div style={{ padding: 14, display: 'grid', gap: 10 }}>
+                      <label style={{ fontSize: 11, fontWeight: 700, color: '#dbe9ff', letterSpacing: 0.2 }}>Customer Name</label>
+                      <select
+                        value={scheduleForm.customerName || scheduleForm.companyName}
+                        onChange={(e) => {
+                          const selected = e.target.value;
+                          const nextJourney = scheduleJourneyOptions.find((option) => option.companyName === selected)?.journeyType || '';
+                          setScheduleForm((prev) => ({
+                            ...prev,
+                            customerName: selected,
+                            companyName: selected,
+                            journeyType: nextJourney,
+                          }));
+                        }}
+                        style={{
+                          width: '100%',
+                          boxSizing: 'border-box',
+                          padding: '8px 10px', borderRadius: 8,
+                          border: '1px solid rgba(112,150,205,0.45)',
+                          background: 'rgba(8,13,33,0.95)',
+                          color: '#e6f0ff',
+                          fontSize: 12,
+                          colorScheme: 'dark',
+                        }}
+                      >
+                        <option value="" style={{ background: '#0b132f', color: '#e6f0ff' }}>Select BizEvents customer</option>
+                        {runningCustomerCompanyOptions.map((customer) => (
+                          <option key={customer} value={customer} style={{ background: '#0b132f', color: '#e6f0ff' }}>{customer}</option>
+                        ))}
+                      </select>
+
+                      <label style={{ fontSize: 11, fontWeight: 700, color: '#dbe9ff', letterSpacing: 0.2 }}>Company Name</label>
+                      <select
+                        value={scheduleForm.companyName}
+                        onChange={(e) => {
+                          const selected = e.target.value;
+                          const nextJourney = scheduleJourneyOptions.find((option) => option.companyName === selected)?.journeyType || '';
+                          setScheduleForm((prev) => ({
+                            ...prev,
+                            customerName: selected,
+                            companyName: selected,
+                            journeyType: nextJourney,
+                          }));
+                        }}
+                        style={{
+                          width: '100%',
+                          boxSizing: 'border-box',
+                          padding: '8px 10px', borderRadius: 8,
+                          border: '1px solid rgba(112,150,205,0.45)',
+                          background: 'rgba(8,13,33,0.95)',
+                          color: '#e6f0ff',
+                          fontSize: 12,
+                          colorScheme: 'dark',
+                        }}
+                      >
+                        <option value="" style={{ background: '#0b132f', color: '#e6f0ff' }}>Select BizEvents company</option>
+                        {runningCustomerCompanyOptions.map((companyOption) => (
+                          <option key={companyOption} value={companyOption} style={{ background: '#0b132f', color: '#e6f0ff' }}>{companyOption}</option>
+                        ))}
+                      </select>
+
+                      <label style={{ fontSize: 11, fontWeight: 700, color: '#dbe9ff', letterSpacing: 0.2 }}>Journey Type</label>
+                      <select
+                        value={scheduleForm.journeyType}
+                        onChange={(e) => setScheduleForm((prev) => ({ ...prev, journeyType: e.target.value }))}
+                        style={{
+                          width: '100%',
+                          boxSizing: 'border-box',
+                          padding: '8px 10px', borderRadius: 8,
+                          border: '1px solid rgba(112,150,205,0.45)',
+                          background: 'rgba(8,13,33,0.95)',
+                          color: '#e6f0ff',
+                          fontSize: 12,
+                          colorScheme: 'dark',
+                        }}
+                        disabled={!scheduleForm.companyName}
+                      >
+                        <option value="" style={{ background: '#0b132f', color: '#e6f0ff' }}>Select BizEvents journey type</option>
+                        {runningJourneyTypesForSelectedCompany.map((journeyOption) => (
+                          <option key={journeyOption} value={journeyOption} style={{ background: '#0b132f', color: '#e6f0ff' }}>{journeyOption}</option>
+                        ))}
+                      </select>
+
+                      <label style={{ fontSize: 11, fontWeight: 700, color: '#dbe9ff', letterSpacing: 0.2 }}>Timezone</label>
+                      <select
+                        value={scheduleTimezone || tenantCalendarTimezone}
+                        onChange={(e) => setScheduleTimezone(e.target.value)}
+                        style={{
+                          width: '100%',
+                          boxSizing: 'border-box',
+                          padding: '8px 10px', borderRadius: 8,
+                          border: '1px solid rgba(112,150,205,0.45)',
+                          background: 'rgba(8,13,33,0.95)',
+                          color: '#e6f0ff',
+                          fontSize: 12,
+                          colorScheme: 'dark',
+                        }}
+                      >
+                        {[tenantCalendarTimezone, 'UTC', 'Europe/London', 'America/New_York', 'Asia/Singapore'].filter((v, i, arr) => arr.indexOf(v) === i).map((tz) => (
+                          <option key={tz} value={tz} style={{ background: '#0b132f', color: '#e6f0ff' }}>{tz}{tz === tenantCalendarTimezone ? ' (tenant)' : ''}</option>
+                        ))}
+                      </select>
+
+                      <label style={{ fontSize: 11, fontWeight: 700, color: '#dbe9ff', letterSpacing: 0.2 }}>Date & time window</label>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 120px', gap: 8, width: '100%', minWidth: 0 }}>
+                        <div style={{ border: '1px solid rgba(112,150,205,0.35)', borderRadius: 10, padding: 8, background: 'rgba(8,13,33,0.55)', minWidth: 0 }}>
+                          <Flex alignItems="center" justifyContent="space-between" style={{ marginBottom: 8 }}>
+                            <button
+                              onClick={() => setScheduleCalendarMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1))}
+                              style={{ border: `1px solid ${Colors.Border.Neutral.Default}`, background: 'transparent', borderRadius: 6, cursor: 'pointer', padding: '2px 8px' }}
+                            >
+                              ←
+                            </button>
+                            <Strong style={{ fontSize: 12 }}>{scheduleCalendarMonth.toLocaleString(undefined, { month: 'long', year: 'numeric' })}</Strong>
+                            <button
+                              onClick={() => setScheduleCalendarMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1))}
+                              style={{ border: `1px solid ${Colors.Border.Neutral.Default}`, background: 'transparent', borderRadius: 6, cursor: 'pointer', padding: '2px 8px' }}
+                            >
+                              →
+                            </button>
+                          </Flex>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, fontSize: 10, opacity: 0.65, marginBottom: 4 }}>
+                            {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => <div key={d} style={{ textAlign: 'center' }}>{d}</div>)}
+                          </div>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4 }}>
+                            {scheduleCalendarDays.map(({ date, inCurrentMonth }) => {
+                              const dateKey = toLocalDateInput(date);
+                              const isSelected = scheduleDate === dateKey;
+                              return (
+                                <button
+                                  key={date.toISOString()}
+                                  onClick={() => setScheduleDate(dateKey)}
+                                  style={{
+                                    borderRadius: 6,
+                                    border: isSelected ? '1px solid rgba(0,161,201,0.8)' : '1px solid rgba(112,150,205,0.32)',
+                                    background: isSelected ? 'rgba(0,161,201,0.2)' : 'rgba(6,10,28,0.45)',
+                                    color: inCurrentMonth ? '#e6f0ff' : 'rgba(142,162,198,0.55)',
+                                    fontSize: 11,
+                                    padding: '5px 0',
+                                    cursor: 'pointer',
+                                  }}
+                                >
+                                  {date.getDate()}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                        <div style={{ border: '1px solid rgba(112,150,205,0.35)', borderRadius: 10, padding: 8, background: 'rgba(8,13,33,0.55)' }}>
+                          <label style={{ fontSize: 11, fontWeight: 700, color: '#dbe9ff' }}>From</label>
+                          <input
+                            type="time"
+                            value={scheduleFromTime}
+                            onChange={(e) => setScheduleFromTime(e.target.value)}
+                            style={{ marginTop: 4, width: '100%', boxSizing: 'border-box', padding: '5px 8px', borderRadius: 6, border: '1px solid rgba(112,150,205,0.45)', background: 'rgba(8,13,33,0.95)', color: '#e6f0ff', fontSize: 11, colorScheme: 'dark', minWidth: 0 }}
+                          />
+                          <label style={{ marginTop: 8, display: 'block', fontSize: 11, fontWeight: 700, color: '#dbe9ff' }}>To</label>
+                          <input
+                            type="time"
+                            value={scheduleToTime}
+                            onChange={(e) => setScheduleToTime(e.target.value)}
+                            style={{ marginTop: 4, width: '100%', boxSizing: 'border-box', padding: '5px 8px', borderRadius: 6, border: '1px solid rgba(112,150,205,0.45)', background: 'rgba(8,13,33,0.95)', color: '#e6f0ff', fontSize: 11, colorScheme: 'dark', minWidth: 0 }}
+                          />
+                          <div style={{ marginTop: 8, fontSize: 10, color: 'rgba(220,235,255,0.75)' }}>
+                            <div style={{ fontWeight: 600, color: '#e6f0ff', fontSize: 10, marginBottom: 3 }}>{scheduleDate}</div>
+                            <div style={{ fontWeight: 600, color: '#e6f0ff', fontSize: 10, marginBottom: 3 }}>{scheduleFromTime}–{scheduleToTime}</div>
+                            <div style={{ opacity: 0.6, fontSize: 9 }}>{tenantCalendarTimezone}</div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <label style={{ fontSize: 11, fontWeight: 700, color: '#dbe9ff', letterSpacing: 0.2 }}>Readiness notes (optional)</label>
+                      <textarea
+                        value={scheduleForm.notes}
+                        onChange={(e) => setScheduleForm((prev) => ({ ...prev, notes: e.target.value }))}
+                        placeholder="Anything needed to ensure app and journey readiness"
+                        rows={2}
+                        style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px', borderRadius: 8, border: '1px solid rgba(112,150,205,0.45)', background: 'rgba(8,13,33,0.95)', color: '#e6f0ff', fontSize: 12, resize: 'vertical' }}
+                      />
+
+                      <Flex justifyContent="space-between" alignItems="center" style={{ marginTop: 4, flexWrap: 'wrap', gap: 8 }}>
+                        <button
+                          onClick={scheduleDemo}
+                          style={{
+                            padding: '7px 12px', borderRadius: 8, border: 'none',
+                            background: 'linear-gradient(135deg, rgba(115,190,40,0.9), rgba(0,161,201,0.9))',
+                            color: 'white', fontWeight: 600, fontSize: 12, cursor: 'pointer',
+                          }}
+                        >
+                          Save Readiness Window
+                        </button>
+                        <span style={{ fontSize: 11, opacity: 0.7 }}>{getAuditUser().userEmail || 'user email unavailable'}</span>
+                      </Flex>
+
+                      {scheduleStatus && (
+                        <div style={{
+                          padding: '6px 8px', borderRadius: 8, fontSize: 11,
+                          background: scheduleStatus.includes('✅') ? 'rgba(115,190,40,0.12)' : 'rgba(220,50,47,0.12)',
+                          border: `1px solid ${scheduleStatus.includes('✅') ? 'rgba(115,190,40,0.35)' : 'rgba(220,50,47,0.35)'}`,
+                        }}>
+                          {scheduleStatus}
+                        </div>
+                      )}
+
+                      <div style={{ borderTop: `1px solid ${Colors.Border.Neutral.Default}`, paddingTop: 10 }}>
+                        <Flex alignItems="center" justifyContent="space-between">
+                          <Strong style={{ fontSize: 12 }}>Audit Calendar</Strong>
+                          <Flex gap={6}>
+                            {(['day', 'week', 'month'] as const).map((view) => (
+                              <button
+                                key={view}
+                                onClick={() => setScheduleAuditView(view)}
+                                style={{
+                                  padding: '2px 8px', borderRadius: 10, fontSize: 10, fontWeight: 700,
+                                  border: scheduleAuditView === view ? '1px solid rgba(0,161,201,0.65)' : '1px solid rgba(112,150,205,0.35)',
+                                  background: scheduleAuditView === view ? 'rgba(0,161,201,0.18)' : 'rgba(8,13,33,0.65)',
+                                  color: '#e6f0ff', cursor: 'pointer', textTransform: 'uppercase',
+                                }}
+                              >
+                                {view}
+                              </button>
+                            ))}
+                          </Flex>
+                        </Flex>
+                        <div style={{ marginTop: 8, maxHeight: 170, overflow: 'auto', display: 'grid', gap: 6 }}>
+                          {filteredDemoSchedules.slice(0, 24).map((entry) => {
+                            const readiness = getScheduleReadiness(entry);
+                            return (
+                              <div key={entry.id} style={{ padding: 8, borderRadius: 8, border: `1px solid ${Colors.Border.Neutral.Default}`, background: 'rgba(0,161,201,0.04)' }}>
+                                <Flex alignItems="center" justifyContent="space-between" style={{ gap: 8 }}>
+                                  <div style={{ fontSize: 12, fontWeight: 600 }}>{entry.customerName} · {entry.companyName} · {entry.journeyType}</div>
+                                  <div style={{
+                                    fontSize: 10,
+                                    fontWeight: 700,
+                                    letterSpacing: 0.3,
+                                    color: readiness.color,
+                                    background: readiness.bg,
+                                    border: `1px solid ${readiness.border}`,
+                                    padding: '2px 8px',
+                                    borderRadius: 999,
+                                    whiteSpace: 'nowrap',
+                                  }}>
+                                    {readiness.label}
+                                  </div>
+                                </Flex>
+                                <div style={{ fontSize: 11, opacity: 0.75, marginTop: 2 }}>
+                                  {formatScheduleRange(entry.fromAt, entry.toAt)} · by {entry.schedulerEmail || entry.schedulerName || 'unknown'}
+                                </div>
+                                <div style={{ fontSize: 10, marginTop: 2, color: readiness.color }}>
+                                  Runtime check: {readiness.detail}
+                                </div>
+                                {entry.notes && <div style={{ fontSize: 11, opacity: 0.75, marginTop: 2 }}>{entry.notes}</div>}
+                                <button
+                                  onClick={() => removeScheduledDemo(entry.id)}
+                                  style={{ marginTop: 6, padding: '2px 8px', borderRadius: 6, border: '1px solid rgba(220,50,47,0.3)', background: 'rgba(220,50,47,0.08)', color: '#dc322f', fontSize: 10, cursor: 'pointer' }}
+                                >
+                                  Remove
+                                </button>
+                              </div>
+                            );
+                          })}
+                          {filteredDemoSchedules.length === 0 && (
+                            <div style={{ fontSize: 11, opacity: 0.6, padding: 6 }}>No demo slots for this {scheduleAuditView} view.</div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div ref={supportMenuRef} style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+              <button
+                onClick={() => setShowSupportMenu(prev => !prev)}
+                title="Open support options"
                 style={{
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                  width: 140, padding: '8px 0', borderRadius: 8,
-                  background: 'linear-gradient(135deg, rgba(243,156,18,0.12), rgba(230,126,34,0.06))',
-                  border: '1.5px solid rgba(243,156,18,0.4)',
-                  color: '#f39c12', fontWeight: 600, fontSize: 12,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                  minHeight: 36,
+                  width: 148, padding: '8px 12px', borderRadius: 10,
+                  background: showSupportMenu
+                    ? 'linear-gradient(135deg, rgba(220,50,47,0.24), rgba(243,156,18,0.12))'
+                    : 'linear-gradient(135deg, rgba(220,50,47,0.18), rgba(243,156,18,0.08))',
+                  border: '1px solid rgba(220,50,47,0.45)',
+                  color: '#ff9f8f', fontWeight: 700, fontSize: 12,
                   cursor: 'pointer', transition: 'all 0.2s ease',
                   textDecoration: 'none',
+                  boxShadow: '0 4px 14px rgba(220,50,47,0.12)',
                 }}
-                onMouseOver={e => { e.currentTarget.style.transform = 'translateY(-1px)'; }}
+                onMouseOver={e => { if (!showSupportMenu) e.currentTarget.style.transform = 'translateY(-1px)'; }}
                 onMouseOut={e => { e.currentTarget.style.transform = 'none'; }}
               >
-                <span style={{ fontSize: 14 }}>💬</span> Feedback
-              </a>
+                <span style={{
+                  width: 22,
+                  height: 22,
+                  borderRadius: 6,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  background: 'rgba(220,50,47,0.18)',
+                  border: '1px solid rgba(220,50,47,0.35)',
+                  fontSize: 13,
+                }}>🐞</span>
+                Support
+                <span style={{
+                  fontSize: 10,
+                  transition: 'transform 0.2s ease',
+                  display: 'inline-block',
+                  transform: showSupportMenu ? 'rotate(180deg)' : 'rotate(0deg)',
+                }}>▼</span>
+              </button>
+
+              {showSupportMenu && (
+                <div style={{
+                  position: 'absolute', top: '100%', right: 0, marginTop: 6,
+                  width: 220, borderRadius: 12,
+                  background: Colors.Background.Surface.Default,
+                  border: `1.5px solid ${Colors.Border.Neutral.Default}`,
+                  boxShadow: '0 12px 40px rgba(0,0,0,0.3), 0 0 0 1px rgba(255,255,255,0.05)',
+                  zIndex: 10001, overflow: 'hidden',
+                  animation: 'navMenuSlideIn 0.15s ease-out',
+                }}>
+                  <div style={{ padding: '10px 14px 6px', borderBottom: `1px solid ${Colors.Border.Neutral.Default}` }}>
+                    <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' as const, letterSpacing: 1.2, color: '#ff9f8f', opacity: 0.8 }}>Support</span>
+                  </div>
+                  {[
+                    {
+                      icon: '💬',
+                      label: 'Feedback Form',
+                      color: '#ffbf66',
+                      action: () => {
+                        void trackUiUsage('open-support-form', 'feedback', {
+                          pagePath: '/',
+                          destination: 'microsoft-forms',
+                        });
+                        window.open('https://forms.office.com/r/bTZPypxQh9', '_blank', 'noopener,noreferrer');
+                        setShowSupportMenu(false);
+                      },
+                    },
+                    {
+                      icon: '🐞',
+                      label: 'Report a Bug',
+                      color: '#ff9f8f',
+                      action: openBugReportModal,
+                    },
+                  ].map((item, idx, arr) => (
+                    <div
+                      key={item.label}
+                      onClick={item.action}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 12,
+                        padding: '10px 16px', cursor: 'pointer',
+                        transition: 'background 0.15s ease',
+                        borderBottom: idx < arr.length - 1 ? '1px solid rgba(255,255,255,0.04)' : 'none',
+                      }}
+                      onMouseOver={e => { e.currentTarget.style.background = `linear-gradient(90deg, ${item.color}18, transparent)`; }}
+                      onMouseOut={e => { e.currentTarget.style.background = 'transparent'; }}
+                    >
+                      <span style={{
+                        width: 32, height: 32, borderRadius: 8,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        background: `${item.color}18`,
+                        border: `1px solid ${item.color}40`,
+                        fontSize: 16,
+                      }}>{item.icon}</span>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: item.color }}>{item.label}</div>
+                      </div>
+                      <span style={{ fontSize: 12, opacity: 0.3 }}>›</span>
+                    </div>
+                  ))}
+                </div>
+              )}
               </div>
 
 
@@ -4982,14 +6142,7 @@ export const HomePage = () => {
                             <Flex key={s.pid} alignItems="center" justifyContent="space-between" style={{ padding: '6px 8px', borderRadius: 6, marginBottom: 4, background: s.running ? 'rgba(115,190,40,0.06)' : 'rgba(220,50,47,0.06)' }}>
                               <Flex alignItems="center" gap={8}>
                                 <span style={{ fontSize: 10, color: s.running ? Colors.Theme.Success['70'] : '#dc322f' }}>●</span>
-                                <a
-                                  href={getServicesUiUrl(company, s.journeyType, s.baseServiceName || s.service)}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  style={{ fontSize: 13, textDecoration: 'none', color: 'inherit', borderBottom: '1px dashed rgba(0,161,201,0.35)' }}
-                                >
-                                  {s.baseServiceName || s.service}
-                                </a>
+                                <span style={{ fontSize: 13 }}>{s.baseServiceName || s.service}</span>
                                 {s.serviceVersion && (
                                   <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 3, background: 'rgba(115,190,40,0.15)', color: Colors.Theme.Success['70'], fontFamily: 'monospace', fontWeight: 600 }}>
                                     v{s.serviceVersion}.0.0
@@ -5071,14 +6224,7 @@ export const HomePage = () => {
                               <Flex key={idx} alignItems="center" justifyContent="space-between" style={{ padding: '5px 8px', borderRadius: 6, marginBottom: 3, background: 'rgba(181,137,0,0.04)' }}>
                                 <Flex alignItems="center" gap={8}>
                                   <span style={{ fontSize: 10, color: '#b58900' }}>○</span>
-                                  <a
-                                    href={getServicesUiUrl(company, s.journeyType, s.baseServiceName || s.serviceName)}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    style={{ fontSize: 12, textDecoration: 'none', color: 'inherit', borderBottom: '1px dashed rgba(181,137,0,0.35)' }}
-                                  >
-                                    {s.baseServiceName || s.serviceName}
-                                  </a>
+                                  <span style={{ fontSize: 12 }}>{s.baseServiceName || s.serviceName}</span>
                                   {s.serviceVersion && (
                                     <span style={{ fontSize: 9, padding: '1px 4px', borderRadius: 3, background: 'rgba(181,137,0,0.1)', color: '#b58900', fontFamily: 'monospace' }}>
                                       v{s.serviceVersion}
@@ -5143,16 +6289,61 @@ export const HomePage = () => {
                 <>
                   {/* Summary cards */}
                   {(() => {
-                    // Group by companyName → journeyType
-                    const grouped: Record<string, Record<string, RunningService[]>> = {};
-                    journeysData.forEach(s => {
+                    // Group by company and journey identity. If a journey bucket grows beyond
+                    // 6 services (legacy stale metadata), split into journey batches for clarity.
+                    const grouped: Record<string, Array<{ label: string; journeyType: string; services: RunningService[] }>> = {};
+                    const splitJourneyBuckets = (services: RunningService[]) => {
+                      if (services.length <= 6) return [services];
+
+                      const withStart = services.filter((s) => Number.isFinite(Number(s.startTime)) && Number(s.startTime) > 0);
+                      if (withStart.length === services.length) {
+                        const windows = new Map<number, RunningService[]>();
+                        services.forEach((s) => {
+                          const win = Math.floor(Number(s.startTime) / 120000);
+                          const arr = windows.get(win) || [];
+                          arr.push(s);
+                          windows.set(win, arr);
+                        });
+                        if (windows.size > 1) {
+                          return Array.from(windows.entries())
+                            .sort((a, b) => a[0] - b[0])
+                            .map(([, bucket]) => bucket);
+                        }
+                      }
+
+                      const sorted = [...services].sort((a, b) => {
+                        const aPort = Number(a.port || 0);
+                        const bPort = Number(b.port || 0);
+                        return aPort - bPort;
+                      });
+                      const chunks: RunningService[][] = [];
+                      for (let i = 0; i < sorted.length; i += 6) {
+                        chunks.push(sorted.slice(i, i + 6));
+                      }
+                      return chunks;
+                    };
+
+                    const byCompanyAndType: Record<string, Record<string, RunningService[]>> = {};
+                    journeysData.forEach((s) => {
                       const company = s.companyName || 'Unknown';
-                      const jType = s.journeyType || 'Unknown';
-                      if (!grouped[company]) grouped[company] = {};
-                      if (!grouped[company][jType]) grouped[company][jType] = [];
-                      grouped[company][jType].push(s);
+                      const jType = s.journeyType || s.journeyDetail || 'Unknown';
+                      if (!byCompanyAndType[company]) byCompanyAndType[company] = {};
+                      if (!byCompanyAndType[company][jType]) byCompanyAndType[company][jType] = [];
+                      byCompanyAndType[company][jType].push(s);
                     });
-                    const totalJourneys = Object.values(grouped).reduce((sum, company) => sum + Object.keys(company).length, 0);
+
+                    Object.entries(byCompanyAndType).forEach(([company, journeyTypes]) => {
+                      grouped[company] = [];
+                      Object.entries(journeyTypes).forEach(([jType, services]) => {
+                        const buckets = splitJourneyBuckets(services);
+                        buckets.forEach((bucket, idx) => {
+                          const label = buckets.length > 1 ? `${jType} (${idx + 1})` : jType;
+                          grouped[company].push({ label, journeyType: jType, services: bucket });
+                        });
+                      });
+                    });
+
+                    const totalJourneys = Object.values(grouped).reduce((sum, companyGroups) => sum + companyGroups.length, 0);
                     const totalCompanies = Object.keys(grouped).length;
 
                     return (
@@ -5174,7 +6365,7 @@ export const HomePage = () => {
                         </div>
 
                         {/* Company → Journey Type breakdown */}
-                        {Object.entries(grouped).map(([company, journeyTypes]) => (
+                        {Object.entries(grouped).map(([company, companyGroups]) => (
                           <div key={company} style={{ marginBottom: 16, border: `1px solid ${Colors.Border.Neutral.Default}`, borderRadius: 12, overflow: 'hidden' }}>
                             {/* Company header */}
                             <div style={{ padding: '12px 16px', background: 'linear-gradient(135deg, rgba(0,161,201,0.08), rgba(0,212,255,0.04))', borderBottom: `1px solid ${Colors.Border.Neutral.Default}` }}>
@@ -5183,7 +6374,7 @@ export const HomePage = () => {
                                   <span style={{ fontSize: 18 }}>🏢</span>
                                   <Strong style={{ fontSize: 15 }}>{company}</Strong>
                                   <span style={{ fontSize: 12, opacity: 0.5 }}>
-                                    ({Object.keys(journeyTypes).length} journey{Object.keys(journeyTypes).length !== 1 ? 's' : ''}, {Object.values(journeyTypes).reduce((sum, svcs) => sum + svcs.length, 0)} services)
+                                    ({companyGroups.length} journey{companyGroups.length !== 1 ? 's' : ''}, {companyGroups.reduce((sum, g) => sum + g.services.length, 0)} services)
                                   </span>
                                 </Flex>
                                 <Flex gap={6}>
@@ -5231,16 +6422,28 @@ export const HomePage = () => {
 
                             {/* Journey types within this company */}
                             <div style={{ padding: 12 }}>
-                              {Object.entries(journeyTypes).map(([jType, services]) => (
-                                <div key={jType} style={{ marginBottom: 10, padding: 10, borderRadius: 8, background: 'rgba(115,190,40,0.04)', border: '1px dashed rgba(115,190,40,0.2)' }}>
+                              {companyGroups.map(({ label, journeyType, services }) => {
+                                const creatorCounts = new Map<string, number>();
+                                services.forEach((svc) => {
+                                  const label = getServiceCreatorLabel(svc);
+                                  if (!label || label === 'unknown creator') return;
+                                  creatorCounts.set(label, (creatorCounts.get(label) || 0) + 1);
+                                });
+                                const creatorDisplay = creatorCounts.size > 0
+                                  ? [...creatorCounts.entries()].sort((a, b) => b[1] - a[1])[0][0]
+                                  : null;
+
+                                return (
+                                <div key={`${journeyType}-${label}-${services[0]?.port || 'na'}`} style={{ marginBottom: 10, padding: 10, borderRadius: 8, background: 'rgba(115,190,40,0.04)', border: '1px dashed rgba(115,190,40,0.2)' }}>
                                   <Flex alignItems="center" justifyContent="space-between" style={{ marginBottom: 6 }}>
                                     <Flex alignItems="center" gap={8}>
                                       <span style={{ fontSize: 14 }}>🗺️</span>
-                                      <Strong style={{ fontSize: 13 }}>{jType}</Strong>
+                                      <Strong style={{ fontSize: 13 }}>{label}</Strong>
                                       <span style={{ fontSize: 11, opacity: 0.5 }}>({services.length} service{services.length !== 1 ? 's' : ''})</span>
+                                      {creatorDisplay && <span style={{ fontSize: 11, opacity: 0.7 }}>• by {creatorDisplay}</span>}
                                     </Flex>
                                     <a
-                                      href={getServicesUiUrl(company, jType)}
+                                      href={getServicesUiUrl(company, journeyType)}
                                       target="_blank"
                                       rel="noopener noreferrer"
                                       style={{
@@ -5257,14 +6460,7 @@ export const HomePage = () => {
                                     {services.map(s => (
                                       <Flex key={s.pid} alignItems="center" gap={6} style={{ padding: '5px 12px', borderRadius: 6, background: s.running ? 'rgba(115,190,40,0.06)' : 'rgba(220,50,47,0.06)', whiteSpace: 'nowrap' }}>
                                         <span style={{ fontSize: 8, color: s.running ? Colors.Theme.Success['70'] : '#dc322f' }}>●</span>
-                                        <a
-                                          href={getServicesUiUrl(company, jType, s.baseServiceName || s.service)}
-                                          target="_blank"
-                                          rel="noopener noreferrer"
-                                          style={{ fontSize: 12, textDecoration: 'none', color: 'inherit', borderBottom: '1px dashed rgba(115,190,40,0.35)' }}
-                                        >
-                                          {s.baseServiceName || s.service}
-                                        </a>
+                                        <span style={{ fontSize: 12 }}>{s.baseServiceName || s.service}</span>
                                         {s.serviceVersion && (
                                           <span style={{ fontSize: 9, padding: '1px 4px', borderRadius: 3, background: 'rgba(115,190,40,0.12)', color: Colors.Theme.Success['70'], fontFamily: 'monospace', fontWeight: 600 }}>
                                             v{s.serviceVersion}.0.0
@@ -5277,14 +6473,14 @@ export const HomePage = () => {
 
                                   {/* ── Deployment Status ── */}
                                   {(() => {
-                                    const assetKey = `${company}::${jType}`;
+                                    const assetKey = `${company}::${journeyType}`;
                                     const asset = journeyAssets[assetKey];
                                     if (!asset) return null;
                                     return (
                                       <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 6, borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 8 }}>
                                         {/* Services link */}
                                         <a
-                                          href={getServicesUiUrl(company, jType)}
+                                          href={getServicesUiUrl(company, journeyType)}
                                           target="_blank"
                                           rel="noopener noreferrer"
                                           style={{
@@ -5353,7 +6549,8 @@ export const HomePage = () => {
                                     );
                                   })()}
                                 </div>
-                              ))}
+                                );
+                              })}
                             </div>
                           </div>
                         ))}
@@ -5619,6 +6816,34 @@ export const HomePage = () => {
                   {/* ─── Tab 2: Inject ─── */}
                   {chaosTab === 'inject' && (
                     <div>
+                      <div style={{ marginBottom: 12 }}>
+                        <Strong style={{ fontSize: 12, display: 'block', marginBottom: 6 }}>🏢 Company Filter</Strong>
+                        <select
+                          value={chaosFilterCompany}
+                          onChange={e => { setChaosFilterCompany(e.target.value); setInjectForm(prev => ({ ...prev, target: '' })); }}
+                          style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: `1px solid ${Colors.Border.Neutral.Default}`, background: Colors.Background.Surface.Default, color: 'inherit', fontSize: 13 }}
+                        >
+                          <option value="all">All companies</option>
+                          {chaosCompanyOptions.map(company => (
+                            <option key={company} value={company}>{company}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div style={{ marginBottom: 16 }}>
+                        <Strong style={{ fontSize: 12, display: 'block', marginBottom: 6 }}>👤 Creator Filter</Strong>
+                        <select
+                          value={chaosFilterCreator}
+                          onChange={e => { setChaosFilterCreator(e.target.value); setInjectForm(prev => ({ ...prev, target: '' })); }}
+                          style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: `1px solid ${Colors.Border.Neutral.Default}`, background: Colors.Background.Surface.Default, color: 'inherit', fontSize: 13 }}
+                        >
+                          <option value="all">All creators</option>
+                          {chaosCreatorOptions.map(creator => (
+                            <option key={creator} value={creator}>{creator}</option>
+                          ))}
+                        </select>
+                      </div>
+
                       {/* Target Service Dropdown */}
                       <div style={{ marginBottom: 16 }}>
                         <Strong style={{ fontSize: 12, display: 'block', marginBottom: 6 }}>🔧 Target Service</Strong>
@@ -5628,10 +6853,13 @@ export const HomePage = () => {
                           style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: `1px solid ${Colors.Border.Neutral.Default}`, background: Colors.Background.Surface.Default, color: 'inherit', fontSize: 13 }}
                         >
                           <option value="">— Select a service —</option>
-                          {runningServices.map((s: any) => (
-                            <option key={s.pid || s.service} value={s.baseServiceName || s.service}>{s.baseServiceName || s.service} ({s.companyName || 'unknown'})</option>
+                          {chaosTargetServices.map((s: any) => (
+                            <option key={`${s.pid || s.service}-${s.companyName || 'unknown'}`} value={s.baseServiceName || s.service}>{s.baseServiceName || s.service} ({s.companyName || 'unknown'})</option>
                           ))}
                         </select>
+                        {chaosTargetServices.length === 0 && (
+                          <div style={{ marginTop: 6, fontSize: 11, opacity: 0.7 }}>No running services match the selected company/creator filters.</div>
+                        )}
                       </div>
 
                       {/* Chaos Type */}
@@ -5695,7 +6923,7 @@ export const HomePage = () => {
                       {/* Inject Button */}
                       <button
                         onClick={injectChaos}
-                        disabled={isInjectingChaos || !injectForm.target}
+                        disabled={isInjectingChaos || !injectForm.target || chaosTargetServices.length === 0}
                         style={{
                           width: '100%', padding: '12px 0', borderRadius: 10,
                           border: '2px solid rgba(181,137,0,0.6)',
@@ -5859,7 +7087,7 @@ export const HomePage = () => {
                       border: `1px solid ${dashboardGenerationStatus.includes('✅') ? Colors.Theme.Success['70'] : dashboardGenerationStatus.includes('❌') ? '#dc322f' : Colors.Theme.Primary['70']}` }}>
                       {dashboardGenerationStatus}
                       {dashboardUrl && dashboardGenerationStatus.includes('✅') && (
-                        <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                        <div style={{ marginTop: 8 }}>
                           <a
                             href={dashboardUrl ?? undefined}
                             target="_blank"
@@ -5868,16 +7096,6 @@ export const HomePage = () => {
                           >
                             📊 Open Dashboard in Dynatrace →
                           </a>
-                          {dashboardCompanyName && (
-                            <a
-                              href={getDashboardSearchUrl(dashboardCompanyName)}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              style={{ color: '#6c2c9c', fontWeight: 700, textDecoration: 'none', fontSize: 14 }}
-                            >
-                              🗂️ Open Preset Dashboards for {dashboardCompanyName} →
-                            </a>
-                          )}
                         </div>
                       )}
                     </div>
@@ -6627,6 +7845,117 @@ export const HomePage = () => {
         </div>
       )}
 
+      {showBugReportModal && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 10002, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.55)' }} onClick={closeBugReportModal} />
+          <div style={{ position: 'relative', width: 'min(760px, 94vw)', maxHeight: '88vh', overflow: 'hidden', background: Colors.Background.Surface.Default, borderRadius: 18, border: `2px solid rgba(220,50,47,0.35)`, boxShadow: '0 24px 48px rgba(0,0,0,0.35)', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ padding: '18px 24px', background: 'linear-gradient(135deg, rgba(220,50,47,0.92), rgba(180,30,30,0.96))', borderRadius: '14px 14px 0 0' }}>
+              <Flex alignItems="center" justifyContent="space-between">
+                <Flex alignItems="center" gap={12}>
+                  <span style={{ fontSize: 24 }}>🐞</span>
+                  <div>
+                    <Strong style={{ color: 'white', fontSize: 16 }}>Report a Bug</Strong>
+                    <div style={{ color: 'rgba(255,255,255,0.76)', fontSize: 12 }}>Creates a GitHub issue directly in the internal repository</div>
+                  </div>
+                </Flex>
+                <button onClick={closeBugReportModal} disabled={isSubmittingBugReport} style={{ background: 'none', border: 'none', color: 'white', fontSize: 20, cursor: isSubmittingBugReport ? 'wait' : 'pointer', padding: 4, opacity: isSubmittingBugReport ? 0.6 : 1 }}>✕</button>
+              </Flex>
+            </div>
+
+            <div style={{ padding: 24, overflowY: 'auto', overflowX: 'hidden' }}>
+              <div style={{ padding: '14px 16px', marginBottom: 18, borderRadius: 12, background: 'linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01))', border: `1px solid ${Colors.Border.Neutral.Default}` }}>
+                <Paragraph style={{ fontSize: 13, marginBottom: 8, lineHeight: 1.6, opacity: 0.82 }}>
+                  Submit the problem directly to LawrenceBarratt90/Business-Observability-Demonstrator-Internal using the GitHub token already configured for the app.
+                </Paragraph>
+                <div style={{ fontSize: 11, opacity: 0.6, letterSpacing: 0.2 }}>
+                  Include a short title, what broke, and how to reproduce it.
+                </div>
+              </div>
+
+              {bugReportStatus && (
+                <div style={{ padding: '10px 12px', marginBottom: 16, borderRadius: 10, fontSize: 13, lineHeight: 1.5,
+                  background: bugReportStatus.startsWith('✅') ? 'rgba(115,190,40,0.12)' : bugReportStatus.startsWith('❌') ? 'rgba(220,50,47,0.12)' : 'rgba(0,161,201,0.12)',
+                  border: `1px solid ${bugReportStatus.startsWith('✅') ? Colors.Theme.Success['70'] : bugReportStatus.startsWith('❌') ? '#dc322f' : Colors.Theme.Primary['70']}` }}>
+                  <div>{bugReportStatus}</div>
+                  {bugReportIssueUrl && (
+                    <a href={bugReportIssueUrl} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-block', marginTop: 8, color: Colors.Theme.Primary['70'], fontWeight: 600, textDecoration: 'none' }}>
+                      Open created issue →
+                    </a>
+                  )}
+                </div>
+              )}
+
+              <div style={{ display: 'grid', gap: 16 }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: 12, fontWeight: 700, marginBottom: 6, opacity: 0.8 }}>Title</label>
+                  <input
+                    value={bugReportForm.title}
+                    onChange={(e) => setBugReportForm(prev => ({ ...prev, title: e.target.value }))}
+                    placeholder="Short summary of the problem"
+                    disabled={isSubmittingBugReport}
+                    style={{ width: '100%', boxSizing: 'border-box', padding: '11px 12px', borderRadius: 10, border: `1px solid ${Colors.Border.Neutral.Default}`, background: Colors.Background.Base.Default, color: Colors.Text.Neutral.Default, fontSize: 13 }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: 12, fontWeight: 700, marginBottom: 6, opacity: 0.8 }}>Summary</label>
+                  <textarea
+                    value={bugReportForm.summary}
+                    onChange={(e) => setBugReportForm(prev => ({ ...prev, summary: e.target.value }))}
+                    placeholder="What went wrong and where did you see it?"
+                    disabled={isSubmittingBugReport}
+                    style={{ width: '100%', boxSizing: 'border-box', minHeight: 104, padding: 12, borderRadius: 10, border: `1px solid ${Colors.Border.Neutral.Default}`, background: Colors.Background.Base.Default, color: Colors.Text.Neutral.Default, fontSize: 13, lineHeight: 1.5, resize: 'vertical' }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: 12, fontWeight: 700, marginBottom: 6, opacity: 0.8 }}>Steps to Reproduce</label>
+                  <textarea
+                    value={bugReportForm.stepsToReproduce}
+                    onChange={(e) => setBugReportForm(prev => ({ ...prev, stepsToReproduce: e.target.value }))}
+                    placeholder={'1. Go to...\n2. Click...\n3. Observe...'}
+                    disabled={isSubmittingBugReport}
+                    style={{ width: '100%', boxSizing: 'border-box', minHeight: 132, padding: 12, borderRadius: 10, border: `1px solid ${Colors.Border.Neutral.Default}`, background: Colors.Background.Base.Default, color: Colors.Text.Neutral.Default, fontSize: 13, lineHeight: 1.5, resize: 'vertical' }}
+                  />
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16 }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: 12, fontWeight: 700, marginBottom: 6, opacity: 0.8 }}>Expected Behavior</label>
+                    <textarea
+                      value={bugReportForm.expectedBehavior}
+                      onChange={(e) => setBugReportForm(prev => ({ ...prev, expectedBehavior: e.target.value }))}
+                      placeholder="What should have happened?"
+                      disabled={isSubmittingBugReport}
+                      style={{ width: '100%', boxSizing: 'border-box', minHeight: 110, padding: 12, borderRadius: 10, border: `1px solid ${Colors.Border.Neutral.Default}`, background: Colors.Background.Base.Default, color: Colors.Text.Neutral.Default, fontSize: 13, lineHeight: 1.5, resize: 'vertical' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: 12, fontWeight: 700, marginBottom: 6, opacity: 0.8 }}>Actual Behavior</label>
+                    <textarea
+                      value={bugReportForm.actualBehavior}
+                      onChange={(e) => setBugReportForm(prev => ({ ...prev, actualBehavior: e.target.value }))}
+                      placeholder="What happened instead?"
+                      disabled={isSubmittingBugReport}
+                      style={{ width: '100%', boxSizing: 'border-box', minHeight: 110, padding: 12, borderRadius: 10, border: `1px solid ${Colors.Border.Neutral.Default}`, background: Colors.Background.Base.Default, color: Colors.Text.Neutral.Default, fontSize: 13, lineHeight: 1.5, resize: 'vertical' }}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <Flex gap={8} justifyContent="flex-end" style={{ marginTop: 24, paddingTop: 18, borderTop: `1px solid ${Colors.Border.Neutral.Default}` }}>
+                <Button onClick={closeBugReportModal} disabled={isSubmittingBugReport} style={{ minWidth: 120 }}>
+                  Cancel
+                </Button>
+                <Button onClick={submitBugReport} disabled={isSubmittingBugReport} style={{ minWidth: 220, background: 'rgba(220,50,47,0.15)', color: '#dc322f', fontWeight: 700 }}>
+                  {isSubmittingBugReport ? 'Submitting...' : 'Submit Issue to GitHub'}
+                </Button>
+              </Flex>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Toast Notification ──── */}
       {toastVisible && (
         <div
@@ -6752,7 +8081,7 @@ export const HomePage = () => {
                     View Results
                   </Button>
                   <a
-                    href="https://oku3826h.sprint.apps.dynatracelabs.com/ui/apps/dynatrace.genai.observability/prompts?perspective=Prompts+Stream&sort=start_time%3Adescending"
+                    href={AI_PROMPTS_URL}
                     target="_blank"
                     rel="noopener noreferrer"
                     style={{
@@ -6767,6 +8096,17 @@ export const HomePage = () => {
                   >
                     🔍 View AI Prompts in Dynatrace
                   </a>
+                  {aiGenDashboardCompany && aiGenDashboardJourney && (
+                    <Button
+                      onClick={() => {
+                        setShowAiGenModal(false);
+                        navigate(getDemonstratorDashboardsPath(aiGenDashboardCompany, aiGenDashboardJourney));
+                      }}
+                      style={{ padding: '9px 20px' }}
+                    >
+                      📈 Open App Dashboards
+                    </Button>
+                  )}
                   {aiGenDashboardUrl && (
                     <a
                       href={aiGenDashboardUrl}
@@ -6783,24 +8123,6 @@ export const HomePage = () => {
                       }}
                     >
                       📊 Open Bespoke Dashboard
-                    </a>
-                  )}
-                  {aiGenPresetDashboardsUrl && companyName && (
-                    <a
-                      href={aiGenPresetDashboardsUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      style={{
-                        display: 'inline-flex', alignItems: 'center', gap: 6,
-                        padding: '9px 16px', borderRadius: 8, fontSize: 12, fontWeight: 600,
-                        background: 'linear-gradient(135deg, rgba(108,44,156,0.12), rgba(0,161,201,0.08))',
-                        border: '1px solid rgba(108,44,156,0.35)',
-                        color: Colors.Text.Neutral.Default,
-                        textDecoration: 'none',
-                        transition: 'all 0.2s ease',
-                      }}
-                    >
-                      🗂️ Open Preset Dashboards for {companyName}
                     </a>
                   )}
                 </Flex>

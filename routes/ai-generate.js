@@ -32,6 +32,52 @@ const _requestCounter = _meter.createCounter('gen_ai.client.operation.count', {
 });
 
 const GITHUB_MODELS_URL = 'https://models.inference.ai.azure.com/chat/completions';
+const OLLAMA_ENDPOINT = process.env.OLLAMA_ENDPOINT || 'http://localhost:11434';
+const OLLAMA_OBSERVER_MODEL = process.env.OLLAMA_OBSERVER_MODEL || process.env.OLLAMA_MODEL || 'llama3.2:1b';
+const OLLAMA_OBSERVER_ENABLED = String(process.env.OLLAMA_OBSERVER_ENABLED || 'true').toLowerCase() !== 'false';
+
+async function getOllamaObserverNote({ prompt, responseContent, sourceModel, durationMs, promptTokens, completionTokens }) {
+  if (!OLLAMA_OBSERVER_ENABLED) return null;
+
+  const observerPrompt = [
+    'You are an observer of an AI call.',
+    'Summarize the request/response in 2 short bullet points.',
+    'Include: intent, output quality, and any obvious risk.',
+    'Do not include markdown code fences.',
+    '',
+    `Source provider: GitHub Models`,
+    `Source model: ${sourceModel}`,
+    `Duration (ms): ${durationMs}`,
+    `Input tokens: ${promptTokens}`,
+    `Output tokens: ${completionTokens}`,
+    '',
+    `Prompt:\n${String(prompt || '').substring(0, 2000)}`,
+    '',
+    `Response:\n${String(responseContent || '').substring(0, 2000)}`,
+  ].join('\n');
+
+  const started = Date.now();
+  const resp = await fetch(`${OLLAMA_ENDPOINT}/api/generate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: OLLAMA_OBSERVER_MODEL,
+      prompt: observerPrompt,
+      stream: false,
+      options: { temperature: 0.1, num_predict: 180, num_ctx: 4096 },
+    }),
+    signal: AbortSignal.timeout(12000),
+  });
+
+  if (!resp.ok) return null;
+  const result = await resp.json();
+  return {
+    provider: 'ollama',
+    model: OLLAMA_OBSERVER_MODEL,
+    durationMs: Date.now() - started,
+    note: String(result?.response || '').trim(),
+  };
+}
 
 // ── POST /api/ai-generate/github ─────────────────────────────────────────
 router.post('/github', async (req, res) => {
@@ -148,6 +194,19 @@ router.post('/github', async (req, res) => {
     const promptTokens = usage.prompt_tokens || 0;
     const completionTokens = usage.completion_tokens || 0;
     const finishReason = result.choices?.[0]?.finish_reason || 'unknown';
+    let ollamaObserver = null;
+    try {
+      ollamaObserver = await getOllamaObserverNote({
+        prompt,
+        responseContent: content,
+        sourceModel: result.model || model,
+        durationMs: durationFinal,
+        promptTokens,
+        completionTokens,
+      });
+    } catch (observerErr) {
+      console.warn('[ai-generate] Ollama observer unavailable:', observerErr.message);
+    }
 
     // Set span attributes with response data
     span.setAttributes({
@@ -205,6 +264,7 @@ router.post('/github', async (req, res) => {
           durationMs: durationFinal,
           finishReason,
         },
+        ollamaObserver,
       },
     });
   } catch (err) {

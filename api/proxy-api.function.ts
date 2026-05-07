@@ -10,10 +10,12 @@ import { documentsClient, environmentSharesClient } from '@dynatrace-sdk/client-
 import { queryExecutionClient } from '@dynatrace-sdk/client-query';
 
 interface ProxyPayload {
-  action: 'simulate-journey' | 'simulate-vcarb-race' | 'vcarb-race-status' | 'stop-vcarb-race' | 'get-saved-config' | 'test-connection' | 'get-services' | 'stop-all-services' | 'stop-company-services' | 'get-dormant-services' | 'clear-dormant-services' | 'clear-company-dormant' | 'chaos-get-active' | 'chaos-get-recipes' | 'chaos-inject' | 'chaos-revert' | 'chaos-revert-all' | 'chaos-get-targeted' | 'chaos-remove-target' | 'chaos-smart' | 'ec-create' | 'ec-update-patterns' | 'detect-builtin-settings' | 'deploy-builtin-settings' | 'deploy-workflow' | 'debug-builtin-schema' | 'generate-dashboard' | 'generate-dashboard-async' | 'get-dashboard-status' | 'deploy-dashboard' | 'mcp-generate-deploy-dashboard' | 'list-saved-dashboards' | 'load-saved-dashboard' | 'delete-saved-dashboard' | 'deploy-business-flow' | 'list-business-flows' | 'delete-business-flows' | 'generate-pdf' | 'generate-doc' | 'load-app-settings' | 'save-app-settings' | 'check-journey-assets' | 'create-notebook' | 'execute-dql' | 'demonstrator-ai-tiles' | 'demonstrator-tiles-status' | 'field-repo-get' | 'librarian-history' | 'librarian-stats' | 'librarian-analyze' | 'system-health' | 'system-cleanup' | 'github-copilot-generate' | 'github-copilot-check-credential' | 'github-copilot-save-credential' | 'github-copilot-list-models';
+  action: 'simulate-journey' | 'simulate-vcarb-race' | 'vcarb-race-status' | 'stop-vcarb-race' | 'get-saved-config' | 'test-connection' | 'get-services' | 'stop-all-services' | 'stop-company-services' | 'get-dormant-services' | 'clear-dormant-services' | 'clear-company-dormant' | 'chaos-get-active' | 'chaos-get-recipes' | 'chaos-inject' | 'chaos-revert' | 'chaos-revert-all' | 'chaos-get-targeted' | 'chaos-remove-target' | 'chaos-smart' | 'ec-create' | 'ec-update-patterns' | 'detect-builtin-settings' | 'deploy-builtin-settings' | 'deploy-workflow' | 'debug-builtin-schema' | 'generate-dashboard' | 'generate-dashboard-async' | 'get-dashboard-status' | 'deploy-dashboard' | 'mcp-generate-deploy-dashboard' | 'list-saved-dashboards' | 'load-saved-dashboard' | 'delete-saved-dashboard' | 'deploy-business-flow' | 'list-business-flows' | 'delete-business-flows' | 'generate-pdf' | 'generate-doc' | 'load-app-settings' | 'save-app-settings' | 'check-journey-assets' | 'create-notebook' | 'execute-dql' | 'demonstrator-ai-tiles' | 'demonstrator-tiles-status' | 'field-repo-get' | 'librarian-history' | 'librarian-stats' | 'librarian-analyze' | 'system-health' | 'system-cleanup' | 'github-copilot-generate' | 'github-copilot-check-credential' | 'github-copilot-save-credential' | 'github-copilot-list-models' | 'github-journey-commit' | 'github-create-issue' | 'ui-audit';
   apiHost: string;
   apiPort: string;
   apiProtocol: string;
+  userName?: string;
+  userEmail?: string;
   body?: unknown;
 }
 
@@ -83,6 +85,110 @@ export default async function (payload: ProxyPayload) {
   const { action, apiHost, apiPort, apiProtocol, body } = payload;
   const baseUrl = `${apiProtocol}://${apiHost}:${apiPort}`;
 
+  const sanitizeAuditToken = (value?: string): string =>
+    String(value || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+
+  const bodyObj = (body && typeof body === 'object') ? (body as Record<string, unknown>) : {};
+  const topLevelUserEmail = String(payload.userEmail || '').trim().toLowerCase();
+  const topLevelUserName = String(payload.userName || '').trim();
+  const journeyData = (bodyObj.journeyData && typeof bodyObj.journeyData === 'object') ? (bodyObj.journeyData as Record<string, unknown>) : {};
+  const auditCompanyName = String(
+    bodyObj.companyName ||
+    bodyObj.company ||
+    journeyData.companyName ||
+    journeyData.company ||
+    'Dynatrace Internal'
+  ).trim() || 'Dynatrace Internal';
+  const auditJourneyType = String(
+    bodyObj.journeyType ||
+    bodyObj.journey ||
+    journeyData.journeyType ||
+    journeyData.domain ||
+    'Application Usage'
+  ).trim() || 'Application Usage';
+  const userEmail = String(topLevelUserEmail || bodyObj.userEmail || bodyObj.email || '').trim().toLowerCase();
+  const userName = String(topLevelUserName || bodyObj.userName || (userEmail.includes('@') ? userEmail.split('@')[0] : 'unknown')).trim() || 'unknown';
+  const requestedAuditFeature = String(bodyObj.feature || '').trim();
+  const requestedAuditAction = String(bodyObj.auditAction || bodyObj.event || '').trim();
+  const auditFeature = sanitizeAuditToken(requestedAuditFeature) || sanitizeAuditToken(action.split('-')[0]) || 'app';
+  const auditAction = sanitizeAuditToken(requestedAuditAction) || sanitizeAuditToken(action) || 'request';
+  const auditEventType = `bizevents.audit.usage.${auditFeature}.${auditAction}`;
+  const shouldEmitUsageAudit = action === 'ui-audit';
+  const pagePath = String(bodyObj.pagePath || bodyObj.page || '').trim();
+  const pageQuery = String(bodyObj.pageQuery || '').trim();
+  const targetPath = String(bodyObj.targetPath || '').trim();
+
+  const emitProxyUsageAudit = async (stage: string, status: 'started' | 'success' | 'warning' | 'failure', httpStatus: number, errorMessage = ''): Promise<void> => {
+    const payloadData = {
+      companyName: auditCompanyName,
+      journeyType: auditJourneyType,
+      stepName: auditEventType,
+      serviceName: 'BizObsAppEngineProxy',
+      correlationId: '',
+      domain: apiHost || 'unknown-host',
+      eventType: auditEventType,
+      userName,
+      userEmail,
+      feature: auditFeature,
+      auditAction,
+      pagePath,
+      pageQuery,
+      targetPath,
+      journeyStatus: status === 'failure' ? 'Failed' : status === 'warning' ? 'Warning' : status === 'started' ? 'InProgress' : 'Success',
+      additionalFields: {
+        hasError: status === 'failure',
+        auditStage: stage,
+        auditStatus: status,
+        httpStatus,
+        action,
+        apiHost,
+        apiPort,
+        apiProtocol,
+        source: 'appengine-proxy',
+        errorMessage,
+        userName,
+        userEmail,
+        companyName: auditCompanyName,
+        journeyType: auditJourneyType,
+        feature: auditFeature,
+        auditAction,
+        pagePath,
+        pageQuery,
+        targetPath,
+      },
+    };
+
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'x-biz-event-type': auditEventType,
+      'x-biz-step-name': auditEventType,
+      'x-biz-company-name': payloadData.companyName,
+      'x-biz-journey-type': payloadData.journeyType,
+      'x-biz-service-name': payloadData.serviceName,
+      'x-biz-user-name': userName,
+      'x-biz-user-email': userEmail,
+      'x-biz-feature': auditFeature,
+      'x-biz-additional-action': action.substring(0, 100),
+      'x-biz-additional-audit-stage': stage.substring(0, 100),
+      'x-biz-additional-audit-status': status,
+      'x-biz-additional-http-status': String(httpStatus),
+    };
+
+    try {
+      await fetch(`${baseUrl}/process`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(payloadData),
+        signal: AbortSignal.timeout(5000),
+      });
+    } catch {
+      // Best effort only: action flow should never fail because audit emission failed
+    }
+  };
+
   // Best-effort EdgeConnect host-pattern registration.
   // This prevents traced EC2 calls from failing when the server host was configured
   // in the app but not yet added to EdgeConnect host patterns.
@@ -116,7 +222,15 @@ export default async function (payload: ProxyPayload) {
     let lastErr: any;
     for (let i = 1; i <= attempts; i++) {
       try {
-        return await fetch(url, { ...init, signal: init?.signal || AbortSignal.timeout(15000) });
+        const mergedHeaders = new Headers(init?.headers as HeadersInit | undefined);
+        if (userEmail) mergedHeaders.set('x-user-email', userEmail);
+        if (userName) mergedHeaders.set('x-user-name', userName);
+
+        return await fetch(url, {
+          ...init,
+          headers: mergedHeaders,
+          signal: init?.signal || AbortSignal.timeout(15000),
+        });
       } catch (err: any) {
         lastErr = err;
         const msg = String(err?.message || '').toLowerCase();
@@ -135,7 +249,16 @@ export default async function (payload: ProxyPayload) {
     throw lastErr;
   };
 
+  if (shouldEmitUsageAudit) {
+    await emitProxyUsageAudit('requested', 'started', 202);
+  }
+
   try {
+    if (action === 'ui-audit') {
+      await emitProxyUsageAudit('captured', 'success', 200);
+      return { success: true, captured: true };
+    }
+
     if (action === 'test-connection') {
       // Helper: attempt to reach the server (retries health endpoint before falling back)
       const tryHealth = async (): Promise<{ ok: true; status: number; message: string; callerIp: string | null; healthy: boolean } | { ok: false }> => {
@@ -812,7 +935,7 @@ export default async function (payload: ProxyPayload) {
                           description: 'JSON Parser',
                           enabled: true,
                           dql: {
-                            script: 'parse rqBody, "JSON:json"\n| fieldsFlatten json\n| parse json.additionalFields, "JSON:additionalFields"\n| fieldsFlatten json.additionalFields, prefix:"additionalfields."',
+                            script: 'parse rqBody, "JSON:json"\n| fieldsFlatten json\n| parse json.additionalFields, "JSON:additionalFields"\n| fieldsFlatten json.additionalFields, prefix:"additionalfields."\n| fieldsAdd userName = coalesce(json.userName, additionalfields.userName)\n| fieldsAdd userEmail = coalesce(json.userEmail, additionalfields.userEmail)\n| fieldsAdd feature = coalesce(json.feature, additionalfields.feature)',
                           },
                         },
                         {
@@ -1766,18 +1889,30 @@ export default async function (payload: ProxyPayload) {
     // tenant see the same EC2 IP / port / protocol without configuring.
     // ══════════════════════════════════════════════════════════════════
     const APP_SETTINGS_DOC_ID = 'bizobs-demonstrator-app-settings';
+    const APP_SETTINGS_DOC_ID_V2 = 'bizobs-demonstrator-app-settings-v2';
+    const APP_SETTINGS_DOC_ID_CANDIDATES = [APP_SETTINGS_DOC_ID_V2, APP_SETTINGS_DOC_ID];
     const APP_SETTINGS_DOC_NAME = 'BizObs Demonstrator App Settings';
     const APP_SETTINGS_DOC_TYPE = 'bizobs-config';
 
     if (action === 'load-app-settings') {
       try {
-        const doc = await documentsClient.getDocument({ id: APP_SETTINGS_DOC_ID });
-        if (doc.content) {
-          const text = await doc.content.get('text');
-          const settings = JSON.parse(text);
-          return { success: true, settings, version: doc.metadata?.version };
+        for (const documentId of APP_SETTINGS_DOC_ID_CANDIDATES) {
+          try {
+            const doc = await documentsClient.getDocument({ id: documentId });
+            if (doc.content) {
+              const text = await doc.content.get('text');
+              const settings = JSON.parse(text);
+              return { success: true, settings, version: doc.metadata?.version, documentId };
+            }
+          } catch (err: any) {
+            const code = err?.body?.error?.code || err?.statusCode || err?.code;
+            if (code === 404 || code === 403 || err?.name === 'DocumentOrSnapshotNotFound') {
+              continue;
+            }
+            throw err;
+          }
         }
-        return { success: false, error: 'Document has no content' };
+        return { success: false, error: 'no-document' };
       } catch (err: any) {
         // 404 = document doesn't exist yet — not an error, just no settings saved
         const code = err?.body?.error?.code || err?.statusCode || err?.code;
@@ -1790,66 +1925,117 @@ export default async function (payload: ProxyPayload) {
 
     if (action === 'save-app-settings') {
       try {
+        const getErrorCode = (error: any): number | string | undefined =>
+          error?.body?.error?.code || error?.statusCode || error?.code;
+        const isNotFoundError = (error: any): boolean => {
+          const code = getErrorCode(error);
+          return code === 404 || error?.name === 'DocumentOrSnapshotNotFound' || error?.message?.toLowerCase?.().includes('not found');
+        };
+        const isConflictError = (error: any): boolean => {
+          const code = getErrorCode(error);
+          return code === 409 || code === 412 || error?.message?.toLowerCase?.().includes('optimistic lock');
+        };
+        const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
         const settingsJson = JSON.stringify(payload.body || {});
         const blob = new Blob([settingsJson], { type: 'application/json' });
 
-        // Try to update existing document first
-        let saved = false;
-        try {
-          const existing = await documentsClient.getDocument({ id: APP_SETTINGS_DOC_ID });
-          const version = existing.metadata?.version;
-          if (version) {
-            await documentsClient.updateDocument({
-              id: APP_SETTINGS_DOC_ID,
-              optimisticLockingVersion: version,
-              body: {
-                content: blob,
-                name: APP_SETTINGS_DOC_NAME,
-                type: APP_SETTINGS_DOC_TYPE,
-                isPrivate: false, // Public = readable by ALL users on the tenant
-              },
-            });
-            saved = true;
+        // Prefer v2 document for writes, but update whichever candidate is accessible.
+        const preferredCreateDocId = APP_SETTINGS_DOC_ID_V2;
+
+        // Handle races between concurrent users by retrying get/create/update on 409/412.
+        for (let attempt = 1; attempt <= 3; attempt++) {
+          let foundExistingCandidate = false;
+
+          for (const documentId of APP_SETTINGS_DOC_ID_CANDIDATES) {
+            try {
+              const existing = await documentsClient.getDocument({ id: documentId });
+              foundExistingCandidate = true;
+              const version = existing.metadata?.version;
+              await documentsClient.updateDocument({
+                id: documentId,
+                optimisticLockingVersion: version,
+                body: {
+                  content: blob,
+                  name: APP_SETTINGS_DOC_NAME,
+                  type: APP_SETTINGS_DOC_TYPE,
+                  isPrivate: false, // Public = readable by ALL users on the tenant
+                },
+              });
+              return { success: true, documentId };
+            } catch (upsertErr: any) {
+              if (isNotFoundError(upsertErr) || getErrorCode(upsertErr) === 403) {
+                continue;
+              }
+
+              if (isConflictError(upsertErr) && attempt < 3) {
+                await sleep(100 * attempt);
+                foundExistingCandidate = true;
+                break;
+              }
+
+              const code = getErrorCode(upsertErr);
+              return {
+                success: false,
+                error: upsertErr?.message || `Failed to update app settings document (${documentId})`,
+                code,
+                documentId,
+              };
+            }
           }
-        } catch (getErr: any) {
-          // Document doesn't exist — create it
-          const code = getErr?.body?.error?.code || getErr?.statusCode || getErr?.code;
-          if (code === 404 || getErr?.message?.includes('not found') || getErr?.name === 'DocumentOrSnapshotNotFound') {
+
+          if (foundExistingCandidate && attempt < 3) {
+            continue;
+          }
+
+          // No accessible existing candidate was found; create a fresh shared v2 document.
+          try {
             await documentsClient.createDocument({
               body: {
-                id: APP_SETTINGS_DOC_ID,
+                id: preferredCreateDocId,
                 name: APP_SETTINGS_DOC_NAME,
                 type: APP_SETTINGS_DOC_TYPE,
                 content: blob,
               },
             });
-            // Make it public so all users can read it
-            try {
-              const created = await documentsClient.getDocument({ id: APP_SETTINGS_DOC_ID });
-              if (created.metadata?.version) {
-                await documentsClient.updateDocument({
-                  id: APP_SETTINGS_DOC_ID,
-                  optimisticLockingVersion: created.metadata.version,
-                  body: { isPrivate: false },
-                });
-              }
-            } catch { /* isPrivate update is best-effort */ }
 
-            // Also create an environment share so other users can write too
+            // Also create an environment share so other users can write too.
             try {
               await environmentSharesClient.createEnvironmentShare({
-                body: { documentId: APP_SETTINGS_DOC_ID, access: 'read-write' },
+                body: { documentId: preferredCreateDocId, access: 'read-write' },
               });
             } catch { /* Share may already exist — ignore */ }
-            saved = true;
-          } else {
-            throw getErr;
+
+            // Make document public for broad read access.
+            try {
+              const created = await documentsClient.getDocument({ id: preferredCreateDocId });
+              await documentsClient.updateDocument({
+                id: preferredCreateDocId,
+                optimisticLockingVersion: created.metadata?.version,
+                body: { isPrivate: false },
+                });
+            } catch { /* Best-effort public visibility */ }
+
+            return { success: true, documentId: preferredCreateDocId };
+          } catch (createErr: any) {
+            if (!isConflictError(createErr) || attempt === 3) {
+              const code = getErrorCode(createErr);
+              return {
+                success: false,
+                error: createErr?.message || 'Failed to create app settings document',
+                code,
+                documentId: preferredCreateDocId,
+              };
+            }
+            await sleep(100 * attempt);
+            continue;
           }
         }
 
-        return { success: saved };
+        return { success: false, error: 'Failed to save app settings after retries' };
       } catch (err: any) {
-        return { success: false, error: err.message || 'Failed to save app settings' };
+        const code = err?.body?.error?.code || err?.statusCode || err?.code;
+        return { success: false, error: err.message || 'Failed to save app settings', code };
       }
     }
 
@@ -2055,6 +2241,301 @@ export default async function (payload: ProxyPayload) {
     // ── GitHub Copilot / AI Generation ──────────────────────────────────────
 
     const GITHUB_CREDENTIAL_NAME = 'bizobs-github-pat';
+    const GITHUB_JOURNEY_REPO_CREDENTIAL_NAME = 'github-journey-repo';
+    const GITHUB_ISSUES_CREDENTIAL_NAME = 'bizobsdemo-gitissues';
+
+    if (action === 'github-journey-commit') {
+      try {
+        const b = (body || {}) as Record<string, any>;
+        const repoOwner = String(b.repoOwner || 'LawrenceBarratt90').trim();
+        const repoName = String(b.repoName || 'Business-Observability-Demonstrator---Journeys').trim();
+        const branch = String(b.branch || 'main').trim();
+        const source = String(b.source || 'unknown').trim() || 'unknown';
+        const journey = (b.journey && typeof b.journey === 'object') ? b.journey as Record<string, any> : {};
+
+        const companyName = String(journey.companyName || b.companyName || '').trim();
+        const journeyType = String(journey.journeyType || b.journeyType || '').trim();
+        if (!companyName || !journeyType) {
+          return { success: false, error: 'Missing companyName or journeyType for journey commit' };
+        }
+
+        const slugify = (value: string) => value
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/^-+|-+$/g, '')
+          .replace(/-{2,}/g, '-');
+
+        const companySlug = slugify(companyName);
+        const journeySlug = slugify(journeyType);
+
+        const creds = await credentialVaultClient.listCredentials({ type: 'TOKEN' });
+        // Prefer the general app GitHub PAT for issue reporting, then fall back to journey token.
+        const existing = (creds.credentials || []).find(
+          (c: any) => c.name === GITHUB_CREDENTIAL_NAME
+        ) || (creds.credentials || []).find(
+          (c: any) => c.name === GITHUB_JOURNEY_REPO_CREDENTIAL_NAME
+        );
+        if (!existing) {
+          return { success: false, error: 'Journey repo credential not found in vault (expected github-journey-repo or bizobs-github-pat)' };
+        }
+        const details = await credentialVaultClient.getCredentialsDetails({ id: existing.id });
+        const ghToken = (details as any).token;
+        if (!ghToken) {
+          return { success: false, error: 'Journey repo token exists but value is empty/unreadable' };
+        }
+
+        const encodeGitHubPath = (path: string): string =>
+          path.split('/').map((segment) => encodeURIComponent(segment)).join('/');
+
+        const getExistingSha = async (path: string): Promise<string | undefined> => {
+          const url = `https://api.github.com/repos/${repoOwner}/${repoName}/contents/${encodeGitHubPath(path)}?ref=${encodeURIComponent(branch)}`;
+          const resp = await fetch(url, {
+            method: 'GET',
+            headers: {
+              'Authorization': `Bearer ${ghToken}`,
+              'Accept': 'application/vnd.github+json',
+            },
+          });
+          if (resp.status === 404) return undefined;
+          if (!resp.ok) {
+            const text = await resp.text();
+            throw new Error(`GitHub GET ${path} failed (${resp.status}): ${text.slice(0, 220)}`);
+          }
+          const json = await resp.json();
+          return json?.sha;
+        };
+
+        const upsertJsonFile = async (path: string, data: unknown, message: string): Promise<string | undefined> => {
+          const existingSha = await getExistingSha(path);
+          const content = Buffer.from(`${JSON.stringify(data, null, 2)}\n`, 'utf8').toString('base64');
+          const url = `https://api.github.com/repos/${repoOwner}/${repoName}/contents/${encodeGitHubPath(path)}`;
+          const resp = await fetch(url, {
+            method: 'PUT',
+            headers: {
+              'Authorization': `Bearer ${ghToken}`,
+              'Accept': 'application/vnd.github+json',
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              message,
+              content,
+              branch,
+              sha: existingSha,
+            }),
+          });
+
+          if (!resp.ok) {
+            const text = await resp.text();
+            throw new Error(`GitHub PUT ${path} failed (${resp.status}): ${text.slice(0, 260)}`);
+          }
+          const json = await resp.json();
+          return json?.commit?.sha;
+        };
+
+        const canonicalJourney = {
+          ...journey,
+          companyName,
+          journeyType,
+        };
+        const metadata = {
+          journeyId: String(journey.journeyId || `${companySlug}-${journeySlug}`).trim(),
+          companyName,
+          journeyType,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          createdByUserEmail: userEmail || 'unknown',
+          createdByUserName: userName || 'unknown',
+          source,
+          appVersion: String(b.appVersion || ''),
+        };
+
+        const filePath = `journeys/${companySlug}/${journeySlug}.json`;
+        const fileContent = {
+          ...canonicalJourney,
+          _meta: metadata,
+        };
+        const commitPrefix = `${companySlug}/${journeySlug}`;
+        const lastCommitSha = await upsertJsonFile(filePath, fileContent, `${commitPrefix}: update journey`);
+
+        return {
+          success: true,
+          data: {
+            repoOwner,
+            repoName,
+            branch,
+            path: filePath,
+            lastCommitSha: lastCommitSha || '',
+            source,
+          },
+        };
+      } catch (err: any) {
+        console.error('[proxy-api] github-journey-commit error:', err.message);
+        return { success: false, error: err.message || 'Journey repo commit failed' };
+      }
+    }
+
+    if (action === 'github-create-issue') {
+      try {
+        const b = (body || {}) as Record<string, any>;
+        const repoOwner = String(b.repoOwner || 'LawrenceBarratt90').trim();
+        const repoName = String(b.repoName || 'Business-Observability-Demonstrator-Internal').trim();
+        const rawTitle = String(b.title || '').trim();
+        const summary = String(b.summary || b.description || '').trim();
+        const stepsToReproduce = String(b.stepsToReproduce || '').trim();
+        const expectedBehavior = String(b.expectedBehavior || '').trim();
+        const actualBehavior = String(b.actualBehavior || '').trim();
+        const appVersion = String(b.appVersion || '').trim();
+        const tenantUrl = String(b.tenantUrl || '').trim();
+        const pagePathValue = String(b.pagePath || '').trim();
+        const labels = Array.isArray(b.labels)
+          ? b.labels.map((label: unknown) => String(label || '').trim()).filter(Boolean)
+          : ['bug'];
+
+        if (!rawTitle) {
+          return { success: false, error: 'Issue title is required' };
+        }
+        if (!summary && !stepsToReproduce && !actualBehavior) {
+          return { success: false, error: 'Issue details are required' };
+        }
+
+        const creds = await credentialVaultClient.listCredentials({ type: 'TOKEN' });
+        const existing = (creds.credentials || []).find(
+          (c: any) => c.name === GITHUB_ISSUES_CREDENTIAL_NAME
+        ) || (creds.credentials || []).find(
+          (c: any) => c.name === GITHUB_CREDENTIAL_NAME
+        ) || (creds.credentials || []).find(
+          (c: any) => c.name === GITHUB_JOURNEY_REPO_CREDENTIAL_NAME
+        );
+
+        if (!existing) {
+          return {
+            success: false,
+            error: 'GitHub token not configured in vault.',
+            details: 'Expected a TOKEN credential named bizobsdemo-gitissues (or fallback credentials bizobs-github-pat / github-journey-repo).',
+            code: 'NO_CREDENTIAL',
+          };
+        }
+
+        const details = await credentialVaultClient.getCredentialsDetails({ id: existing.id });
+        const ghToken = (details as any).token;
+        if (!ghToken) {
+          return { success: false, error: 'GitHub token exists but value is empty/unreadable.', code: 'TOKEN_EMPTY' };
+        }
+
+        const issueTitle = /^\[bug\]/i.test(rawTitle) ? rawTitle : `[Bug] ${rawTitle}`;
+        const issueBody = [
+          summary ? `## Summary\n${summary}` : '',
+          stepsToReproduce ? `## Steps to Reproduce\n${stepsToReproduce}` : '',
+          expectedBehavior ? `## Expected Behavior\n${expectedBehavior}` : '',
+          actualBehavior ? `## Actual Behavior\n${actualBehavior}` : '',
+          [
+            '## Submitted From',
+            `- User: ${userName}${userEmail ? ` (${userEmail})` : ''}`,
+            `- App version: ${appVersion || 'unknown'}`,
+            `- Tenant: ${tenantUrl || 'unknown'}`,
+            `- Page: ${pagePathValue || '/'}`,
+            `- Submitted at: ${new Date().toISOString()}`,
+          ].join('\n'),
+        ].filter(Boolean).join('\n\n');
+
+        const resp = await fetch(`https://api.github.com/repos/${repoOwner}/${repoName}/issues`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${ghToken}`,
+            'Accept': 'application/vnd.github+json',
+            'Content-Type': 'application/json',
+            'X-GitHub-Api-Version': '2022-11-28',
+          },
+          body: JSON.stringify({
+            title: issueTitle,
+            body: issueBody,
+            labels,
+          }),
+        });
+
+        if (!resp.ok) {
+          const text = await resp.text();
+          let parsed: any = null;
+          try {
+            parsed = text ? JSON.parse(text) : null;
+          } catch {
+            parsed = null;
+          }
+
+          const ghMessage = String(parsed?.message || '').trim();
+          const docUrl = String(parsed?.documentation_url || '').trim();
+          const repoRef = `${repoOwner}/${repoName}`;
+
+          if (resp.status === 404) {
+            const repoResp = await fetch(`https://api.github.com/repos/${repoOwner}/${repoName}`, {
+              method: 'GET',
+              headers: {
+                'Authorization': `Bearer ${ghToken}`,
+                'Accept': 'application/vnd.github+json',
+                'X-GitHub-Api-Version': '2022-11-28',
+              },
+            });
+
+            if (repoResp.status === 404) {
+              return {
+                success: false,
+                error: `Cannot access repository ${repoRef}`,
+                details: 'Repository not found for this token, or token lacks access to this private repository. Update PAT scopes/access and retry.',
+                code: 'GITHUB_REPO_NOT_ACCESSIBLE',
+              };
+            }
+
+            return {
+              success: false,
+              error: `Issue endpoint unavailable for ${repoRef}`,
+              details: ghMessage || 'Repository is reachable but issue creation endpoint returned 404. Ensure Issues are enabled and token has write access to issues.',
+              code: 'GITHUB_ISSUE_ENDPOINT_NOT_FOUND',
+            };
+          }
+
+          if (resp.status === 401) {
+            return {
+              success: false,
+              error: 'GitHub token rejected (401)',
+              details: ghMessage || 'The stored token is invalid or expired. Update the PAT in settings/credential vault.',
+              code: 'GITHUB_TOKEN_INVALID',
+            };
+          }
+
+          if (resp.status === 403) {
+            return {
+              success: false,
+              error: 'GitHub access forbidden (403)',
+              details: ghMessage || 'Token does not have required repository/issues permission for this repository.',
+              code: 'GITHUB_FORBIDDEN',
+            };
+          }
+
+          return {
+            success: false,
+            error: `GitHub issue creation failed (${resp.status})`,
+            details: ghMessage || text.slice(0, 400),
+            code: 'GITHUB_ISSUE_CREATE_FAILED',
+            documentationUrl: docUrl || undefined,
+          };
+        }
+
+        const json = await resp.json();
+        return {
+          success: true,
+          data: {
+            repoOwner,
+            repoName,
+            issueNumber: json?.number,
+            issueUrl: json?.html_url,
+            title: json?.title,
+          },
+        };
+      } catch (err: any) {
+        console.error('[proxy-api] github-create-issue error:', err.message);
+        return { success: false, error: err.message || 'GitHub issue creation failed' };
+      }
+    }
 
     if (action === 'github-copilot-check-credential') {
       try {
@@ -2351,6 +2832,9 @@ export default async function (payload: ProxyPayload) {
 
     return { success: false, error: `Unknown action: ${action}` };
   } catch (error: any) {
+    if (shouldEmitUsageAudit) {
+      await emitProxyUsageAudit('failed', 'failure', 500, error.message || 'Connection failed');
+    }
     return {
       success: false,
       error: error.message || 'Connection failed',
