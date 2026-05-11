@@ -1,13 +1,14 @@
 {
   "name": "business-observability-engine",
-  "version": "2.16.0",
+  "version": "2.17.0",
   "private": true,
   "description": "Dynatrace Business Observability App with Smartscape-inspired UI and Node.js server",
   "main": "server.js",
   "type": "module",
   "scripts": {
-    "start": "node --require ./otel.cjs server.js",
-    "dev": "NODE_ENV=development node --require ./otel.cjs server.js",
+    "start": "npm run build:agents && node --require ./otel.cjs server.js",
+    "start:fast": "node --require ./otel.cjs server.js",
+    "dev": "npm run build:agents && NODE_ENV=development node --require ./otel.cjs server.js",
     "validate": "node scripts/validate-startup.cjs",
     "restart-services": "curl -X POST http://localhost:${PORT:-8080}/api/admin/services/restart-all",
     "build:agents": "npx tsc --project tsconfig.json",

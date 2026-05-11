@@ -57,13 +57,20 @@ Group=$RUN_AS_GROUP
 WorkingDirectory=$APP_DIR
 Environment=NODE_ENV=production
 Environment=PORT=8080
+Environment=NODE_OPTIONS=--max-old-space-size=768
 Environment=HOME=/home/$RUN_AS_USER
 Environment=PATH=$(dirname "$NODE_BIN"):/usr/local/bin:/usr/bin:/bin
 EnvironmentFile=-$APP_DIR/.env
 ExecStartPre=/bin/bash $APP_DIR/scripts/self-heal.sh
-ExecStart=$NODE_BIN --require ./otel.cjs server.js
+ExecStart=$NODE_BIN --max-old-space-size=768 --require ./otel.cjs server.js
 Restart=always
 RestartSec=5
+RestartPreventExitStatus=0
+OOMPolicy=continue
+StartLimitIntervalSec=300
+StartLimitBurst=50
+MemoryHigh=900M
+MemoryMax=1024M
 SyslogIdentifier=bizobs-server
 StandardOutput=journal
 StandardError=journal

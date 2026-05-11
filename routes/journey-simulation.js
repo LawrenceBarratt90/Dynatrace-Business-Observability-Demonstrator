@@ -3,7 +3,7 @@ import http from 'http';
 import crypto, { randomBytes } from 'crypto';
 import fs from 'fs';
 import path from 'path';
-import { ensureServiceRunning, getServicePort, getServiceNameFromStep, stopServicesForCompany, stopAllServices } from '../services/service-manager.js';
+import { ensureServiceRunning, getServicePort, getServiceNameFromStep, getChildServices, getChildServiceMeta, stopServicesForCompany, stopAllServices } from '../services/service-manager.js';
 import loadRunnerManager from '../scripts/continuous-loadrunner.js';
 // Import transaction tracking for volume-based chaos triggering
 import { recordTransaction } from '../dist/agents/gremlin/autonomousScheduler.js';
@@ -1084,7 +1084,51 @@ router.post('/simulate-journey', async (req, res) => {
     
     console.log(`[journey-sim] Simplified additionalFields:`, currentPayload.additionalFields);
     console.log(`[journey-sim] Company: ${currentPayload.companyName}, Domain: ${currentPayload.domain}`);
-    
+
+    // ── Duplicate journey detection ──────────────────────────────────────────
+    // Prevent creating a journey that is identical (same company + same step set)
+    // to one that is already running.  Works for both manual and git/repo launches.
+    {
+      const incomingCompany = String(currentPayload.companyName || '').trim().toLowerCase();
+      const incomingSteps = stepData
+        .map(s => String(s.stepName || '').trim().toLowerCase())
+        .filter(Boolean)
+        .sort();
+
+      if (incomingSteps.length > 0 && incomingCompany) {
+        const meta = getChildServiceMeta();
+        const running = getChildServices();
+
+        // Gather all step names that are currently running for this company
+        const runningStepsForCompany = Object.entries(meta)
+          .filter(([svcKey, m]) => {
+            const alive = running[svcKey] && !running[svcKey].killed && running[svcKey].exitCode === null;
+            return alive && String(m.companyName || '').trim().toLowerCase() === incomingCompany;
+          })
+          .map(([, m]) => String(m.stepName || '').trim().toLowerCase())
+          .filter(Boolean)
+          .sort();
+
+        // Deduplicate (same step can map to one running service)
+        const uniqueRunning = [...new Set(runningStepsForCompany)].sort();
+        const uniqueIncoming = [...new Set(incomingSteps)].sort();
+
+        if (uniqueRunning.length > 0 && uniqueIncoming.length === uniqueRunning.length &&
+            uniqueIncoming.every((s, i) => s === uniqueRunning[i])) {
+          console.warn(`[journey-sim] ⚠️  Duplicate journey blocked for ${currentPayload.companyName} — identical steps already running`);
+          return res.status(409).json({
+            ok: false,
+            duplicate: true,
+            error: `A journey for "${currentPayload.companyName}" with identical steps is already running.`,
+            hint: `Stop the existing journey first, or navigate to the running topology.`,
+            runningSteps: uniqueRunning,
+            navigateTo: `/services?company=${encodeURIComponent(currentPayload.companyName)}`
+          });
+        }
+      }
+    }
+    // ────────────────────────────────────────────────────────────────────────
+
     // Start services with company context including journey detail
     const journeyDetail = generateJourneyDetail(currentPayload, stepData);
     const companyContext = {
@@ -1181,6 +1225,7 @@ router.post('/simulate-journey', async (req, res) => {
           console.log(`[journey-sim] 🔴 Chaos active for step: ${s.stepName} (errors_per_transaction=${chaosRate}, type=${errorType}) — setting hasError=true in payload`);
           return {
             ...s,
+            chaosManagedByService: true,
             hasError: true,
             errorType,
             httpStatus,

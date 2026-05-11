@@ -385,6 +385,70 @@ function validateDashboardSchema(dashboard) {
   return { isValid, errors, warnings };
 }
 
+function validateDashboardDeployQuality(dashboard) {
+  const base = validateDashboardSchema(dashboard);
+  const content = dashboard.content || dashboard;
+  const tiles = Object.values(content.tiles || {});
+  const layouts = content.layouts || {};
+  const warnings = [...base.warnings];
+  const errors = [...base.errors];
+
+  const hasTitle = Boolean(String(dashboard.name || '').trim());
+  if (!hasTitle) {
+    errors.push('dashboard must have a non-empty name');
+  }
+
+  const dataTiles = tiles.filter((tile) => tile.type === 'data');
+  if (dataTiles.length < 4) {
+    errors.push(`dashboard should have at least 4 data tiles, got ${dataTiles.length}`);
+  }
+
+  const charts = dataTiles.filter((tile) => [
+    'lineChart', 'areaChart', 'barChart', 'bandChart', 'categoricalBarChart',
+    'pieChart', 'donutChart', 'bubbleMap', 'dotMap', 'choroplethMap', 'connectionMap'
+  ].includes(tile.visualization));
+  if (charts.length < 2) {
+    warnings.push(`dashboard should have at least 2 chart/map tiles, got ${charts.length}`);
+  }
+
+  const kpis = dataTiles.filter((tile) => ['singleValue', 'gauge', 'meterBar'].includes(tile.visualization));
+  if (kpis.length < 1) {
+    warnings.push('dashboard should include at least one KPI/single value tile');
+  }
+
+  const markdownTiles = tiles.filter((tile) => tile.type === 'markdown');
+  if (markdownTiles.length < 2) {
+    warnings.push(`dashboard should include at least 2 markdown tiles for branded header/sectioning, got ${markdownTiles.length}`);
+  }
+
+  const mapTiles = dataTiles.filter((tile) => ['bubbleMap', 'dotMap', 'choroplethMap', 'connectionMap'].includes(tile.visualization));
+  if (mapTiles.length === 0) {
+    warnings.push('dashboard has no map tile; customer dashboards benefit from at least one geographic view');
+  }
+
+  const aboveFoldLargeViz = Object.entries(layouts).some(([id, layout]) => {
+    const tile = content.tiles?.[id];
+    return tile?.type === 'data' && ['lineChart', 'areaChart', 'barChart', 'bandChart', 'categoricalBarChart', 'bubbleMap', 'dotMap', 'choroplethMap', 'connectionMap'].includes(tile.visualization) && Number(layout.y || 0) <= 6;
+  });
+  if (!aboveFoldLargeViz) {
+    warnings.push('dashboard should place at least one major chart or map above the fold (y <= 6)');
+  }
+
+  for (const [id, layout] of Object.entries(layouts)) {
+    const tile = content.tiles?.[id];
+    if (!tile || tile.type !== 'data') continue;
+    if (['lineChart', 'areaChart', 'barChart', 'bandChart', 'categoricalBarChart', 'bubbleMap', 'dotMap', 'choroplethMap', 'connectionMap'].includes(tile.visualization) && Number(layout.h || 0) < 4) {
+      warnings.push(`tile ${id} (${tile.title || 'untitled'}) should have height >= 4 for visualization ${tile.visualization}`);
+    }
+  }
+
+  return {
+    isValid: errors.length === 0,
+    errors,
+    warnings,
+  };
+}
+
 // ============================================================================
 // VARIABLE DEPENDENCY TOPOLOGICAL SORT
 // Resolves variable ordering so dependent variables are defined after their deps
@@ -4309,6 +4373,193 @@ router.post('/generate', async (req, res) => {
   }
 });
 
+function sanitizeArtifactSegment(value, fallback = 'unknown') {
+  return String(value || fallback)
+    .trim()
+    .replace(/[^a-zA-Z0-9-]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+    .toLowerCase() || fallback;
+}
+
+function parseSetupConf(setupRaw) {
+  const conf = {};
+  for (const line of String(setupRaw || '').split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const match = trimmed.match(/^([A-Z0-9_]+)\s*=\s*"?(.*?)"?$/);
+    if (match) conf[match[1]] = match[2];
+  }
+  return conf;
+}
+
+async function resolveDtDeployConfig() {
+  let environmentUrl = (process.env.DT_ENVIRONMENT || process.env.DYNATRACE_URL || '').trim().replace(/\/$/, '');
+  let apiToken = (process.env.DT_PLATFORM_TOKEN || process.env.DYNATRACE_TOKEN || '').trim();
+
+  if (!environmentUrl || !apiToken) {
+    try {
+      const setupConfPath = path.join(__dirname, '..', 'setup.conf');
+      const setupRaw = readFileSync(setupConfPath, 'utf8');
+      const conf = parseSetupConf(setupRaw);
+
+      if (!environmentUrl) {
+        environmentUrl = String(conf.DT_ENVIRONMENT || conf.DYNATRACE_URL || '').trim().replace(/\/$/, '');
+      }
+
+      if (!environmentUrl && conf.TENANT_ID) {
+        const tenantId = String(conf.TENANT_ID).trim();
+        const envType = String(conf.ENV_TYPE || '').trim().toLowerCase();
+        if (tenantId) {
+          environmentUrl = envType === 'sprint'
+            ? `https://${tenantId}.sprint.apps.dynatracelabs.com`
+            : `https://${tenantId}.apps.dynatrace.com`;
+        }
+      }
+
+      if (!apiToken) {
+        apiToken = String(
+          conf.DT_PLATFORM_TOKEN ||
+          conf.PLATFORM_TOKEN ||
+          conf.DYNATRACE_TOKEN ||
+          conf.API_TOKEN ||
+          ''
+        ).trim();
+      }
+    } catch {
+      // Non-blocking. Caller validates the final result.
+    }
+  }
+
+  return { environmentUrl, apiToken };
+}
+
+async function ensureLocalDtctl() {
+  const toolsDir = path.join(__dirname, '..', '.tools', 'dtctl');
+  const dtctlBin = path.join(toolsDir, 'dtctl');
+
+  await fs.mkdir(toolsDir, { recursive: true });
+
+  try {
+    await fs.access(dtctlBin);
+    return dtctlBin;
+  } catch {
+    const installCmd = [
+      'set -e',
+      `mkdir -p "${toolsDir}"`,
+      `cd "${toolsDir}"`,
+      'curl -fsSL -o dtctl.tar.gz https://github.com/dynatrace-oss/dtctl/releases/download/v0.26.0/dtctl_0.26.0_linux_amd64.tar.gz',
+      'tar -xzf dtctl.tar.gz',
+      'chmod +x dtctl'
+    ].join(' && ');
+    await execFileAsync('bash', ['-lc', installCmd], { timeout: 120000 });
+    return dtctlBin;
+  }
+}
+
+async function writeDashboardArtifactBundle({
+  dashboardToDeploy,
+  company,
+  journeyType,
+  generationMethod,
+  dashboardId = null,
+  dashboardUrl = null,
+}) {
+  const companySlug = sanitizeArtifactSegment(company, 'company');
+  const journeySlug = sanitizeArtifactSegment(journeyType, 'journey');
+  const generatedRoot = path.join(__dirname, '..', 'dashboards', 'generated', companySlug, journeySlug);
+  await fs.mkdir(generatedRoot, { recursive: true });
+
+  const entries = await fs.readdir(generatedRoot).catch(() => []);
+  const versions = entries
+    .map((name) => {
+      const match = name.match(/^dashboard-v(\d+)\.json$/);
+      return match ? Number(match[1]) : null;
+    })
+    .filter((value) => Number.isInteger(value));
+  const nextVersion = versions.length > 0 ? Math.max(...versions) + 1 : 1;
+
+  const dashboardFile = path.join(generatedRoot, `dashboard-v${nextVersion}.json`);
+  const metadataFile = path.join(generatedRoot, `metadata-v${nextVersion}.json`);
+  const readmeFile = path.join(generatedRoot, 'README.md');
+
+  await fs.writeFile(dashboardFile, JSON.stringify(dashboardToDeploy, null, 2), 'utf8');
+
+  const metadata = {
+    version: nextVersion,
+    company,
+    journeyType,
+    dashboardId,
+    dashboardUrl,
+    dashboardName: dashboardToDeploy.name,
+    generationMethod,
+    generatedAt: new Date().toISOString(),
+    tileCount: Object.keys(dashboardToDeploy.content?.tiles || {}).length,
+    artifactFiles: {
+      dashboard: path.relative(path.join(__dirname, '..'), dashboardFile),
+      metadata: path.relative(path.join(__dirname, '..'), metadataFile),
+    },
+  };
+  await fs.writeFile(metadataFile, JSON.stringify(metadata, null, 2), 'utf8');
+
+  const readme = [
+    `# ${company} / ${journeyType} Dashboard Artifacts`,
+    '',
+    `Version: v${nextVersion}`,
+    `Generation method: ${generationMethod || 'unknown'}`,
+    `Generated at: ${metadata.generatedAt}`,
+    '',
+    'Files:',
+    `- dashboard-v${nextVersion}.json`,
+    `- metadata-v${nextVersion}.json`,
+    '',
+    'Deployment:',
+    `- Dashboard name: ${dashboardToDeploy.name}`,
+    `- Dashboard ID: ${dashboardId || 'pending'}`,
+    `- Dashboard URL: ${dashboardUrl || 'pending'}`,
+    '',
+    'dtctl apply:',
+    '```bash',
+    `dtctl apply -f "${path.relative(path.join(__dirname, '..'), dashboardFile)}" --id "${dashboardId || 'set-id-on-apply'}"`,
+    '```',
+    '',
+  ].join('\n');
+  await fs.writeFile(readmeFile, readme, 'utf8');
+
+  return {
+    version: nextVersion,
+    generatedRoot,
+    dashboardFile,
+    metadataFile,
+    readmeFile,
+  };
+}
+
+router.get('/preflight-dtctl', async (req, res) => {
+  try {
+    const { environmentUrl, apiToken } = await resolveDtDeployConfig();
+    const dtctlBin = await ensureLocalDtctl();
+    const versionResult = await execFileAsync(dtctlBin, ['version'], { timeout: 10000 }).catch(() => ({ stdout: '' }));
+
+    res.json({
+      success: true,
+      ready: Boolean(environmentUrl && apiToken),
+      dtctl: {
+        installed: true,
+        path: dtctlBin,
+        version: String(versionResult.stdout || '').trim() || 'unknown',
+      },
+      dynatrace: {
+        environmentConfigured: Boolean(environmentUrl),
+        tokenConfigured: Boolean(apiToken),
+        environmentUrl: environmentUrl || null,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, ready: false, error: error.message });
+  }
+});
+
 // Deploy a generated dashboard using dtctl (from scratch path, no Documents SDK)
 router.post('/deploy-dtctl', async (req, res) => {
   const tempPaths = [];
@@ -4318,51 +4569,7 @@ router.post('/deploy-dtctl', async (req, res) => {
       return res.status(400).json({ success: false, error: 'dashboard, company, and journeyType are required' });
     }
 
-    let environmentUrl = (process.env.DT_ENVIRONMENT || process.env.DYNATRACE_URL || '').trim().replace(/\/$/, '');
-    let apiToken = (process.env.DT_PLATFORM_TOKEN || process.env.DYNATRACE_TOKEN || '').trim();
-
-    // Fallback: load values from setup.conf if env vars are not exported in the running shell.
-    if (!environmentUrl || !apiToken) {
-      try {
-        const setupConfPath = path.join(__dirname, '..', 'setup.conf');
-        const setupRaw = readFileSync(setupConfPath, 'utf8');
-        const conf = {};
-        for (const line of setupRaw.split(/\r?\n/)) {
-          const trimmed = line.trim();
-          if (!trimmed || trimmed.startsWith('#')) continue;
-          const m = trimmed.match(/^([A-Z0-9_]+)\s*=\s*"?(.*?)"?$/);
-          if (m) conf[m[1]] = m[2];
-        }
-
-        if (!environmentUrl) {
-          environmentUrl = String(conf.DT_ENVIRONMENT || conf.DYNATRACE_URL || '').trim().replace(/\/$/, '');
-        }
-
-        if (!environmentUrl && conf.TENANT_ID) {
-          const tenantId = String(conf.TENANT_ID).trim();
-          const envType = String(conf.ENV_TYPE || '').trim().toLowerCase();
-          if (tenantId) {
-            if (envType === 'sprint') {
-              environmentUrl = `https://${tenantId}.sprint.apps.dynatracelabs.com`;
-            } else {
-              environmentUrl = `https://${tenantId}.apps.dynatrace.com`;
-            }
-          }
-        }
-
-        if (!apiToken) {
-          apiToken = String(
-            conf.DT_PLATFORM_TOKEN ||
-            conf.PLATFORM_TOKEN ||
-            conf.DYNATRACE_TOKEN ||
-            conf.API_TOKEN ||
-            ''
-          ).trim();
-        }
-      } catch (confErr) {
-        // Non-blocking: final credential check below will return an explicit error.
-      }
-    }
+    const { environmentUrl, apiToken } = await resolveDtDeployConfig();
 
     if (!environmentUrl || !apiToken) {
       return res.status(500).json({
@@ -4372,24 +4579,7 @@ router.post('/deploy-dtctl', async (req, res) => {
       });
     }
 
-    const toolsDir = path.join(__dirname, '..', '.tools', 'dtctl');
-    const dtctlBin = path.join(toolsDir, 'dtctl');
-
-    // Install dtctl locally if it is missing
-    await fs.mkdir(toolsDir, { recursive: true });
-    try {
-      await fs.access(dtctlBin);
-    } catch {
-      const installCmd = [
-        'set -e',
-        `mkdir -p "${toolsDir}"`,
-        `cd "${toolsDir}"`,
-        'curl -fsSL -o dtctl.tar.gz https://github.com/dynatrace-oss/dtctl/releases/download/v0.26.0/dtctl_0.26.0_linux_amd64.tar.gz',
-        'tar -xzf dtctl.tar.gz',
-        'chmod +x dtctl'
-      ].join(' && ');
-      await execFileAsync('bash', ['-lc', installCmd], { timeout: 120000 });
-    }
+    const dtctlBin = await ensureLocalDtctl();
 
     const canonicalCompany = String(company || '').trim();
     const canonicalJourney = String(journeyType || '').trim();
@@ -4418,6 +4608,15 @@ router.post('/deploy-dtctl', async (req, res) => {
         journeyType: canonicalJourney,
       },
     };
+    const generationMethod = String(dashboard.metadata?.generationMethod || dashboard.metadata?.generatedBy || 'direct-dtctl').trim();
+    const deployValidation = validateDashboardDeployQuality(dashboardToDeploy);
+    if (!deployValidation.isValid) {
+      return res.status(400).json({
+        success: false,
+        error: 'Dashboard failed deploy quality gate',
+        validation: deployValidation,
+      });
+    }
 
     const tmpBase = path.join(__dirname, '..', 'tmp', 'dtctl');
     await fs.mkdir(tmpBase, { recursive: true });
@@ -4453,6 +4652,14 @@ router.post('/deploy-dtctl', async (req, res) => {
 
     let parsed = null;
     try { parsed = JSON.parse(stdout); } catch { /* non-blocking */ }
+    const artifactBundle = await writeDashboardArtifactBundle({
+      dashboardToDeploy,
+      company: canonicalCompany,
+      journeyType: canonicalJourney,
+      generationMethod,
+      dashboardId,
+      dashboardUrl: `/ui/apps/dynatrace.dashboards/dashboard/${dashboardId}`,
+    });
 
     return res.json({
       success: true,
@@ -4460,6 +4667,8 @@ router.post('/deploy-dtctl', async (req, res) => {
         dashboardId,
         dashboardName,
         dashboardUrl: `/ui/apps/dynatrace.dashboards/dashboard/${dashboardId}`,
+        artifactVersion: artifactBundle.version,
+        artifactPath: path.relative(path.join(__dirname, '..'), artifactBundle.generatedRoot),
         applied: parsed || stdout,
       }
     });
@@ -4570,6 +4779,82 @@ router.post('/preview', async (req, res) => {
 
 // ── Saved Dashboards API ──────────────────────────────────────────────────────
 const SAVED_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'dashboards', 'saved');
+const GENERATED_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'dashboards', 'generated');
+
+async function collectGeneratedDashboardArtifacts(rootDir, relativePrefix = '') {
+  const entries = await fs.readdir(rootDir, { withFileTypes: true }).catch(() => []);
+  const dashboards = [];
+
+  for (const entry of entries) {
+    const absPath = path.join(rootDir, entry.name);
+    const relPath = path.join(relativePrefix, entry.name);
+
+    if (entry.isDirectory()) {
+      dashboards.push(...await collectGeneratedDashboardArtifacts(absPath, relPath));
+      continue;
+    }
+
+    const match = entry.name.match(/^metadata-v(\d+)\.json$/);
+    if (!match) continue;
+
+    try {
+      const raw = await fs.readFile(absPath, 'utf-8');
+      const data = JSON.parse(raw);
+      dashboards.push({
+        id: `${sanitizeArtifactSegment(data.company, 'company')}--${sanitizeArtifactSegment(data.journeyType, 'journey')}--v${data.version}`,
+        company: data.company,
+        journeyType: data.journeyType,
+        tileCount: data.tileCount,
+        generationMethod: data.generationMethod,
+        savedAt: data.generatedAt,
+        dashboardName: data.dashboardName || `${data.company} - ${data.journeyType}`,
+        dashboardId: data.dashboardId || null,
+        dashboardUrl: data.dashboardUrl || null,
+        artifactVersion: data.version,
+        artifactPath: relPath,
+        source: 'generated-artifact',
+      });
+    } catch {
+      // Ignore unreadable metadata files
+    }
+  }
+
+  return dashboards;
+}
+
+async function findGeneratedArtifactById(id, rootDir = GENERATED_DIR) {
+  const entries = await fs.readdir(rootDir, { withFileTypes: true }).catch(() => []);
+
+  for (const entry of entries) {
+    const absPath = path.join(rootDir, entry.name);
+    if (entry.isDirectory()) {
+      const nested = await findGeneratedArtifactById(id, absPath);
+      if (nested) return nested;
+      continue;
+    }
+
+    const match = entry.name.match(/^metadata-v(\d+)\.json$/);
+    if (!match) continue;
+
+    try {
+      const raw = await fs.readFile(absPath, 'utf-8');
+      const metadata = JSON.parse(raw);
+      const computedId = `${sanitizeArtifactSegment(metadata.company, 'company')}--${sanitizeArtifactSegment(metadata.journeyType, 'journey')}--v${metadata.version}`;
+      if (computedId !== id) continue;
+
+      const dashboardFile = path.join(rootDir, `dashboard-v${metadata.version}.json`);
+      return {
+        metadataFile: absPath,
+        dashboardFile,
+        metadata,
+      };
+    } catch {
+      // Ignore unreadable metadata files
+    }
+  }
+
+  return null;
+}
 
 // List all saved dashboards (metadata only — no full content)
 router.get('/saved', async (req, res) => {
@@ -4590,9 +4875,11 @@ router.get('/saved', async (req, res) => {
           generationMethod: data.generationMethod,
           savedAt: data.savedAt,
           dashboardName: data.dashboard?.name || `${data.company} - ${data.journeyType}`,
+          source: 'saved-dashboard',
         });
       } catch { /* skip corrupt files */ }
     }
+    dashboards.push(...await collectGeneratedDashboardArtifacts(GENERATED_DIR));
     dashboards.sort((a, b) => (b.savedAt || '').localeCompare(a.savedAt || ''));
     res.json({ success: true, dashboards });
   } catch (err) {
@@ -4606,9 +4893,34 @@ router.get('/saved/:id', async (req, res) => {
   try {
     const id = req.params.id.replace(/[^a-zA-Z0-9-]/g, '');
     const filePath = path.join(SAVED_DIR, `${id}.json`);
-    const raw = await fs.readFile(filePath, 'utf-8');
-    const data = JSON.parse(raw);
-    res.json({ success: true, ...data });
+    try {
+      const raw = await fs.readFile(filePath, 'utf-8');
+      const data = JSON.parse(raw);
+      return res.json({ success: true, source: 'saved-dashboard', ...data });
+    } catch (savedErr) {
+      if (savedErr.code !== 'ENOENT') throw savedErr;
+    }
+
+    const artifact = await findGeneratedArtifactById(id);
+    if (!artifact) {
+      return res.status(404).json({ success: false, error: 'Dashboard not found' });
+    }
+
+    const dashboardRaw = await fs.readFile(artifact.dashboardFile, 'utf-8');
+    const dashboard = JSON.parse(dashboardRaw);
+    return res.json({
+      success: true,
+      source: 'generated-artifact',
+      id,
+      company: artifact.metadata.company,
+      journeyType: artifact.metadata.journeyType,
+      generationMethod: artifact.metadata.generationMethod,
+      tileCount: artifact.metadata.tileCount,
+      savedAt: artifact.metadata.generatedAt,
+      artifactVersion: artifact.metadata.version,
+      dashboard,
+      metadata: artifact.metadata,
+    });
   } catch (err) {
     if (err.code === 'ENOENT') {
       return res.status(404).json({ success: false, error: 'Dashboard not found' });
@@ -4622,8 +4934,23 @@ router.delete('/saved/:id', async (req, res) => {
   try {
     const id = req.params.id.replace(/[^a-zA-Z0-9-]/g, '');
     const filePath = path.join(SAVED_DIR, `${id}.json`);
-    await fs.unlink(filePath);
-    res.json({ success: true, message: `Deleted ${id}` });
+    try {
+      await fs.unlink(filePath);
+      return res.json({ success: true, message: `Deleted ${id}` });
+    } catch (savedErr) {
+      if (savedErr.code !== 'ENOENT') throw savedErr;
+    }
+
+    const artifact = await findGeneratedArtifactById(id);
+    if (!artifact) {
+      return res.status(404).json({ success: false, error: 'Dashboard not found' });
+    }
+
+    await Promise.all([
+      fs.unlink(artifact.metadataFile).catch(() => {}),
+      fs.unlink(artifact.dashboardFile).catch(() => {}),
+    ]);
+    return res.json({ success: true, message: `Deleted ${id}` });
   } catch (err) {
     if (err.code === 'ENOENT') {
       return res.status(404).json({ success: false, error: 'Dashboard not found' });

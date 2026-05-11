@@ -19,7 +19,7 @@ import crypto from 'crypto';
 import fs from 'fs/promises';
 import { existsSync, readFileSync, writeFileSync } from 'fs';
 import readline from 'readline';
-import { ensureServiceRunning, getServiceNameFromStep, getServicePort, stopAllServices, stopCustomerJourneyServices, getChildServices, getChildServiceMeta, performHealthCheck, getServiceStatus, cleanupOrphanedServiceProcesses, getDormantServices, clearDormantServices, clearDormantServicesForCompany, blockCompany } from './services/service-manager.js';
+import { ensureServiceRunning, getServiceNameFromStep, getServicePort, stopAllServices, stopCustomerJourneyServices, getChildServices, getChildServiceMeta, performHealthCheck, getServiceStatus, cleanupOrphanedServiceProcesses, getDormantServices, clearDormantServices, clearDormantServicesForCompany, blockCompany, unblockCompany } from './services/service-manager.js';
 import portManager from './services/port-manager.js';
 import { startAutoLoadWatcher, stopAutoLoadWatcher, stopAllAutoLoads, getAutoLoadStatus, stopAutoLoad } from './services/auto-load.js';
 
@@ -1728,63 +1728,77 @@ app.post('/api/admin/services/stop', async (req, res) => {
 // Stop all services by company
 app.post('/api/admin/services/stop-by-company', async (req, res) => {
   try {
-    const { companyName } = req.body;
+    const { companyName, journeyType, allowRestart } = req.body;
     if (!companyName) {
       return res.status(400).json({ ok: false, error: 'companyName required' });
     }
-    
-    console.log(`🛑 [Admin] STOP BY COMPANY: ${companyName} — blocking new service creation + stopping loads`);
-    
-    // 1) Block ensureServiceRunning for this company (prevents in-flight requests from recreating services)
-    blockCompany(companyName);
-    
-    // 2) Stop auto-load for this company (prevents watcher from firing new journeys)
-    stopAutoLoad(companyName);
-    
-    // 3) Stop the continuous LoadRunner test for this company
-    try {
-      await fetch(`http://localhost:${process.env.PORT || 8080}/api/journey-simulation/continuous-generation/stop/${encodeURIComponent(companyName)}`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }
-      });
-      console.log(`🛑 [Admin] Stopped continuous journey generation for ${companyName}`);
-    } catch (e) { /* ignore */ }
-    
-    // 4) Kill any loadrunner-simulator processes for this company
-    try {
-      const { execSync } = await import('child_process');
-      execSync(`pkill -9 -f "loadrunner-simulator.*${companyName}"`, { stdio: 'ignore' });
-      console.log(`🛑 [Admin] Killed loadrunner-simulator processes for ${companyName}`);
-    } catch (e) { /* pkill returns 1 if no match, that's fine */ }
-    
-    // 5) Small delay to let in-flight requests drain
+
+    const normalizedJourneyType = String(journeyType || '').trim().toLowerCase();
+    const stopExactJourneyOnly = normalizedJourneyType.length > 0;
+
+    console.log(`🛑 [Admin] STOP ${stopExactJourneyOnly ? 'BY COMPANY+JOURNEY' : 'BY COMPANY'}: ${companyName}${stopExactJourneyOnly ? ` / ${journeyType}` : ''}`);
+
+    // For whole-company stops, block recreation briefly while teardown completes.
+    if (!stopExactJourneyOnly) {
+      blockCompany(companyName);
+
+      // Stop auto-load for this company (prevents watcher from firing new journeys)
+      stopAutoLoad(companyName);
+
+      // Stop the continuous LoadRunner test for this company
+      try {
+        await fetch(`http://localhost:${process.env.PORT || 8080}/api/journey-simulation/continuous-generation/stop/${encodeURIComponent(companyName)}`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }
+        });
+        console.log(`🛑 [Admin] Stopped continuous journey generation for ${companyName}`);
+      } catch (e) { /* ignore */ }
+
+      // Kill any loadrunner-simulator processes for this company
+      try {
+        const { execSync } = await import('child_process');
+        execSync(`pkill -9 -f "loadrunner-simulator.*${companyName}"`, { stdio: 'ignore' });
+        console.log(`🛑 [Admin] Killed loadrunner-simulator processes for ${companyName}`);
+      } catch (e) { /* pkill returns 1 if no match, that's fine */ }
+    }
+
+    // Small delay to let in-flight requests drain
     await new Promise(resolve => setTimeout(resolve, 500));
-    
-    // 6) Now stop the actual services
+
+    // Now stop the actual services
     const { getChildServices, getChildServiceMeta, stopService } = await import('./services/service-manager.js');
     const services = getChildServices();
     const metadata = getChildServiceMeta();
     
     const stoppedServices = [];
-    for (const [serviceName, proc] of Object.entries(services)) {
+    for (const [serviceName] of Object.entries(services)) {
       const meta = metadata[serviceName] || {};
-      if (meta.companyName === companyName) {
+      const sameCompany = meta.companyName === companyName;
+      const sameJourney = !stopExactJourneyOnly || String(meta.journeyType || meta.journeyDetail || '').trim().toLowerCase() === normalizedJourneyType;
+      if (sameCompany && sameJourney) {
         await stopService(serviceName);
         stoppedServices.push(serviceName);
       }
     }
     
-    // 7) Force kill any zombie processes for this company
-    try {
-      const { execSync } = await import('child_process');
-      execSync(`pkill -9 -f "${companyName}.*Service"`, { stdio: 'ignore' });
-    } catch (e) { /* ignore */ }
+    // Force kill any zombie processes for this company only on full-company stops.
+    if (!stopExactJourneyOnly) {
+      try {
+        const { execSync } = await import('child_process');
+        execSync(`pkill -9 -f "${companyName}.*Service"`, { stdio: 'ignore' });
+      } catch (e) { /* ignore */ }
+    }
+
+    if (allowRestart) {
+      unblockCompany(companyName);
+    }
     
-    console.log(`✅ [Admin] Stopped ${stoppedServices.length} services for ${companyName}`);
+    console.log(`✅ [Admin] Stopped ${stoppedServices.length} service(s) for ${companyName}${stopExactJourneyOnly ? ` / ${journeyType}` : ''}`);
     
     res.json({ 
       ok: true, 
-      message: `Stopped ${stoppedServices.length} services for ${companyName}`,
+      message: `Stopped ${stoppedServices.length} service(s) for ${companyName}${stopExactJourneyOnly ? ` / ${journeyType}` : ''}`,
       companyName,
+      journeyType: journeyType || null,
       stoppedServices
     });
   } catch (e) {

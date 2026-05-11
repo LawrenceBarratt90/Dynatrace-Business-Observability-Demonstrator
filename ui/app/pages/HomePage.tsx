@@ -650,10 +650,16 @@ export const HomePage = () => {
   const [pdfStatus, setPdfStatus] = useState('');
   const [dashboardStatus, setDashboardStatus] = useState('');
   const [generatedDashboardJson, setGeneratedDashboardJson] = useState<any>(null);
+  const [dashboardDeployPreflight, setDashboardDeployPreflight] = useState<{ status: 'idle' | 'checking' | 'ready' | 'error'; message: string; details?: any }>({ status: 'idle', message: 'Preflight not checked yet.' });
+  const [selectedSavedDashboardId, setSelectedSavedDashboardId] = useState<string | null>(null);
+  const [showDashboardPreflightDetails, setShowDashboardPreflightDetails] = useState(false);
 
   // Saved dashboards state
   const [savedDashboards, setSavedDashboards] = useState<any[]>([]);
   const [isLoadingSavedDashboards, setIsLoadingSavedDashboards] = useState(false);
+  const [savedDashboardFilterCompany, setSavedDashboardFilterCompany] = useState('all');
+  const [savedDashboardFilterJourney, setSavedDashboardFilterJourney] = useState('all');
+  const [savedDashboardFilterSource, setSavedDashboardFilterSource] = useState('all');
 
   // MCP custom prompt state
   const [mcpDashboardPrompt, setMcpDashboardPrompt] = useState('');
@@ -1910,6 +1916,46 @@ export const HomePage = () => {
     }
   };
 
+  const compareSavedDashboardVersions = (item: any) => {
+    const sameSeries = savedDashboards
+      .filter((candidate: any) => candidate.company === item.company && candidate.journeyType === item.journeyType && candidate.id !== item.id)
+      .sort((a: any, b: any) => String(b.savedAt || '').localeCompare(String(a.savedAt || '')));
+
+    const baseline = (selectedSavedDashboardId && selectedSavedDashboardId !== item.id
+      ? savedDashboards.find((candidate: any) => candidate.id === selectedSavedDashboardId)
+      : null) || sameSeries[0];
+
+    if (!baseline) {
+      showToast('No comparable version found for this company/journey yet.', 'info', 4000);
+      return;
+    }
+
+    const comparisonLines = [
+      `Comparing ${item.dashboardName || item.id} to ${baseline.dashboardName || baseline.id}`,
+      '',
+      `Company: ${item.company || 'unknown'} vs ${baseline.company || 'unknown'}`,
+      `Journey: ${item.journeyType || 'unknown'} vs ${baseline.journeyType || 'unknown'}`,
+      `Version: v${item.artifactVersion || '?'} vs v${baseline.artifactVersion || '?'}`,
+      `Tiles: ${item.tileCount || '?'} vs ${baseline.tileCount || '?'}`,
+      `Generation: ${item.generationMethod || 'unknown'} vs ${baseline.generationMethod || 'unknown'}`,
+      `Source: ${item.source || 'unknown'} vs ${baseline.source || 'unknown'}`,
+      `Saved: ${item.savedAt ? new Date(item.savedAt).toLocaleString() : '—'} vs ${baseline.savedAt ? new Date(baseline.savedAt).toLocaleString() : '—'}`,
+      item.artifactPath || baseline.artifactPath ? `Artifact path: ${item.artifactPath || '—'} vs ${baseline.artifactPath || '—'}` : '',
+    ].filter(Boolean);
+
+    window.alert(comparisonLines.join('\n'));
+  };
+
+  const savedDashboardCompanies = Array.from(new Set(savedDashboards.map((item: any) => item.company).filter(Boolean))).sort();
+  const savedDashboardJourneys = Array.from(new Set(savedDashboards.map((item: any) => item.journeyType).filter(Boolean))).sort();
+  const savedDashboardSources = Array.from(new Set(savedDashboards.map((item: any) => item.source).filter(Boolean))).sort();
+  const filteredSavedDashboards = savedDashboards.filter((item: any) => {
+    if (savedDashboardFilterCompany !== 'all' && item.company !== savedDashboardFilterCompany) return false;
+    if (savedDashboardFilterJourney !== 'all' && item.journeyType !== savedDashboardFilterJourney) return false;
+    if (savedDashboardFilterSource !== 'all' && item.source !== savedDashboardFilterSource) return false;
+    return true;
+  });
+
   // ============================================================================
   // DASHBOARD GENERATION & DEPLOYMENT (Using Dynatrace SDK)
   // ============================================================================
@@ -1920,8 +1966,15 @@ export const HomePage = () => {
     setDashboardJourneyType('');
     setDashboardGenerationStatus('');
     setPdfStatus('');
-    setVisualsSubTab('pdf');
+    setVisualsSubTab('dashboard');
+    setShowDashboardPreflightDetails(false);
+    setSavedDashboardFilterCompany('all');
+    setSavedDashboardFilterJourney('all');
+    setSavedDashboardFilterSource('all');
+    setDashboardDeployPreflight({ status: 'checking', message: 'Checking dtctl and Dynatrace credentials...' });
     setIsLoadingDashboardData(true);
+    void loadSavedDashboards();
+    void ensureDashboardDeployReady().catch(() => {});
 
     try {
       const result = await callProxyWithRetry(
@@ -1965,17 +2018,122 @@ export const HomePage = () => {
     setIsLoadingSavedDashboards(false);
   };
 
+  const ensureDashboardDeployReady = async () => {
+    setDashboardDeployPreflight({ status: 'checking', message: 'Checking dtctl and Dynatrace credentials...' });
+    const result = await callProxyWithRetry({
+      action: 'preflight-dtctl',
+      apiHost: apiSettings.host,
+      apiPort: apiSettings.port,
+      apiProtocol: apiSettings.protocol,
+    }, 2, 1500) as any;
+
+    const data = result?.data || {};
+    if (!result?.success || !data?.ready) {
+      const reason = data?.error || result?.error || 'dtctl preflight failed';
+      const hint = data?.dynatrace?.environmentConfigured === false || data?.dynatrace?.tokenConfigured === false
+        ? 'Check DT_ENVIRONMENT / DT_PLATFORM_TOKEN on the backend host.'
+        : 'Check backend connectivity and dtctl installation.';
+      setDashboardDeployPreflight({ status: 'error', message: `${reason} ${hint}`.trim(), details: data });
+      throw new Error(`${reason} ${hint}`.trim());
+    }
+
+    setDashboardDeployPreflight({
+      status: 'ready',
+      message: `Ready: ${data?.dtctl?.version || 'dtctl installed'} · ${data?.dynatrace?.environmentUrl || 'environment configured'}`,
+      details: data,
+    });
+    return data;
+  };
+
+  const loadSavedDashboardVersion = async (item: any) => {
+    try {
+      const result = await callProxyWithRetry({
+        action: 'load-saved-dashboard',
+        apiHost: apiSettings.host,
+        apiPort: apiSettings.port,
+        apiProtocol: apiSettings.protocol,
+        body: { dashboardId: item.id },
+      }) as any;
+      if (!result?.success) {
+        throw new Error(result?.error || 'Failed to load saved dashboard');
+      }
+
+      const payload = result.dashboard ? result : result.data || result;
+      if (!payload?.dashboard) {
+        throw new Error('Saved dashboard has no dashboard payload');
+      }
+
+      setGeneratedDashboardJson(payload.dashboard);
+      setSelectedSavedDashboardId(item.id);
+      setDashboardCompanyName(payload.company || item.company || '');
+      setDashboardJourneyType(payload.journeyType || item.journeyType || '');
+      setVisualsSubTab('dashboard');
+      setDashboardGenerationStatus(`📦 Loaded ${item.dashboardName || item.id}${item.artifactVersion ? ` (v${item.artifactVersion})` : ''} from ${item.source || 'saved history'}.`);
+      showToast('Loaded saved dashboard version.', 'success', 4000);
+    } catch (err: any) {
+      showToast(`Failed to load saved dashboard: ${err.message}`, 'error', 5000);
+    }
+  };
+
+  const redeploySavedDashboardVersion = async (item: any) => {
+    setDashboardGenerationStatus(`⏳ Redeploying ${item.dashboardName || item.id}${item.artifactVersion ? ` v${item.artifactVersion}` : ''}...`);
+    setVisualsSubTab('dashboard');
+    try {
+      await ensureDashboardDeployReady();
+      const loaded = await callProxyWithRetry({
+        action: 'load-saved-dashboard',
+        apiHost: apiSettings.host,
+        apiPort: apiSettings.port,
+        apiProtocol: apiSettings.protocol,
+        body: { dashboardId: item.id },
+      }) as any;
+      if (!loaded?.success) {
+        throw new Error(loaded?.error || 'Failed to load dashboard artifact');
+      }
+
+      const payload = loaded.dashboard ? loaded : loaded.data || loaded;
+      const deployRes = await callProxyWithRetry({
+        action: 'deploy-dashboard',
+        apiHost: apiSettings.host,
+        apiPort: apiSettings.port,
+        apiProtocol: apiSettings.protocol,
+        body: {
+          dashboard: payload.dashboard,
+          company: payload.company || item.company,
+          journeyType: payload.journeyType || item.journeyType,
+        },
+      }, 3, 2000, setDashboardGenerationStatus) as any;
+
+      if (!deployRes?.success || !deployRes?.data?.data?.dashboardUrl && !deployRes?.data?.dashboardUrl) {
+        const errMsg = deployRes?.data?.error || deployRes?.error || 'Redeploy failed';
+        throw new Error(errMsg);
+      }
+
+      const deployData = deployRes.data?.data || deployRes.data;
+      setDashboardUrl(`${TENANT_URL}${deployData.dashboardUrl}`);
+      setGeneratedDashboardJson(payload.dashboard);
+      setSelectedSavedDashboardId(item.id);
+      setDashboardGenerationStatus(`✅ Redeployed ${item.dashboardName || item.id}${item.artifactVersion ? ` v${item.artifactVersion}` : ''}.`);
+      showToast('Saved dashboard version redeployed.', 'success', 6000);
+      await loadSavedDashboards();
+    } catch (err: any) {
+      setDashboardGenerationStatus(`❌ ${err.message}`);
+      showToast(`Redeploy failed: ${err.message}`, 'error', 6000);
+    }
+  };
+
   // Deploy a saved dashboard to Dynatrace (re-use MCP deploy)
   const deploySavedDashboard = async (item: any) => {
     setDashboardGenerationStatus(`⏳ Deploying saved dashboard: ${item.company} / ${item.journeyType}...`);
     setVisualsSubTab('pdf');
     try {
+      await ensureDashboardDeployReady();
       const result = await callProxyWithRetry({
-        action: 'mcp-generate-deploy-dashboard',
+        action: 'generate-deploy-dashboard',
         apiHost: apiSettings.host,
         apiPort: apiSettings.port,
         apiProtocol: apiSettings.protocol,
-        body: { company: item.company, journeyType: item.journeyType, useAI: true },
+        body: { company: item.company, journeyType: item.journeyType, useAI: true, model: ghCopilotModel },
       }, 5, 3000, setDashboardGenerationStatus) as any;
       if (result.success && result.data?.dashboardUrl) {
         const { dashboardUrl, tileCount, alreadyExisted } = result.data;
@@ -2069,7 +2227,7 @@ export const HomePage = () => {
         apiPort: apiSettings.port,
         apiProtocol: apiSettings.protocol,
         body: { prompt, model },
-      }, 5, 2000, statusSetter);
+      }, 1, 2000, statusSetter);
 
       if (res?.success) return res;
 
@@ -2077,7 +2235,7 @@ export const HomePage = () => {
       const rateLimited = /rate limit|too many requests|429|try again in a few minutes/i.test(errMsg);
       if (!rateLimited || cycle === maxRateLimitCycles) return res;
 
-      const waitMs = Math.min(90000, 15000 * cycle);
+      const waitMs = Math.min(30000, 5000 * cycle);
       if (statusSetter) {
         statusSetter(`⏳ ${phaseLabel}: rate limited, waiting ${Math.round(waitMs / 1000)}s before retry ${cycle + 1}/${maxRateLimitCycles}...`);
       }
@@ -2111,17 +2269,19 @@ export const HomePage = () => {
     }
   };
 
-  // Shared helper — generates dashboard via MCP server and deploys directly to Dynatrace.
+  // Shared helper — generates dashboard and deploys directly to Dynatrace via dtctl path.
   // Called both manually (Generate Dashboard button) and automatically after a new journey is created.
-  // When customPrompt is provided, the MCP server uses the prompt_dashboard tool to shape the dashboard via Ollama.
+  // When customPrompt is provided, Copilot shapes the dashboard according to the requested focus.
   const autoDownloadDashboard = async (company: string, journeyType: string, customPrompt?: string) => {
     try {
-      const label = customPrompt ? '⏳ AI is crafting your custom dashboard via MCP...' : '⏳ Generating & deploying dashboard via MCP...';
+      const label = customPrompt ? '⏳ AI is crafting your custom dashboard...' : '⏳ Generating & deploying dashboard...';
       setDashboardStatus(label);
+      await ensureDashboardDeployReady();
       const bodyPayload: any = { company, journeyType, useAI: true };
       if (customPrompt) bodyPayload.customPrompt = customPrompt;
+        bodyPayload.model = ghCopilotModel;
       const result = await callProxyWithRetry({
-          action: 'mcp-generate-deploy-dashboard',
+          action: 'generate-deploy-dashboard',
           apiHost: apiSettings.host,
           apiPort: apiSettings.port,
           apiProtocol: apiSettings.protocol,
@@ -2136,10 +2296,10 @@ export const HomePage = () => {
         setDashboardUrl(`${TENANT_URL}${dashboardUrl}`);
         showToast(`📊 Dashboard ${verb}! Click the link to open it in Dynatrace.`, 'success', 8000);
       } else {
-        throw new Error(result.error || result.data?.error || 'MCP dashboard generation failed');
+        throw new Error(result.error || result.data?.error || 'Dashboard generation failed');
       }
     } catch (err: any) {
-      console.error('[Dashboard MCP deploy] ❌', err);
+      console.error('[Dashboard deploy] ❌', err);
       // Fallback: try the old download approach
       console.log('[Dashboard] Falling back to download mode...');
       try {
@@ -2309,6 +2469,80 @@ export const HomePage = () => {
     }
     
     return parsedResponse;
+  };
+
+  const getJourneyIdentityFromPayload = (payload: any) => {
+    const journey = payload?.journey || payload || {};
+    const steps = Array.isArray(journey?.steps) ? journey.steps : (Array.isArray(payload?.steps) ? payload.steps : []);
+    const resolvedCompanyName = String(journey.companyName || payload?.companyName || steps?.[0]?.companyName || companyName || '').trim();
+    const resolvedJourneyType = String(journey.journeyType || journey.journeyDetail || payload?.journeyType || payload?.journeyDetail || domain || '').trim();
+    return {
+      companyName: resolvedCompanyName,
+      journeyType: resolvedJourneyType,
+      key: toJourneyKey(resolvedCompanyName, resolvedJourneyType),
+    };
+  };
+
+  const ensureJourneyCanStart = async (payload: any, statusSetter?: (msg: string) => void) => {
+    const identity = getJourneyIdentityFromPayload(payload);
+    if (!identity.companyName || !identity.journeyType) {
+      return true;
+    }
+
+    const servicesResult = await callProxyWithRetry(
+      { action: 'get-services', apiHost: apiSettings.host, apiPort: apiSettings.port, apiProtocol: apiSettings.protocol },
+      3,
+      1000,
+      statusSetter
+    ) as any;
+
+    const activeServices = Array.isArray(servicesResult?.data?.childServices) ? servicesResult.data.childServices : [];
+    const conflictingServices = activeServices.filter((service: any) => {
+      const serviceKey = toJourneyKey(String(service.companyName || ''), String(service.journeyType || service.journeyDetail || ''));
+      return serviceKey === identity.key;
+    });
+
+    if (conflictingServices.length === 0) {
+      return true;
+    }
+
+    const shouldStopExisting = window.confirm(
+      `${identity.companyName} / ${identity.journeyType} already has ${conflictingServices.length} running service(s).\n\nStop the existing journey and replace it with the new one?`
+    );
+
+    if (!shouldStopExisting) {
+      showToast(`Cancelled. Existing ${identity.companyName} / ${identity.journeyType} journey is still running.`, 'warning', 5000);
+      return false;
+    }
+
+    if (statusSetter) {
+      statusSetter(`🛑 Stopping existing ${identity.companyName} / ${identity.journeyType} journey...`);
+    }
+
+    const stopResult = await callProxyWithRetry(
+      {
+        action: 'stop-company-services',
+        apiHost: apiSettings.host,
+        apiPort: apiSettings.port,
+        apiProtocol: apiSettings.protocol,
+        body: {
+          companyName: identity.companyName,
+          journeyType: identity.journeyType,
+          allowRestart: true,
+        },
+      },
+      5,
+      1000,
+      statusSetter
+    ) as any;
+
+    if (!stopResult?.success) {
+      throw new Error(stopResult?.error || stopResult?.data?.error || 'Failed to stop existing journey');
+    }
+
+    await Promise.all([loadRunningServices(), loadDormantServices()]);
+    await new Promise((resolve) => setTimeout(resolve, 750));
+    return true;
   };
 
   const parseJourneyJsonWithRepair = (raw: string): { parsed: any; cleanJson: string } => {
@@ -2574,6 +2808,10 @@ export const HomePage = () => {
       
       // Call via serverless proxy function (bypasses CSP)
       const normalizedPayload = normalizeJourneyPayload(parsedResponse);
+      const canStartJourney = await ensureJourneyCanStart(normalizedPayload, setGenerationStatus);
+      if (!canStartJourney) {
+        return;
+      }
       const result = await callProxyWithRetry({
           action: 'simulate-journey',
           apiHost: apiSettings.host,
@@ -2587,6 +2825,16 @@ export const HomePage = () => {
       }, 5, 2000, setGenerationStatus) as any;
 
       if (!result.success) {
+        const dupData = result.data as any;
+        if (result.status === 409 || dupData?.duplicate) {
+          const navigateTo = dupData?.navigateTo || '/services';
+          setGenerationStatus(`⚠️ Duplicate journey blocked.`);
+          const goNow = window.confirm(
+            `A journey for "${companyName}" with identical steps is already running.\n\nClick OK to view the running topology, or Cancel to stay here.`
+          );
+          if (goNow) window.open(navigateTo, '_blank');
+          return;
+        }
         throw new Error(result.error || `API call failed (status ${result.status})`);
       }
 
@@ -2710,7 +2958,7 @@ export const HomePage = () => {
       setPrompt1(csuite);
       const res1 = await callGithubCopilotGenerateWithBackoff(
         csuite,
-        ghCopilotModel,
+        'gpt-4.1',
         (msg) => updateStep(stepIdx, { status: 'running', detail: msg }),
         'C-Suite generation'
       );
@@ -2756,7 +3004,7 @@ export const HomePage = () => {
       const contextPrefix = `Here is the C-suite analysis from the previous step:\n\n${res1.data.content}\n\nNow, based on that context, generate the "${journeyReqs}" journey:\n\n`;
       const res2 = await callGithubCopilotGenerateWithBackoff(
         contextPrefix + journey,
-        ghCopilotModel,
+        'gpt-4.1',
         (msg) => updateStep(stepIdx, { status: 'running', detail: msg }),
         'Journey generation'
       );
@@ -2793,6 +3041,11 @@ export const HomePage = () => {
         journeyType: jType,
       });
       const normalizedPayload = normalizeJourneyPayload(parsedResponse);
+      const canStartJourney = await ensureJourneyCanStart(normalizedPayload, (msg) => updateStep(stepIdx, { status: 'running', detail: msg }));
+      if (!canStartJourney) {
+        updateStep(stepIdx, { status: 'error', detail: 'Cancelled because an identical journey is already running.' });
+        return;
+      }
       const result = await callProxyWithRetry({
         action: 'simulate-journey',
         apiHost: apiSettings.host,
@@ -2806,6 +3059,16 @@ export const HomePage = () => {
       }, 5, 2000) as any;
       setIsGeneratingServices(false);
       if (!result.success) {
+        const dupData = result.data as any;
+        if (result.status === 409 || dupData?.duplicate) {
+          const navigateTo = dupData?.navigateTo || '/services';
+          updateStep(stepIdx, { status: 'error', detail: `Duplicate blocked — identical journey already running for ${companyName}.` });
+          const goNow = window.confirm(
+            `A journey for "${companyName}" with identical steps is already running.\n\nClick OK to view the running topology, or Cancel to stay here.`
+          );
+          if (goNow) window.open(navigateTo, '_blank');
+          return;
+        }
         throw new Error(result.error || `Service creation failed (status ${result.status})`);
       }
       const data = result.data as any;
@@ -2827,7 +3090,7 @@ export const HomePage = () => {
       // Generate + deploy bespoke dashboard from discovered journey fields
       updateStep(stepIdx, { status: 'running' });
       const dashboardRes = await callProxyWithRetry({
-        action: 'mcp-generate-deploy-dashboard',
+        action: 'generate-deploy-dashboard',
         apiHost: apiSettings.host,
         apiPort: apiSettings.port,
         apiProtocol: apiSettings.protocol,
@@ -2835,6 +3098,7 @@ export const HomePage = () => {
           company: jCompany,
           journeyType: jType,
           useAI: true,
+          model: ghCopilotModel,
         },
       }, 3, 1500) as any;
 
@@ -2997,7 +3261,7 @@ export const HomePage = () => {
       const contextPrefix = `Here is the C-suite analysis from the previous step:\n\n${csuiteText}\n\nNow, based on that context, generate the "${journeyName}" journey:\n\n`;
       const res2 = await callGithubCopilotGenerateWithBackoff(
         contextPrefix + journey,
-        ghCopilotModel,
+        'gpt-4.1',
         (msg) => updateStep(1, { status: 'running', detail: msg }),
         'Journey generation'
       );
@@ -3027,6 +3291,12 @@ export const HomePage = () => {
       setIsGeneratingServices(true);
       const { userEmail, userName } = getAuditUser();
       const normalizedPayload = normalizeJourneyPayload(parsedResponse);
+      const canStartJourney = await ensureJourneyCanStart(normalizedPayload, (msg) => updateStep(3, { status: 'running', detail: msg }));
+      if (!canStartJourney) {
+        updateStep(3, { status: 'error', detail: 'Cancelled because an identical journey is already running.' });
+        setIsGeneratingServices(false);
+        return;
+      }
       const result = await callProxyWithRetry({
         action: 'simulate-journey',
         apiHost: apiSettings.host,
@@ -3040,6 +3310,17 @@ export const HomePage = () => {
       }, 5, 2000) as any;
       setIsGeneratingServices(false);
       if (!result.success) {
+        const dupData = result.data as any;
+        if (result.status === 409 || dupData?.duplicate) {
+          const navigateTo = dupData?.navigateTo || '/services';
+          updateStep(3, { status: 'error', detail: `Duplicate blocked — identical journey already running for ${companyName}.` });
+          const goNow = window.confirm(
+            `A journey for "${companyName}" with identical steps is already running.\n\nClick OK to view the running topology, or Cancel to stay here.`
+          );
+          if (goNow) window.open(navigateTo, '_blank');
+          setIsGeneratingServices(false);
+          return;
+        }
         throw new Error(result.error || `Service creation failed (status ${result.status})`);
       }
       const data = result.data as any;
@@ -4542,7 +4823,7 @@ export const HomePage = () => {
                       try {
                         const res = await callGithubCopilotGenerateWithBackoff(
                           prompt1,
-                          ghCopilotModel,
+                          'gpt-4.1',
                           undefined,
                           'C-Suite generation'
                         );
@@ -4633,7 +4914,7 @@ export const HomePage = () => {
                         const contextPrefix = ghResult1 ? `Here is the C-suite analysis from the previous step:\n\n${ghResult1}\n\nNow, based on that context:\n\n` : '';
                         const res = await callGithubCopilotGenerateWithBackoff(
                           contextPrefix + prompt2,
-                          ghCopilotModel,
+                          'gpt-4.1',
                           undefined,
                           'Journey generation'
                         );
@@ -7072,13 +7353,90 @@ export const HomePage = () => {
               </Flex>
             </div>
 
-            {/* Sub-tab Selector — only Executive Summary visible */}
+            {/* Sub-tab Selector */}
+            <div style={{ display: 'flex', gap: 8, padding: '12px 24px 0 24px', borderBottom: `1px solid ${Colors.Border.Neutral.Default}` }}>
+              {[
+                { key: 'dashboard', label: 'Dashboard' },
+                { key: 'saved', label: 'Saved Versions' },
+                { key: 'pdf', label: 'Executive Summary' },
+              ].map((tab) => (
+                <button
+                  key={tab.key}
+                  onClick={() => setVisualsSubTab(tab.key as 'dashboard' | 'saved' | 'pdf')}
+                  style={{
+                    padding: '10px 14px',
+                    borderRadius: '10px 10px 0 0',
+                    border: 'none',
+                    borderBottom: visualsSubTab === tab.key ? `2px solid ${Colors.Theme.Primary['70']}` : '2px solid transparent',
+                    background: visualsSubTab === tab.key ? 'rgba(0,161,201,0.08)' : 'transparent',
+                    color: 'inherit',
+                    cursor: 'pointer',
+                    fontWeight: visualsSubTab === tab.key ? 700 : 500,
+                  }}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
 
             {/* Content */}
             <div style={{ padding: 24 }}>
 
-              {/* ===== Dashboard Sub-Tab (hidden) ===== */}
-              {false && visualsSubTab === 'dashboard' && (
+              {visualsSubTab !== 'pdf' && (
+                <div style={{
+                  padding: 10,
+                  marginBottom: 16,
+                  borderRadius: 8,
+                  fontSize: 12,
+                  background: dashboardDeployPreflight.status === 'ready'
+                    ? 'rgba(115,190,40,0.12)'
+                    : dashboardDeployPreflight.status === 'error'
+                      ? 'rgba(220,50,47,0.12)'
+                      : 'rgba(0,161,201,0.12)',
+                  border: `1px solid ${dashboardDeployPreflight.status === 'ready'
+                    ? Colors.Theme.Success['70']
+                    : dashboardDeployPreflight.status === 'error'
+                      ? '#dc322f'
+                      : Colors.Theme.Primary['70']}`,
+                }}>
+                  <Flex alignItems="center" justifyContent="space-between" gap={12}>
+                    <div style={{ flex: 1 }}>
+                      <Strong style={{ display: 'block', marginBottom: 4 }}>
+                        {dashboardDeployPreflight.status === 'ready' ? '🟢 Deploy Ready' : dashboardDeployPreflight.status === 'error' ? '🔴 Deploy Not Ready' : '🟡 Checking Deploy Readiness'}
+                      </Strong>
+                      <div>{dashboardDeployPreflight.message}</div>
+                    </div>
+                    <button
+                      onClick={() => setShowDashboardPreflightDetails(prev => !prev)}
+                      style={{
+                        padding: '6px 10px',
+                        borderRadius: 6,
+                        border: `1px solid ${Colors.Border.Neutral.Default}`,
+                        background: 'rgba(255,255,255,0.35)',
+                        color: 'inherit',
+                        cursor: 'pointer',
+                        fontSize: 12,
+                        fontWeight: 600,
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {showDashboardPreflightDetails ? 'Hide details' : 'Preflight details'}
+                    </button>
+                  </Flex>
+                  {showDashboardPreflightDetails && (
+                    <div style={{ marginTop: 10, fontSize: 11, fontFamily: 'monospace', lineHeight: 1.6, opacity: 0.9 }}>
+                      <div>dtctl: {dashboardDeployPreflight.details?.dtctl?.version || 'unknown'}</div>
+                      <div>Path: {dashboardDeployPreflight.details?.dtctl?.path || 'n/a'}</div>
+                      <div>Environment: {dashboardDeployPreflight.details?.dynatrace?.environmentUrl || 'n/a'}</div>
+                      <div>Environment configured: {String(dashboardDeployPreflight.details?.dynatrace?.environmentConfigured ?? false)}</div>
+                      <div>Token configured: {String(dashboardDeployPreflight.details?.dynatrace?.tokenConfigured ?? false)}</div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ===== Dashboard Sub-Tab ===== */}
+              {visualsSubTab === 'dashboard' && (
                 <>
                   {/* Status Message */}
                   {dashboardGenerationStatus && (
@@ -7275,8 +7633,8 @@ export const HomePage = () => {
                 </>
               )}
 
-              {/* ===== Saved Dashboards Sub-Tab (hidden) ===== */}
-              {false && visualsSubTab === 'saved' && (
+              {/* ===== Saved Dashboards Sub-Tab ===== */}
+              {visualsSubTab === 'saved' && (
                 <>
                   {isLoadingSavedDashboards ? (
                     <div style={{ padding: 24, textAlign: 'center', opacity: 0.6 }}>⏳ Loading saved dashboards...</div>
@@ -7286,10 +7644,61 @@ export const HomePage = () => {
                     </div>
                   ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                      <div style={{ fontSize: 12, opacity: 0.6, marginBottom: 4 }}>
-                        {savedDashboards.length} dashboard{savedDashboards.length !== 1 ? 's' : ''} saved on host
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 10, marginBottom: 6 }}>
+                        <select
+                          value={savedDashboardFilterCompany}
+                          onChange={(e) => setSavedDashboardFilterCompany(e.target.value)}
+                          style={{
+                            width: '100%', padding: '10px 12px', borderRadius: 8,
+                            border: `1px solid ${Colors.Border.Neutral.Default}`,
+                            background: Colors.Background.Surface.Default,
+                            color: 'inherit', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit',
+                          }}
+                        >
+                          <option value="all">All companies</option>
+                          {savedDashboardCompanies.map((company) => (
+                            <option key={company} value={company}>{company}</option>
+                          ))}
+                        </select>
+                        <select
+                          value={savedDashboardFilterJourney}
+                          onChange={(e) => setSavedDashboardFilterJourney(e.target.value)}
+                          style={{
+                            width: '100%', padding: '10px 12px', borderRadius: 8,
+                            border: `1px solid ${Colors.Border.Neutral.Default}`,
+                            background: Colors.Background.Surface.Default,
+                            color: 'inherit', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit',
+                          }}
+                        >
+                          <option value="all">All journeys</option>
+                          {savedDashboardJourneys.map((journey) => (
+                            <option key={journey} value={journey}>{journey}</option>
+                          ))}
+                        </select>
+                        <select
+                          value={savedDashboardFilterSource}
+                          onChange={(e) => setSavedDashboardFilterSource(e.target.value)}
+                          style={{
+                            width: '100%', padding: '10px 12px', borderRadius: 8,
+                            border: `1px solid ${Colors.Border.Neutral.Default}`,
+                            background: Colors.Background.Surface.Default,
+                            color: 'inherit', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit',
+                          }}
+                        >
+                          <option value="all">All sources</option>
+                          {savedDashboardSources.map((source) => (
+                            <option key={source} value={source}>{source}</option>
+                          ))}
+                        </select>
                       </div>
-                      {savedDashboards.map((item: any) => (
+                      <div style={{ fontSize: 12, opacity: 0.6, marginBottom: 4 }}>
+                        Showing {filteredSavedDashboards.length} of {savedDashboards.length} dashboard{savedDashboards.length !== 1 ? 's' : ''} saved on host
+                      </div>
+                      {filteredSavedDashboards.length === 0 ? (
+                        <div style={{ padding: 18, textAlign: 'center', opacity: 0.6, fontSize: 12, borderRadius: 8, border: `1px dashed ${Colors.Border.Neutral.Default}` }}>
+                          No saved dashboards match the current filters.
+                        </div>
+                      ) : filteredSavedDashboards.map((item: any) => (
                         <div
                           key={item.id}
                           style={{
@@ -7305,8 +7714,49 @@ export const HomePage = () => {
                               <div style={{ fontSize: 11, opacity: 0.6, marginTop: 2 }}>
                                 {item.tileCount} tiles · {item.generationMethod} · {item.savedAt ? new Date(item.savedAt).toLocaleString() : '—'}
                               </div>
+                              <div style={{ fontSize: 11, opacity: 0.75, marginTop: 2 }}>
+                                {item.company || 'Unknown company'} · {item.journeyType || 'Unknown journey'} · {item.source === 'generated-artifact' ? `artifact v${item.artifactVersion || '?'}` : 'saved dashboard'}
+                              </div>
+                              {item.source === 'generated-artifact' && item.artifactPath && (
+                                <div style={{ fontSize: 10, opacity: 0.6, marginTop: 2, fontFamily: 'monospace' }}>
+                                  {item.artifactPath}
+                                </div>
+                              )}
                             </div>
                             <Flex gap={6}>
+                              <button
+                                onClick={() => compareSavedDashboardVersions(item)}
+                                title="Compare with the latest version for this company and journey"
+                                style={{
+                                  padding: '6px 10px', borderRadius: 6, border: '1px solid rgba(90,90,90,0.28)',
+                                  background: 'rgba(90,90,90,0.08)', color: 'inherit',
+                                  fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                                }}
+                              >
+                                ⇄ Compare
+                              </button>
+                              <button
+                                onClick={() => loadSavedDashboardVersion(item)}
+                                title="Load artifact version into dashboard view"
+                                style={{
+                                  padding: '6px 10px', borderRadius: 6, border: '1px solid rgba(108,44,156,0.35)',
+                                  background: selectedSavedDashboardId === item.id ? 'rgba(108,44,156,0.12)' : 'rgba(108,44,156,0.06)', color: '#6c2c9c',
+                                  fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                                }}
+                              >
+                                📦 Load
+                              </button>
+                              <button
+                                onClick={() => redeploySavedDashboardVersion(item)}
+                                title="Redeploy this exact saved/generated version"
+                                style={{
+                                  padding: '6px 10px', borderRadius: 6, border: '1px solid rgba(0,161,201,0.35)',
+                                  background: 'rgba(0,161,201,0.08)', color: '#00a1c9',
+                                  fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                                }}
+                              >
+                                ♻️ Redeploy
+                              </button>
                               <button
                                 onClick={() => deploySavedDashboard(item)}
                                 title="Deploy to Dynatrace"
@@ -7334,7 +7784,7 @@ export const HomePage = () => {
                         </div>
                       ))}
                       <div style={{ marginTop: 8, padding: 10, borderRadius: 8, background: 'rgba(115,190,40,0.08)', border: '1px solid rgba(115,190,40,0.3)', fontSize: 11, lineHeight: 1.5 }}>
-                        💾 Dashboards are auto-saved to the EC2 host after every generation. Deploy any saved dashboard to your Dynatrace tenant in one click.
+                        💾 Dashboards are auto-saved to the host after every generation. Filter by company, journey, or source, compare against the latest version, then load or redeploy the exact artifact you want.
                       </div>
                     </div>
                   )}

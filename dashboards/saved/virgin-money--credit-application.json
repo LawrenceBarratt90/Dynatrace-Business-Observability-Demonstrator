@@ -1,7 +1,7 @@
 {
-  "id": "sky--content-purchase",
+  "id": "virgin-money--credit-application",
   "dashboard": {
-    "name": "Build a financial services dashboard for SKy focused on the  [MCP Custom]",
+    "name": "Build a financial services dashboard for Virgin Money focuse [MCP Custom]",
     "type": "dashboard",
     "version": 1,
     "content": {
@@ -14,7 +14,7 @@
           "version": 2,
           "editable": true,
           "multiple": false,
-          "input": "fetch bizevents | filter event.kind == \"BIZ_EVENT\" | filter json.companyName == \"SKy\" | fields json.companyName | dedup json.companyName"
+          "input": "fetch bizevents | filter event.kind == \"BIZ_EVENT\" | filter json.companyName == \"Virgin Money\" | fields json.companyName | dedup json.companyName"
         },
         {
           "key": "JourneyType",
@@ -34,7 +34,7 @@
           "editable": true,
           "multiple": true,
           "defaultValue": "3420b2ac-f1cf-4b24-b62d-61ba1ba8ed05*",
-          "input": "fetch bizevents | filter event.kind == \"BIZ_EVENT\" | filter in(json.journeyType, $JourneyType) | filter json.companyName == \"SKy\" | fields json.stepName | dedup json.stepName"
+          "input": "fetch bizevents | filter event.kind == \"BIZ_EVENT\" | filter in(json.journeyType, $JourneyType) | filter json.companyName == \"Virgin Money\" | fields json.stepName | dedup json.stepName"
         },
         {
           "key": "Service",
@@ -61,7 +61,7 @@
         "0": {
           "title": "",
           "type": "markdown",
-          "content": "# Build a financial services dashboard for SKy focused on the \n## SKy | Content Purchase Journey | Business Observability\n**Data Signals:** 🔧 Services\n---"
+          "content": "# Build a financial services dashboard for Virgin Money focuse\n## Virgin Money | Credit Application Journey | Business Observability\n**Data Signals:** 🔧 Services\n---"
         },
         "1": {
           "title": "",
@@ -1444,8 +1444,8 @@
       "generatedBy": "ai-dashboard-generator",
       "generationMethod": "prompt-driven-keywords",
       "model": "llama3.2:1b",
-      "company": "SKy",
-      "journeyType": "Content Purchase",
+      "company": "Virgin Money",
+      "journeyType": "Credit Application",
       "dashboardSlug": "executive-customer-geo-trends",
       "totalTiles": 36,
       "dynamicFieldTiles": 0,
@@ -1480,12 +1480,12 @@
           "services": false
         }
       },
-      "generatedAt": "2026-05-08T15:27:08.003Z"
+      "generatedAt": "2026-05-08T13:28:10.584Z"
     }
   },
   "generationMethod": "prompt-driven-keywords",
-  "company": "SKy",
-  "journeyType": "Content Purchase",
+  "company": "Virgin Money",
+  "journeyType": "Credit Application",
   "tileCount": 36,
-  "savedAt": "2026-05-08T15:27:08.003Z"
+  "savedAt": "2026-05-08T13:28:10.590Z"
 }

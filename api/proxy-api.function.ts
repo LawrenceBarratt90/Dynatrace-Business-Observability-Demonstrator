@@ -10,7 +10,7 @@ import { documentsClient, environmentSharesClient } from '@dynatrace-sdk/client-
 import { queryExecutionClient } from '@dynatrace-sdk/client-query';
 
 interface ProxyPayload {
-  action: 'simulate-journey' | 'simulate-vcarb-race' | 'vcarb-race-status' | 'stop-vcarb-race' | 'get-saved-config' | 'test-connection' | 'get-services' | 'stop-all-services' | 'stop-company-services' | 'get-dormant-services' | 'clear-dormant-services' | 'clear-company-dormant' | 'chaos-get-active' | 'chaos-get-recipes' | 'chaos-inject' | 'chaos-revert' | 'chaos-revert-all' | 'chaos-get-targeted' | 'chaos-remove-target' | 'chaos-smart' | 'ec-create' | 'ec-update-patterns' | 'detect-builtin-settings' | 'deploy-builtin-settings' | 'deploy-workflow' | 'debug-builtin-schema' | 'generate-dashboard' | 'generate-dashboard-async' | 'get-dashboard-status' | 'deploy-dashboard' | 'mcp-generate-deploy-dashboard' | 'list-saved-dashboards' | 'load-saved-dashboard' | 'delete-saved-dashboard' | 'deploy-business-flow' | 'list-business-flows' | 'delete-business-flows' | 'generate-pdf' | 'generate-doc' | 'load-app-settings' | 'save-app-settings' | 'check-journey-assets' | 'create-notebook' | 'execute-dql' | 'demonstrator-ai-tiles' | 'demonstrator-tiles-status' | 'field-repo-get' | 'librarian-history' | 'librarian-stats' | 'librarian-analyze' | 'system-health' | 'system-cleanup' | 'github-copilot-generate' | 'github-copilot-check-credential' | 'github-copilot-save-credential' | 'github-copilot-list-models' | 'github-journey-commit' | 'github-create-issue' | 'ui-audit';
+  action: 'simulate-journey' | 'simulate-vcarb-race' | 'vcarb-race-status' | 'stop-vcarb-race' | 'get-saved-config' | 'test-connection' | 'get-services' | 'stop-all-services' | 'stop-company-services' | 'get-dormant-services' | 'clear-dormant-services' | 'clear-company-dormant' | 'chaos-get-active' | 'chaos-get-recipes' | 'chaos-inject' | 'chaos-revert' | 'chaos-revert-all' | 'chaos-get-targeted' | 'chaos-remove-target' | 'chaos-smart' | 'ec-create' | 'ec-update-patterns' | 'detect-builtin-settings' | 'deploy-builtin-settings' | 'deploy-workflow' | 'debug-builtin-schema' | 'generate-dashboard' | 'generate-dashboard-async' | 'get-dashboard-status' | 'deploy-dashboard' | 'mcp-generate-deploy-dashboard' | 'generate-deploy-dashboard' | 'preflight-dtctl' | 'list-saved-dashboards' | 'load-saved-dashboard' | 'delete-saved-dashboard' | 'deploy-business-flow' | 'list-business-flows' | 'delete-business-flows' | 'generate-pdf' | 'generate-doc' | 'load-app-settings' | 'save-app-settings' | 'check-journey-assets' | 'create-notebook' | 'execute-dql' | 'demonstrator-ai-tiles' | 'demonstrator-tiles-status' | 'field-repo-get' | 'librarian-history' | 'librarian-stats' | 'librarian-analyze' | 'system-health' | 'system-cleanup' | 'github-copilot-generate' | 'github-copilot-check-credential' | 'github-copilot-save-credential' | 'github-copilot-list-models' | 'github-journey-commit' | 'github-create-issue' | 'ui-audit';
   apiHost: string;
   apiPort: string;
   apiProtocol: string;
@@ -1428,6 +1428,36 @@ export default async function (payload: ProxyPayload) {
       }
     }
 
+    if (action === 'deploy-dashboard') {
+      try {
+        const res = await fetchWithRetry(`${baseUrl}/api/ai-dashboard/deploy-dtctl`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body || {}),
+          signal: AbortSignal.timeout(180000),
+        });
+        const data = await res.json();
+        return { success: res.ok, status: res.status, data };
+      } catch (error: any) {
+        console.error('[proxy-api] direct dashboard deploy error:', error.message);
+        return { success: false, status: 0, error: error.message };
+      }
+    }
+
+    if (action === 'preflight-dtctl') {
+      try {
+        const res = await fetchWithRetry(`${baseUrl}/api/ai-dashboard/preflight-dtctl`, {
+          method: 'GET',
+          signal: AbortSignal.timeout(20000),
+        });
+        const data = await res.json();
+        return { success: res.ok, status: res.status, data };
+      } catch (error: any) {
+        console.error('[proxy-api] dtctl preflight error:', error.message);
+        return { success: false, status: 0, error: error.message };
+      }
+    }
+
 
     // ── List saved dashboards on EC2 host ──
     if (action === 'list-saved-dashboards') {
@@ -1480,52 +1510,222 @@ export default async function (payload: ProxyPayload) {
       }
     }
 
-    // ── MCP-powered: Generate + Deploy Dashboard in one step ──
-    if (action === 'mcp-generate-deploy-dashboard') {
+    // ── Generate + Deploy Dashboard in one step (Copilot → dtctl path).
+    // Uses GitHub Copilot with AGENTS.md-quality prompt for high-fidelity Gen 3 dashboards.
+    // Keep legacy action name for backward compatibility.
+    if (action === 'mcp-generate-deploy-dashboard' || action === 'generate-deploy-dashboard') {
       try {
-        const { company, journeyType, useAI = true, customPrompt } = body as { company: string; journeyType: string; useAI?: boolean; customPrompt?: string };
+        const { company, journeyType, useAI = true, customPrompt, model: requestedModel } = body as { company: string; journeyType: string; useAI?: boolean; customPrompt?: string; model?: string };
         if (!company || !journeyType) {
           return { success: false, error: 'company and journeyType are required' };
         }
 
         const hasCustomPrompt = !!customPrompt;
-        console.log(`[proxy-api] Generate+deploy: ${company} / ${journeyType}${hasCustomPrompt ? ` (custom prompt: "${customPrompt!.substring(0, 60)}...")` : ''}`);
+        const sanitizedCustomPrompt = hasCustomPrompt ? String(customPrompt).slice(0, 1200) : '';
+        console.log(`[proxy-api] Generate+deploy (Copilot): ${company} / ${journeyType}${hasCustomPrompt ? ` (custom prompt: "${sanitizedCustomPrompt.substring(0, 60)}...")` : ''}`);
 
-        // Step 1: Discover available bizevent fields via SDK, then call EC2 generate endpoint
+        // Step 1: Discover existing BizEvent fields for this journey
         const discoveredFields = await discoverBizEventFieldsViaSDK(company, journeyType);
-        const generatePayload: any = {
-          journeyData: { company, journeyType, ...(discoveredFields !== null ? { discoveredFields } : {}) },
-          useAI,
+        const numericFields = (discoveredFields || []).filter(f => f.type === 'numeric').map(f => `${f.name} (e.g. ${f.sampleValue})`);
+        const stringFields = (discoveredFields || []).filter(f => f.type === 'string').map(f => `${f.name} (e.g. "${f.sampleValue}")`);
+        const hasGeo = (discoveredFields || []).some(f => f.name.includes('lat') || f.name.includes('lon') || f.name.includes('geo') || f.name.includes('location'));
+        const eventProvider = `${company.toLowerCase().replace(/[^a-z0-9]/g, '')}.event.provider`;
+
+        // Step 2: Build the AGENTS.md-quality prompt for a Gen 3 KPI dashboard
+        const fieldContext = discoveredFields && discoveredFields.length > 0
+          ? `\n\nDISCOVERED BIZEVENT FIELDS (use these in DQL queries):\n- Numeric fields: ${numericFields.length > 0 ? numericFields.join(', ') : 'none found'}\n- String/categorical fields: ${stringFields.length > 0 ? stringFields.join(', ') : 'none found'}\n- Has geo coordinates: ${hasGeo}\n\nFilter all tiles with: | filter event.provider == "${eventProvider}"` 
+          : `\n\nNo historical BizEvents found yet — generate the dashboard using business-appropriate field names for ${company}'s ${journeyType} journey. Filter all tiles with: | filter event.provider == "${eventProvider}"`;
+
+        const customDirective = hasCustomPrompt 
+          ? `\n\nUSER FOCUS REQUEST (highest priority — shape all sections and tiles around this): "${sanitizedCustomPrompt}"\n` 
+          : '';
+
+        const generationPrompt = `You are a Dynatrace Solutions Engineer building a Gen 3 KPI dashboard for ${company} - ${journeyType}.${customDirective}
+
+Research 15-20 industry-specific KPIs relevant to ${company}'s ${journeyType} business domain. Then produce a complete Dynatrace Gen 3 dashboard JSON.${fieldContext}
+
+MANDATORY STRUCTURAL RULES (follow exactly):
+
+1. HEADER — two side-by-side markdown tiles (NOT one combined):
+   Tile "0": type "markdown", content "![](https://logo.clearbit.com/${company.toLowerCase().replace(/\s+/g, '')}.com)", layout {x:0, y:0, w:6, h:2}
+   Tile "1": type "markdown", content "# ${company} | ${journeyType} Dashboard\n\nReal-time KPI monitoring...", layout {x:6, y:0, w:18, h:2}
+
+2. MAP TILE (REQUIRED, immediately after header):
+   A "bubbleMap" or "dotMap" tile, full width w:24, h:8, at y:2. Feed it from an event type with geo.location.latitude and geo.location.longitude. Place this ABOVE THE FOLD before any section.
+
+3. SECTION DIVIDERS between every section:
+   Use type "data", query: "data record(section=\\"SectionName\\")", visualization "singleValue", h:1, w:24.
+   Set a distinct background color per section using thresholds with colorThresholdTarget: "background".
+   Suggested colors: Executive #1a5276, Operations #1e8449, Customer #6c3483, Revenue #935116, Quality #1a252f
+
+4. TILE HEIGHTS:
+   - h:1 = section dividers only
+   - h:2 = single-value KPI tiles (singleValue visualization)
+   - h:4 = ALL chart tiles (minimum — never h:2 or h:3 for charts)
+   - h:5+ = tables, treemaps, complex multi-series
+
+5. SECTIONS — include ALL of these, tailored to ${company}'s ${journeyType} domain:
+   - Executive Summary (4-6 top-line KPIs as singleValue with gauge thresholds)
+   - [Industry-specific section 1] — e.g. Revenue & Sales, Manufacturing & Quality, Patient Outcomes
+   - [Industry-specific section 2] — e.g. Operations, Supply Chain, Customer Journey
+   - [Industry-specific section 3] — e.g. Customer Experience, Clinical Performance, Field Service
+   - [Industry-specific section 4] — e.g. Commercial, R&D, Compliance
+
+6. VISUALIZATION VARIETY (required mix, do NOT use only donut + area):
+   - singleValue: KPI totals with 3 threshold colorRules (success green, warning yellow, critical red), colorThresholdTarget: "background"
+   - lineChart or areaChart: time trends using makeTimeseries
+   - barChart or categoricalBar: categorical over time — MUST use makeTimeseries (NOT summarize), fieldMapping must have "timestamp":"timeframe"
+   - donutChart or pieChart: category share using summarize by:{field} (no time axis)
+   - honeycomb: many small categories (6+), needs visualizationSettings.honeycomb.dataMappings.value
+   - bubbleMap / dotMap: geo data (required for map tile)
+   - table: raw detail rows with limit
+   When changing from donut/pie to bar/honeycomb: REMOVE visualizationSettings.chartSettings.circleChartSettings entirely.
+
+7. DQL RULES:
+   - Always start with: fetch bizevents | filter event.provider == "${eventProvider}"
+   - singleValue tiles: use summarize (e.g. summarize count = count(), revenue = sum(total_amount))
+   - lineChart / areaChart: use makeTimeseries (e.g. makeTimeseries val = avg(response_time), bins:20)
+   - barChart / categoricalBar: use makeTimeseries with by:{groupField}, bins:20 — NEVER summarize for bar charts
+   - donutChart / pieChart: use summarize by:{field} with no time component
+   - ratio metrics: sum(numerator)/sum(denominator)*100, NEVER avg(percent_field)
+   - Insert variable filters BEFORE aggregation pipes (before makeTimeseries or summarize)
+
+8. VARIABLES — define 3-5 multi-select variables (type "query", multiple: true):
+   Source each from: fetch bizevents | filter event.provider == "${eventProvider}" | dedup <fieldName> | fields <fieldName>
+   Choose dimensions relevant to ${company}: e.g. region, product, channel, department, segment.
+   Apply as: | filter in(<field>, $VariableName) — place BEFORE makeTimeseries/summarize.
+
+9. LAYOUT — use 24-column grid:
+   - X positions: 0, 6, 12, 18 (width 6 each) or 0/8/16 (width 8 each) or 0/12 (width 12 each)
+   - Minimize vertical gaps. Y increments of +1 (divider h:1), +2 (KPI row h:2), +4 (chart row h:4)
+   - No tile collisions — track Y carefully as you add tiles
+
+OUTPUT REQUIREMENTS:
+- Return ONLY valid JSON, no markdown fences, no explanation, no comments
+- Gen 3 dashboard schema: {"tiles": {"0":{...},...}, "layouts": {"0":{x,y,w,h},...}, "variables": [...], "settings": {"defaultTimeframe": {"value": {"from": "now()-2h", "to": "now()"}, "enabled": true}}, "annotations": []}
+- Tiles object keys are stringified integers starting from "0"
+- Layouts object keys match tile keys exactly
+- Target 40-60 tiles total (hard maximum 80)
+- The map tile must be tile index "2" at y:2`;
+
+        const boundedGenerationPrompt = generationPrompt.length > 28000
+          ? `${generationPrompt.slice(0, 28000)}\n\n[Prompt truncated for safety. Keep output valid and complete.]`
+          : generationPrompt;
+
+        // Step 3: Call GitHub Copilot / GitHub Models API for generation
+        let generatedJson: any = null;
+        let generationMethod = 'copilot-agents-md';
+
+        try {
+          // Get GitHub PAT from credential vault
+          const creds = await credentialVaultClient.listCredentials({ type: 'TOKEN' });
+          const ghCred = (creds.credentials || []).find((c: any) => c.name === 'GITHUB_COPILOT_PAT' || c.name === 'BIZOBS_GITHUB_PAT' || (c.name || '').toLowerCase().includes('github'));
+          if (!ghCred) throw new Error('GitHub PAT not configured in credential vault');
+          const ghDetails = await credentialVaultClient.getCredentialsDetails({ id: ghCred.id });
+          const ghToken = (ghDetails as any).token;
+          if (!ghToken) throw new Error('GitHub PAT token empty in credential vault');
+
+          const dashboardModel = requestedModel || 'gpt-4.1';
+          const generationMaxTokens = 7000;
+          console.log(`[proxy-api] Calling GitHub Models (${dashboardModel}) for dashboard generation...`);
+
+          // Route through EC2 for OTel tracing first, fall back to direct if needed
+          let rawContent = '';
+          try {
+            const tracedRes = await fetchWithRetry(`${baseUrl}/api/ai-generate/github`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'x-github-token': ghToken },
+              body: JSON.stringify({ prompt: boundedGenerationPrompt, model: dashboardModel, maxTokens: generationMaxTokens, systemPrompt: 'You are a Dynatrace Gen 3 dashboard expert. Output raw JSON only — no markdown fences, no explanation, no comments. The JSON must be a complete valid Dynatrace Gen 3 dashboard object.' }),
+              signal: AbortSignal.timeout(240000),
+            }, 1);
+            if (tracedRes.ok) {
+              const tracedData = await tracedRes.json();
+              if (tracedData.success && tracedData.data?.content) rawContent = tracedData.data.content;
+            }
+          } catch (e: any) {
+            console.warn('[proxy-api] EC2 traced path failed, calling GitHub Models directly:', e.message);
+          }
+
+          if (!rawContent) {
+            const directRes = await fetch('https://models.inference.ai.azure.com/chat/completions', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ghToken}` },
+              body: JSON.stringify({
+                model: dashboardModel,
+                messages: [
+                  { role: 'system', content: 'You are a Dynatrace Gen 3 dashboard expert. Output raw JSON only — no markdown fences, no explanation, no comments.' },
+                  { role: 'user', content: boundedGenerationPrompt },
+                ],
+                temperature: 0.4,
+                max_tokens: generationMaxTokens,
+              }),
+              signal: AbortSignal.timeout(240000),
+            });
+            if (!directRes.ok) {
+              const errText = await directRes.text();
+              throw new Error(`GitHub Models API ${directRes.status}: ${errText.slice(0, 200)}`);
+            }
+            const directData = await directRes.json();
+            rawContent = directData.choices?.[0]?.message?.content || '';
+          }
+
+          if (!rawContent) throw new Error('GitHub Copilot returned empty content');
+          if (rawContent.length > 2_000_000) {
+            throw new Error(`Copilot response too large (${rawContent.length} chars)`);
+          }
+
+          // Extract JSON from the response (strip any accidental markdown fences)
+          const jsonMatch = rawContent.match(/\{[\s\S]*\}/);
+          if (!jsonMatch) throw new Error('No JSON object found in Copilot response');
+          generatedJson = JSON.parse(jsonMatch[0]);
+
+          if (!generatedJson.tiles || !generatedJson.layouts) {
+            throw new Error('Generated JSON missing required tiles or layouts fields');
+          }
+
+          const tileCount = Object.keys(generatedJson.tiles).length;
+          if (tileCount > 80) {
+            throw new Error(`Generated dashboard has ${tileCount} tiles which exceeds safety cap (80)`);
+          }
+          console.log(`[proxy-api] ✅ Copilot generated ${tileCount} tiles for ${company} - ${journeyType}`);
+          generationMethod = `copilot-${dashboardModel}`;
+
+        } catch (genErr: any) {
+          console.warn(`[proxy-api] Copilot generation failed (${genErr.message}), falling back to EC2 backend`);
+          // Fallback: call the EC2 backend generate route (Ollama/template)
+          const fallbackRes = await fetchWithRetry(`${baseUrl}/api/ai-dashboard/generate`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ journeyData: { company, journeyType, discoveredFields }, useAI }),
+            signal: AbortSignal.timeout(180000),
+          });
+          const fallbackData = await fallbackRes.json();
+          if (!fallbackData.success || !fallbackData.dashboard?.content) {
+            return { success: false, error: `Dashboard generation failed: ${genErr.message}. Fallback also failed: ${fallbackData.error || 'unknown'}` };
+          }
+          // Fallback returns wrapped {name, content} format — unwrap for deploy
+          generatedJson = fallbackData.dashboard.content;
+          generationMethod = fallbackData.generationMethod || 'ec2-fallback';
+        }
+
+        // Normalise: the top-level object IS the dashboard content (tiles/layouts/variables/settings)
+        const dashboardContent = generatedJson.tiles ? generatedJson : (generatedJson.content || generatedJson);
+        const tileCount = Object.keys(dashboardContent.tiles || {}).length;
+        console.log(`[proxy-api] Deploying ${tileCount} tiles via ${generationMethod}`);
+
+        // Step 4: Deploy the generated dashboard via dtctl on the EC2 backend
+        // Wrap in the format the deploy-dtctl route expects: { dashboard: { name, content } }
+        const dashboardForDeploy = {
+          name: `${company} - ${journeyType}`,
+          content: dashboardContent,
         };
-        if (hasCustomPrompt) generatePayload.customPrompt = customPrompt;
 
-        const genRes = await fetchWithRetry(`${baseUrl}/api/ai-dashboard/generate`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(generatePayload),
-          signal: AbortSignal.timeout(180000),
-        });
-
-        const data = await genRes.json();
-        if (!data.success || !data.dashboard) {
-          return { success: false, error: data.error || 'Dashboard generation failed' };
-        }
-
-        const dashboard = data.dashboard;
-        if (!dashboard || !dashboard.content) {
-          return { success: false, error: 'Dashboard generation returned no content' };
-        }
-
-        const generationMethod = data.generationMethod || 'unknown';
-        console.log(`[proxy-api] Generated ${Object.keys(dashboard.content.tiles || {}).length} tiles via ${generationMethod}`);
-
-        // Step 2: Deploy using dtctl from the EC2 backend (from-scratch path)
         let deployData: any = null;
         for (let deployAttempt = 1; deployAttempt <= 3; deployAttempt++) {
           const deployRes = await fetchWithRetry(`${baseUrl}/api/ai-dashboard/deploy-dtctl`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ dashboard, company, journeyType }),
+            body: JSON.stringify({ dashboard: dashboardForDeploy, company, journeyType }),
             signal: AbortSignal.timeout(180000),
           }, 8, 4000);
 
@@ -1545,22 +1745,20 @@ export default async function (payload: ProxyPayload) {
             break;
           }
 
-          const waitMs = 2500 * deployAttempt;
-          console.warn(`[proxy-api] deploy-dtctl retry ${deployAttempt}/3 after transient tunnel error: ${deployData.error}`);
-          await new Promise(r => setTimeout(r, waitMs));
+          console.warn(`[proxy-api] deploy-dtctl retry ${deployAttempt}/3 after transient error: ${deployData.error}`);
+          await new Promise(r => setTimeout(r, 2500 * deployAttempt));
         }
 
-        if (!deployData.success || !deployData.data?.dashboardId) {
-          const deployError = String(deployData.error || 'dtctl dashboard deployment failed');
+        if (!deployData?.success || !deployData.data?.dashboardId) {
           return {
             success: false,
-            error: deployError,
+            error: String(deployData?.error || 'dtctl dashboard deployment failed'),
             code: 'DTCTL_DEPLOY_FAILED',
           };
         }
 
         const dashboardId = deployData.data.dashboardId;
-        const dashboardName = deployData.data.dashboardName || dashboard.name || `${company} - ${journeyType} Journey`;
+        const dashboardName = deployData.data.dashboardName || `${company} - ${journeyType}`;
         const dashboardUrl = deployData.data.dashboardUrl || `/ui/apps/dynatrace.dashboards/dashboard/${dashboardId}`;
 
         return {
@@ -1569,10 +1767,10 @@ export default async function (payload: ProxyPayload) {
             dashboardId,
             dashboardUrl,
             dashboardName,
-            tileCount: Object.keys(dashboard.content.tiles || {}).length,
+            tileCount,
             generationMethod,
             alreadyExisted: false,
-            message: `Dashboard "${dashboardName}" deployed with dtctl`,
+            message: `Dashboard "${dashboardName}" generated by Copilot and deployed with dtctl (${tileCount} tiles)`,
           },
         };
       } catch (error: any) {
@@ -2616,6 +2814,7 @@ export default async function (payload: ProxyPayload) {
           { id: 'gpt-4o-mini', name: 'GPT-4o Mini', owned_by: 'OpenAI' },
           { id: 'o4-mini', name: 'o4-mini', owned_by: 'OpenAI' },
           { id: 'o3-mini', name: 'o3-mini', owned_by: 'OpenAI' },
+          { id: 'claude-opus-4-5', name: 'Claude Opus 4.5', owned_by: 'Anthropic' },
           { id: 'claude-sonnet-4', name: 'Claude Sonnet 4', owned_by: 'Anthropic' },
           { id: 'claude-3.5-sonnet', name: 'Claude 3.5 Sonnet', owned_by: 'Anthropic' },
         ];
@@ -2653,9 +2852,8 @@ export default async function (payload: ProxyPayload) {
         // The traced EC2 integration path waits for the upstream GitHub Models response,
         // which commonly takes 20-40s for larger prompts. Keep this comfortably above
         // observed model latency so healthy requests are not misreported as unreachable.
-        const proxyAttemptTimeoutMs = 70000;
-        const directCallTimeoutMs = 35000;
-        const allowUntracedFallback = String((globalThis as any)?.process?.env?.BIZOBS_ALLOW_UNTRACED_COPILOT_FALLBACK || '').toLowerCase() === 'true';
+        const proxyAttemptTimeoutMs = 30000;
+        const directCallTimeoutMs = 60000;
         const timeoutLike = (message?: string) => {
           const m = (message || '').toLowerCase();
           return m.includes('timed out') || m.includes('timeout') || m.includes('signal') || m.includes('abort');
@@ -2697,44 +2895,24 @@ export default async function (payload: ProxyPayload) {
             // Non-JSON response body (HTML/text); keep using status-based handling below.
           }
 
-          // Preserve actionable upstream auth/quota errors from traced route.
-          if (!allowUntracedFallback && (proxyResp.status === 400 || proxyResp.status === 401 || proxyResp.status === 403 || proxyResp.status === 429)) {
+          // Preserve actionable upstream auth/quota errors from traced route — these will fail direct too.
+          if (proxyResp.status === 401 || proxyResp.status === 403 || proxyResp.status === 429) {
             return {
               success: false,
-              error: upstreamError || `GitHub integration rejected the traced request (HTTP ${proxyResp.status}).`,
+              error: upstreamError || `GitHub integration rejected the request (HTTP ${proxyResp.status}).`,
               code: upstreamCode || 'GITHUB_PROXY_REQUEST_REJECTED',
               details: `Status ${proxyResp.status}${proxyErrorBody ? `: ${proxyErrorBody.slice(0, 300)}` : ''}`,
               endpoint: `${baseUrl}/api/ai-generate/github`,
               ecAutoRegistered,
-              routedVia: 'ec2-traced-required',
+              routedVia: 'ec2-traced',
             };
           }
 
-          if (!allowUntracedFallback) {
-            return {
-              success: false,
-              error: 'GitHub Copilot generation requires the traced EC2 integration path. The integration endpoint is currently unavailable.',
-              code: 'GITHUB_PROXY_UNAVAILABLE',
-              details: `Status ${proxyResp.status}${proxyErrorBody ? `: ${proxyErrorBody.slice(0, 200)}` : ''}`,
-              endpoint: `${baseUrl}/api/ai-generate/github`,
-              ecAutoRegistered,
-              routedVia: 'ec2-traced-required',
-            };
-          }
-          console.warn('[proxy-api] EC2 proxy returned non-ok, BIZOBS_ALLOW_UNTRACED_COPILOT_FALLBACK=true so falling back to direct call');
+          // Non-auth failures: fall through to direct call
+          console.warn(`[proxy-api] EC2 proxy returned ${proxyResp.status}, falling back to direct GitHub Models call`);
         } catch (proxyErr: any) {
-          if (!allowUntracedFallback) {
-            return {
-              success: false,
-              error: 'GitHub Copilot generation requires the traced EC2 integration path. The integration endpoint is unreachable.',
-              code: 'GITHUB_PROXY_UNREACHABLE',
-              details: proxyErr?.message || 'Unknown proxy error',
-              endpoint: `${baseUrl}/api/ai-generate/github`,
-              ecAutoRegistered,
-              routedVia: 'ec2-traced-required',
-            };
-          }
-          console.warn('[proxy-api] EC2 proxy unreachable, BIZOBS_ALLOW_UNTRACED_COPILOT_FALLBACK=true so falling back to direct GitHub Models call:', proxyErr.message);
+          // Unreachable / timeout: fall through to direct call
+          console.warn('[proxy-api] EC2 proxy unreachable, falling back to direct GitHub Models call:', proxyErr.message);
         }
 
         // 3. Optional fallback: Call GitHub Models API directly (untraced)

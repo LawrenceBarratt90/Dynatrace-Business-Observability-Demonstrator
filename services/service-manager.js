@@ -332,19 +332,15 @@ export async function startChildService(internalServiceName, scriptPath, portPar
     // cwd: If a service-specific directory is provided (with its own package.json),
     // spawn the process there so OneAgent reads THAT package.json name instead of the parent's
     const spawnCwd = env._SERVICE_CWD || undefined;
-    
-    // Resolve otel.cjs path relative to project root for OTel initialization in child processes
-    const otelBootstrap = path.resolve(__dirname, '..', 'otel.cjs');
-    const spawnArgs = fs.existsSync(otelBootstrap)
-      ? [`--require`, otelBootstrap, `--title=${dynatraceServiceName}`, scriptPath, dynatraceServiceName]
-      : [`--title=${dynatraceServiceName}`, scriptPath, dynatraceServiceName];
+    // Child step services should be OneAgent-only to avoid OTEL POST/* service noise.
+    const spawnArgs = [`--title=${dynatraceServiceName}`, scriptPath, dynatraceServiceName];
     const child = spawn('node', spawnArgs, {
       cwd: spawnCwd,
-      env: { 
-        ...process.env, 
-        SERVICE_NAME: dynatraceServiceName, 
+      env: {
+        ...process.env,
+        ...env,
+        SERVICE_NAME: dynatraceServiceName,
         FULL_SERVICE_NAME: internalServiceName,
-        OTEL_SERVICE_NAME: dynatraceServiceName,
         PORT: port,
         MAIN_SERVER_PORT: process.env.PORT || '8080',
         // Company context for business observability
@@ -390,7 +386,16 @@ export async function startChildService(internalServiceName, scriptPath, portPar
         DT_LOGICAL_SERVICE_NAME: dynatraceServiceName,
         DT_APPLICATION_NAME: dynatraceServiceName,
         DT_PROCESS_GROUP_NAME: dynatraceServiceName,
-        ...env 
+        // Hard-disable OpenTelemetry export for child step services
+        OTEL_SDK_DISABLED: 'true',
+        OTEL_TRACES_EXPORTER: 'none',
+        OTEL_METRICS_EXPORTER: 'none',
+        OTEL_LOGS_EXPORTER: 'none',
+        OTEL_SERVICE_NAME: '',
+        OTEL_EXPORTER_OTLP_ENDPOINT: '',
+        OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: '',
+        OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: '',
+        OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: ''
       },
       stdio: ['ignore', 'pipe', 'pipe']
     });
@@ -620,6 +625,15 @@ export async function ensureServiceRunning(stepName, companyContext = {}) {
 `process.env.DT_LOGICAL_SERVICE_NAME = process.env.SERVICE_NAME;\n` +
 `process.env.DT_APPLICATION_NAME = process.env.SERVICE_NAME;\n` +
 `process.env.DT_PROCESS_GROUP_NAME = process.env.SERVICE_NAME;\n` +
+`process.env.OTEL_SDK_DISABLED = 'true';\n` +
+`process.env.OTEL_TRACES_EXPORTER = 'none';\n` +
+`process.env.OTEL_METRICS_EXPORTER = 'none';\n` +
+`process.env.OTEL_LOGS_EXPORTER = 'none';\n` +
+`delete process.env.OTEL_SERVICE_NAME;\n` +
+`process.env.OTEL_EXPORTER_OTLP_ENDPOINT = '';\n` +
+`process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT = '';\n` +
+`process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT = '';\n` +
+`process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT = '';\n` +
 `\n` +
 `console.log('[wrapper] DT_APPLICATION_ID=' + process.env.DT_APPLICATION_ID);\n` +
 `console.log('[wrapper] DT_CUSTOM_PROP=' + process.env.DT_CUSTOM_PROP);\n` +

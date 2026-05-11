@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "company": "Sky",
+  "journeyType": "Cancellation Retention",
+  "dashboardId": "bizobs-sky-executive-customer-geo-trends",
+  "dashboardUrl": "/ui/apps/dynatrace.dashboards/dashboard/bizobs-sky-executive-customer-geo-trends",
+  "dashboardName": "Sky - Cancellation Retention",
+  "generationMethod": "prompt-driven-keywords",
+  "generatedAt": "2026-05-08T15:44:18.824Z",
+  "tileCount": 36,
+  "artifactFiles": {
+    "dashboard": "dashboards/generated/sky/cancellation-retention/dashboard-v1.json",
+    "metadata": "dashboards/generated/sky/cancellation-retention/metadata-v1.json"
+  }
+}

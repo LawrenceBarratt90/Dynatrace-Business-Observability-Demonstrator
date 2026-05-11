@@ -1,0 +1,24 @@
+{
+  "id": "bizobs-usage-pipeline",
+  "displayName": "BizObs Usage Pipeline",
+  "enabled": true,
+  "dataSource": "bizevents",
+  "processors": [
+    {
+      "id": "usage-json-parser",
+      "displayName": "Usage JSON Parser",
+      "enabled": true,
+      "type": "dql",
+      "matcher": "startsWith(event.type, \"bizevents.audit.usage.\")",
+      "dqlScript": "parse rqBody, \"JSON:json\" | fieldsFlatten json | parse json.additionalFields, \"JSON:additionalFields\" | fieldsFlatten json.additionalFields, prefix:\"additionalfields.\""
+    },
+    {
+      "id": "usage-field-normalizer",
+      "displayName": "Usage Field Normalizer",
+      "enabled": true,
+      "type": "dql",
+      "matcher": "startsWith(event.type, \"bizevents.audit.usage.\")",
+      "dqlScript": "fieldsAdd json.auditAction = coalesce(json.auditAction, json.action, action, event.type), json.pagePath = coalesce(json.pagePath, additionalfields.path, page), json.targetPath = coalesce(json.targetPath, additionalfields.path), json.userEmail = coalesce(json.userEmail, userEmail), json.userName = coalesce(json.userName, userName), json.feature = coalesce(json.feature, feature)"
+    }
+  ]
+}

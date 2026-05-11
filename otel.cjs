@@ -166,8 +166,20 @@ for (const name of [
   }
 }
 
-// Use env var for service name so child services get their own identity
-const otelServiceName = process.env.OTEL_SERVICE_NAME || process.env.DT_SERVICE_NAME || "bizobs-ai-engine";
+// Use env var for service name so child services get their own identity.
+// Guard against invalid method-only names (GET/POST/etc.) becoming service entities.
+function resolveOtelServiceName() {
+  const fallback = "bizobs-ai-engine";
+  const candidate = String(process.env.OTEL_SERVICE_NAME || process.env.DT_SERVICE_NAME || fallback).trim();
+  const methodOnly = /^(get|post|put|delete|patch|head|options)$/i.test(candidate);
+  if (!candidate || methodOnly) {
+    const safeFallback = String(process.env.DT_APPLICATION_ID || process.env.SERVICE_NAME || process.env.DYNATRACE_SERVICE_NAME || fallback).trim();
+    return safeFallback || fallback;
+  }
+  return candidate;
+}
+
+const otelServiceName = resolveOtelServiceName();
 
 const resource = defaultResource()
   .merge(

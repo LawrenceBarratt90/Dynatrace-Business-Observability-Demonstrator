@@ -40,19 +40,27 @@ if [ ! -d "$APP_DIR/saved-configs" ]; then
   log "Created saved-configs/ directory"
 fi
 
-# 3. Check if TS agents compilation is needed
-# The server imports from dist/agents/ — if missing, compile them
-SENTINEL="$APP_DIR/dist/agents"
-if [ ! -d "$SENTINEL" ]; then
-  log "⚠️  dist/agents/ missing — compiling TypeScript agents..."
+# 3. Check if TS compilation is needed
+# Server imports from dist/routes/* and dist/agents/*, so verify critical outputs.
+SENTINEL_AGENTS_DIR="$APP_DIR/dist/agents"
+SENTINEL_ROUTES_DIR="$APP_DIR/dist/routes"
+SENTINEL_ROUTE_FILE="$APP_DIR/dist/routes/gremlin.js"
+
+NEEDS_COMPILE=false
+if [ ! -d "$SENTINEL_AGENTS_DIR" ] || [ ! -d "$SENTINEL_ROUTES_DIR" ] || [ ! -f "$SENTINEL_ROUTE_FILE" ]; then
+  NEEDS_COMPILE=true
+fi
+
+if [ "$NEEDS_COMPILE" = true ]; then
+  log "⚠️  dist outputs missing/incomplete — compiling TypeScript project..."
   $NPX tsc --project tsconfig.json 2>&1 | tee -a "$LOG" || true
-  if [ -d "$SENTINEL" ]; then
+  if [ -d "$SENTINEL_AGENTS_DIR" ] && [ -d "$SENTINEL_ROUTES_DIR" ] && [ -f "$SENTINEL_ROUTE_FILE" ]; then
     log "✅ TypeScript compilation succeeded"
   else
-    log "❌ TypeScript compilation failed — server may still start (agents optional)"
+    log "❌ TypeScript compilation incomplete — startup may fail if required dist files are missing"
   fi
 else
-  log "✅ dist/agents/ exists — skipping TS compilation"
+  log "✅ dist outputs present — skipping TypeScript compilation"
 fi
 
 # 4. Verify server.js exists
