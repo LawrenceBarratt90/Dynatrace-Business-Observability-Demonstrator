@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "company": "BMW",
+  "journeyType": "Finance Application Flow",
+  "dashboardId": "bizobs-bmw-finance-application-flow",
+  "dashboardUrl": "/ui/apps/dynatrace.dashboards/dashboard/bizobs-bmw-finance-application-flow",
+  "dashboardName": "BMW - Finance Application Flow",
+  "generationMethod": "direct-dtctl",
+  "generatedAt": "2026-05-13T10:05:56.898Z",
+  "tileCount": 45,
+  "artifactFiles": {
+    "dashboard": "dashboards/generated/bmw/finance-application-flow/dashboard-v1.json",
+    "metadata": "dashboards/generated/bmw/finance-application-flow/metadata-v1.json"
+  }
+}

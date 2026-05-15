@@ -13,6 +13,23 @@ const SERVICE_PORTS = {
 function getServiceNameFromStep(stepName) {
   // Normalize: preserve CamelCase (ProductDiscovery -> ProductDiscoveryService) and handle spaces/underscores/hyphens
   if (!stepName) return null;
+  if (String(stepName).includes('-')) return String(stepName);
+  const normalizedInput = String(stepName).replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+  const canonicalServiceMap = {
+    addtowishlist: 'AddToWishlistService',
+    addtowishlistservice: 'AddToWishlistService',
+    searchinteraction: 'SearchInteractionService',
+    searchinteractionservice: 'SearchInteractionService',
+    homepageload: 'HomepageLoadService',
+    homepageloadservice: 'HomepageLoadService',
+    categoryselection: 'CategorySelectionService',
+    categoryselectionservice: 'CategorySelectionService',
+    productlistingview: 'ProductListingViewService',
+    productlistingviewservice: 'ProductListingViewService',
+    productdetailview: 'ProductDetailViewService',
+    productdetailviewservice: 'ProductDetailViewService'
+  };
+  if (canonicalServiceMap[normalizedInput]) return canonicalServiceMap[normalizedInput];
   if (/Service$/.test(String(stepName))) return String(stepName);
   const cleaned = String(stepName).replace(/[^a-zA-Z0-9_\-\s]/g, '').trim();
   const spaced = cleaned

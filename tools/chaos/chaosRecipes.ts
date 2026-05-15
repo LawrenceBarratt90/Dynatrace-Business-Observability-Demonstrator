@@ -54,7 +54,33 @@ function nextChaosId(): string {
   return `chaos-${Date.now()}-${++chaosCounter}`;
 }
 
-const APP_BASE = `http://localhost:${process.env.PORT || 8080}`;
+// ─── Dynamic Backend URL Resolution ────────────────────────────
+// The agents may be running on a distributed backend (not localhost).
+// Try environment variables first, then fall back to localhost.
+function getBackendBaseUrl(): string {
+  // Priority 1: Explicit backend URL from environment
+  if (process.env.BACKEND_URL) {
+    return process.env.BACKEND_URL.replace(/\/+$/, '');
+  }
+  
+  // Priority 2: Hostname from environment
+  if (process.env.BACKEND_HOST && process.env.BACKEND_PORT) {
+    const protocol = process.env.BACKEND_PROTOCOL || 'http';
+    return `${protocol}://${process.env.BACKEND_HOST}:${process.env.BACKEND_PORT}`;
+  }
+  
+  // Priority 3: Service name (common in containers)
+  if (process.env.SERVICE_HOST) {
+    const port = process.env.SERVICE_PORT || process.env.PORT || 8080;
+    return `http://${process.env.SERVICE_HOST}:${port}`;
+  }
+  
+  // Fallback: localhost (works for local dev)
+  const port = process.env.PORT || 8080;
+  return `http://localhost:${port}`;
+}
+
+const APP_BASE = getBackendBaseUrl();
 
 async function callFeatureFlagAPI(
   method: 'GET' | 'POST' | 'DELETE',
@@ -69,10 +95,22 @@ async function callFeatureFlagAPI(
     };
     if (body && method !== 'GET') opts.body = JSON.stringify(body);
     const res = await fetch(url, opts);
-    return (await res.json()) as Record<string, unknown>;
+    const data = (await res.json()) as Record<string, unknown>;
+    
+    // Log the call for diagnostics
+    if (!res.ok) {
+      log.warn(`Feature flag API call returned status ${res.status}: ${method} ${url}`, { 
+        status: res.status, 
+        error: data?.error || data?.reason,
+        fullResponse: String(JSON.stringify(data)).substring(0, 300)
+      });
+    }
+    
+    return data;
   } catch (err) {
-    log.error(`Feature flag API call failed: ${method} ${path}`, { error: String(err) });
-    return { success: false, error: String(err) };
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    log.error(`Feature flag API call failed: ${method} ${url}`, { error: errorMsg });
+    return { success: false, error: errorMsg };
   }
 }
 
@@ -92,6 +130,20 @@ async function callRemediationAPI(
     body.targetService = targetService;
   }
   return callFeatureFlagAPI('POST', '/api/remediation/feature-flag', body);
+}
+
+function remediationEventMissing(result: Record<string, unknown>): boolean {
+  const ok = result?.ok === true;
+  const eventSent = result?.eventSent === true;
+  return ok && !eventSent;
+}
+
+function remediationErrorMessage(result: Record<string, unknown>, context: string): string {
+  const eventDetails = (result?.eventDetails || {}) as Record<string, unknown>;
+  const reason = String(result?.error || result?.reason || eventDetails?.reason || '').trim();
+  return reason
+    ? `${context}: Dynatrace event was not created (${reason})`
+    : `${context}: Dynatrace event was not created`;
 }
 
 // ─── Recipes ──────────────────────────────────────────────────
@@ -122,7 +174,24 @@ const enableErrorsRecipe: ChaosRecipe = {
     }
 
     // Also set the legacy remediation flag for DT event tracking
-    await callRemediationAPI('errorInjectionEnabled', true, `Nemesis: enabling error injection (rate=${errorRate})${targetService ? ` on ${targetService}` : ''}`, targetService);
+    const remediation = await callRemediationAPI('errorInjectionEnabled', true, `Nemesis: enabling error injection (rate=${errorRate})${targetService ? ` on ${targetService}` : ''}`, targetService);
+    if (remediationEventMissing(remediation) || remediation?.ok === false) {
+      // Never leave active chaos without the correlated custom deployment event.
+      if (targetService) {
+        await callFeatureFlagAPI('DELETE', `/api/feature_flag/service/${encodeURIComponent(targetService)}`);
+      } else {
+        await callFeatureFlagAPI('POST', '/api/feature_flag', {
+          flags: { errors_per_transaction: 0 },
+          triggeredBy: 'nemesis-agent'
+        });
+      }
+      const error = new Error(remediationErrorMessage(remediation, 'Nemesis inject aborted')) as Error & { details?: Record<string, unknown> };
+      error.details = {
+        remediation,
+        reason: remediation?.reason || remediation?.error || null,
+      };
+      throw error;
+    }
 
     return {
       chaosId: id, type: 'enable_errors', target: targetService || 'all',
@@ -165,7 +234,11 @@ const increaseErrorRateRecipe: ChaosRecipe = {
       targetService: targetService,
       triggeredBy: 'nemesis-agent'
     });
-    await callRemediationAPI('errorInjectionEnabled', true, `Nemesis: error rate → ${newRate} on ${targetService}`, targetService);
+    const remediation = await callRemediationAPI('errorInjectionEnabled', true, `Nemesis: error rate → ${newRate} on ${targetService}`, targetService);
+    if (remediationEventMissing(remediation) || remediation?.ok === false) {
+      await callFeatureFlagAPI('DELETE', `/api/feature_flag/service/${encodeURIComponent(targetService)}`);
+      throw new Error(remediationErrorMessage(remediation, 'Nemesis inject aborted'));
+    }
 
     return {
       chaosId: id, type: 'increase_error_rate', target: targetService,
@@ -270,7 +343,11 @@ const targetCompanyRecipe: ChaosRecipe = {
       companyName: company,
       triggeredBy: 'nemesis-agent'
     });
-    await callRemediationAPI('errorInjectionEnabled', true, `Nemesis: targeting ${targetService} at ${newRate}`, targetService);
+    const remediation = await callRemediationAPI('errorInjectionEnabled', true, `Nemesis: targeting ${targetService} at ${newRate}`, targetService);
+    if (remediationEventMissing(remediation) || remediation?.ok === false) {
+      await callFeatureFlagAPI('DELETE', `/api/feature_flag/service/${encodeURIComponent(targetService)}`);
+      throw new Error(remediationErrorMessage(remediation, 'Nemesis inject aborted'));
+    }
 
     return {
       chaosId: id, type: 'target_company', target: targetService,

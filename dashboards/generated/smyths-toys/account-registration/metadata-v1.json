@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "company": "Smyths Toys",
+  "journeyType": "Account Registration",
+  "dashboardId": "bizobs-smyths-toys-account-registration",
+  "dashboardUrl": "/ui/apps/dynatrace.dashboards/dashboard/bizobs-smyths-toys-account-registration",
+  "dashboardName": "Smyths Toys - Account Registration",
+  "generationMethod": "direct-dtctl",
+  "generatedAt": "2026-05-12T15:07:03.568Z",
+  "tileCount": 36,
+  "artifactFiles": {
+    "dashboard": "dashboards/generated/smyths-toys/account-registration/dashboard-v1.json",
+    "metadata": "dashboards/generated/smyths-toys/account-registration/metadata-v1.json"
+  }
+}

@@ -16,6 +16,32 @@ import { withAgentSpan } from '../../utils/otelTracing.js';
 
 const log = createLogger('nemesis');
 
+// ─── Dynamic Backend URL Resolution ────────────────────────────
+// The agents may be running on a distributed backend (not localhost).
+// Try environment variables first, then fall back to localhost.
+function getBackendBaseUrl(): string {
+  // Priority 1: Explicit backend URL from environment
+  if (process.env.BACKEND_URL) {
+    return process.env.BACKEND_URL.replace(/\/+$/, '');
+  }
+  
+  // Priority 2: Hostname from environment
+  if (process.env.BACKEND_HOST && process.env.BACKEND_PORT) {
+    const protocol = process.env.BACKEND_PROTOCOL || 'http';
+    return `${protocol}://${process.env.BACKEND_HOST}:${process.env.BACKEND_PORT}`;
+  }
+  
+  // Priority 3: Service name (common in containers)
+  if (process.env.SERVICE_HOST) {
+    const port = process.env.SERVICE_PORT || process.env.PORT || 8080;
+    return `http://${process.env.SERVICE_HOST}:${port}`;
+  }
+  
+  // Fallback: localhost (works for local dev)
+  const port = process.env.PORT || 8080;
+  return `http://localhost:${port}`;
+}
+
 // ─── State ────────────────────────────────────────────────────
 
 const activeFaults: Map<string, ChaosResult> = new Map();
@@ -143,14 +169,53 @@ export async function revertAll(): Promise<{ reverted: number; failed: number }>
 
   // Also clear ALL persisted service overrides (catches stale overrides that survive server restarts)
   try {
-    const APP_BASE = `http://localhost:${process.env.PORT || 8080}`;
+    const APP_BASE = getBackendBaseUrl();
     const res = await fetch(`${APP_BASE}/api/feature_flag/services`, { method: 'DELETE' });
     const result = await res.json() as { cleared?: number };
-    if (result.cleared) {
+    if (!res.ok) {
+      failed++;
+      log.warn('Failed to clear persisted service overrides', { status: res.status, result });
+    } else if (result.cleared) {
       log.info(`🧹 Cleared ${result.cleared} persisted service overrides`);
     }
   } catch (err) {
+    failed++;
     log.warn('Failed to clear persisted service overrides', { error: String(err) });
+  }
+
+  // Force a safe baseline so any lingering runtime chaos flags are disabled.
+  try {
+    const APP_BASE = getBackendBaseUrl();
+    const resetRes = await fetch(`${APP_BASE}/api/feature_flag`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        flags: { errors_per_transaction: 0 },
+        triggeredBy: 'nemesis-agent',
+      }),
+    });
+    if (!resetRes.ok) {
+      failed++;
+      log.warn('Failed to reset global errors_per_transaction to 0', { status: resetRes.status });
+    }
+
+    const remediationRes = await fetch(`${APP_BASE}/api/remediation/feature-flag`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        flag: 'errorInjectionEnabled',
+        value: false,
+        reason: 'Nemesis revert-all safety reset',
+        triggeredBy: 'nemesis-agent',
+      }),
+    });
+    if (!remediationRes.ok) {
+      failed++;
+      log.warn('Failed to reset remediation errorInjectionEnabled=false', { status: remediationRes.status });
+    }
+  } catch (err) {
+    failed++;
+    log.warn('Failed to apply revert-all safety baseline', { error: String(err) });
   }
 
   return { reverted, failed };

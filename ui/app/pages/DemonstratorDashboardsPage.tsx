@@ -212,8 +212,8 @@ function useFieldDiscovery(companyName: string, journeyType: string, refreshTick
     setProfile(null);
 
     let base = 'fetch bizevents';
-    if (companyName) base += `\n| filter matchesPhrase(json.companyName, "${companyName}")`;
-    if (journeyType) base += `\n| filter matchesPhrase(json.journeyType, "${journeyType}")`;
+    if (companyName) base += `\n| filter json.companyName == "${companyName.replace(/"/g, '\\"')}"`;
+    if (journeyType) base += `\n| filter json.journeyType == "${journeyType.replace(/"/g, '\\"')}"`;
     base += '\n| limit 5';
 
     proxyDql(base, 5).then((result) => {
@@ -264,10 +264,10 @@ function useFieldDiscovery(companyName: string, journeyType: string, refreshTick
 
 function buildBase(companyName: string, journeyType: string, timeframe: Timeframe, serviceName?: string, eventType?: string): string {
   let q = `fetch bizevents, from:${timeframe}`;
-  if (companyName) q += `\n| filter matchesPhrase(json.companyName, "${companyName}")`;
-  if (journeyType) q += `\n| filter matchesPhrase(json.journeyType, "${journeyType}")`;
-  if (serviceName) q += `\n| filter matchesPhrase(json.serviceName, "${serviceName}")`;
-  if (eventType) q += `\n| filter matchesPhrase(event.type, "${eventType}")`;
+  if (companyName) q += `\n| filter json.companyName == "${companyName.replace(/"/g, '\\"')}"`;
+  if (journeyType) q += `\n| filter json.journeyType == "${journeyType.replace(/"/g, '\\"')}"`;
+  if (serviceName) q += `\n| filter json.serviceName == "${serviceName.replace(/"/g, '\\"')}"`;
+  if (eventType) q += `\n| filter event.type == "${eventType.replace(/"/g, '\\"')}"`;
   return q;
 }
 
@@ -717,9 +717,9 @@ function getCandidates(companyName: string, journeyType: string, preset: Dashboa
       { id: 'dev-req-by-svc', title: 'Requests by Service', vizType: 'timeseries', width: 1, icon: '📈', accent: '#438fb1', desc: 'Request volume trend per service over time — identify traffic patterns, peak loads, and load distribution.',
         dql: `timeseries requests = sum(dt.service.request.count), by:{dt.entity.service}, from:${timeframe}\n| fieldsAdd service = lower(entityName(dt.entity.service))${svcF}\n| fields timeframe, interval, service, requests\n| sort arraySum(requests) desc\n| limit 15` },
       { id: 'dev-success-fail', title: 'Success vs Failed', vizType: 'timeseries', width: 1, icon: '📊', accent: '#0D9C29', desc: 'Success vs failure request comparison — quickly spot when failure rates begin to diverge from the healthy baseline.',
-        dql: `timeseries total = sum(dt.service.request.count, default:0), failed = sum(dt.service.request.failure_count, default:0), from:${timeframe}\n| fieldsAdd success = total[] - failed[]\n| fields timeframe, interval, success, failed` },
+        dql: `${b}\n| makeTimeseries total = count(), failed = countIf(json.hasError == true)\n| fieldsAdd success = total[] - failed[]\n| fields timeframe, interval, success, failed` },
       { id: 'dev-endpoints', title: 'Key Endpoints', vizType: 'timeseries', width: 1, icon: '🔗', accent: '#438fb1', desc: 'Traffic distribution across key API endpoints — identify the most critical paths in your application.',
-        dql: `timeseries requests = sum(dt.service.request.count), by:{endpoint.name}, from:${timeframe}, filter: endpoint.name != "NON_KEY_REQUESTS"\n| fields timeframe, interval, endpoint.name, requests\n| sort arraySum(requests) desc\n| limit 15` },
+        dql: `${b}\n| filter json.stepName != "NON_KEY_REQUESTS"\n| makeTimeseries requests = count(), by:{json.stepName}\n| fields timeframe, interval, json.stepName, requests\n| sort arraySum(requests) desc\n| limit 15` },
       { id: 'dev-req-dist', title: 'Request Distribution by Service', vizType: 'categoricalBar', width: 3, icon: '📊', accent: '#438fb1', desc: 'Bar chart of request volume per service — see which services carry the most load at a glance.',
         dql: `timeseries requests = sum(dt.service.request.count), by:{dt.entity.service}, from:${timeframe}\n| fieldsAdd service = lower(entityName(dt.entity.service))${svcF}\n| fieldsAdd totalReq = arraySum(requests)\n| fields service, totalReq\n| sort totalReq desc\n| limit 20` },
 
@@ -2442,7 +2442,7 @@ function useJourneyValues(companyName: string, refreshTick = 0) {
   useEffect(() => {
     let cancelled = false;
     const dql = companyName
-      ? `fetch bizevents\n| filter matchesPhrase(json.companyName, "${companyName}")\n| summarize count = count(), by:{json.journeyType}\n| fields json.journeyType\n| dedup json.journeyType`
+      ? `fetch bizevents\n| filter json.companyName == "${companyName.replace(/"/g, '\\"')}"\n| summarize count = count(), by:{json.journeyType}\n| fields json.journeyType\n| dedup json.journeyType`
       : `fetch bizevents\n| summarize count = count(), by:{json.journeyType}\n| fields json.journeyType\n| dedup json.journeyType`;
     proxyDql(dql).then((result) => {
       if (cancelled) return;
@@ -2461,8 +2461,8 @@ function useServiceNames(companyName: string, journeyType: string, refreshTick =
     let cancelled = false;
     if (companyName) {
       // Get services from bizevents for this company
-      let q = `fetch bizevents\n| filter matchesPhrase(json.companyName, "${companyName}")`;
-      if (journeyType) q += `\n| filter matchesPhrase(json.journeyType, "${journeyType}")`;
+      let q = `fetch bizevents\n| filter json.companyName == "${companyName.replace(/"/g, '\\"')}"`;
+      if (journeyType) q += `\n| filter json.journeyType == "${journeyType.replace(/"/g, '\\"')}"`;
       q += `\n| summarize count = count(), by:{json.serviceName}\n| sort count desc\n| fields json.serviceName\n| limit 50`;
       proxyDql(q, 50).then((result) => {
         if (cancelled) return;
@@ -2484,12 +2484,12 @@ function useServiceNames(companyName: string, journeyType: string, refreshTick =
   return { values };
 }
 
-function useEventTypeValues(companyName: string, refreshTick = 0) {
+function useEventTypeValues(companyName: string, journeyType: string, refreshTick = 0) {
   const [values, setValues] = useState<string[]>([]);
   useEffect(() => {
     let cancelled = false;
     const dql = companyName
-      ? `fetch bizevents\n| filter matchesPhrase(json.companyName, "${companyName}")\n| summarize count = count(), by:{event.type}\n| sort count desc\n| fields event.type\n| limit 50`
+      ? `fetch bizevents\n| filter json.companyName == "${companyName.replace(/"/g, '\\"')}"${journeyType ? `\n| filter json.journeyType == "${journeyType.replace(/"/g, '\\"')}"` : ''}\n| summarize count = count(), by:{event.type}\n| sort count desc\n| fields event.type\n| limit 50`
       : `fetch bizevents\n| summarize count = count(), by:{event.type}\n| sort count desc\n| fields event.type\n| limit 50`;
     proxyDql(dql, 50).then((result) => {
       if (cancelled) return;
@@ -2498,7 +2498,7 @@ function useEventTypeValues(companyName: string, refreshTick = 0) {
       }
     });
     return () => { cancelled = true; };
-  }, [companyName, refreshTick]);
+  }, [companyName, journeyType, refreshTick]);
   return { values };
 }
 
@@ -2711,7 +2711,7 @@ export const DemonstratorDashboardsPage = () => {
   const { values: companyValues, error: companyError } = useCompanyValues(refreshKey);
   const { values: journeyValues, error: journeyError } = useJourneyValues(companyName, refreshKey);
   const { values: serviceValues } = useServiceNames(companyName, journeyType, refreshKey);
-  const { values: eventTypeValues } = useEventTypeValues(companyName, refreshKey);
+  const { values: eventTypeValues } = useEventTypeValues(companyName, journeyType, refreshKey);
 
   // Field discovery — runs when company/journey changes
   const { profile, discovering } = useFieldDiscovery(companyName, journeyType, refreshKey);

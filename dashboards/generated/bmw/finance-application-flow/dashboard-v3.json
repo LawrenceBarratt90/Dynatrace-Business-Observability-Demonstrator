@@ -1,0 +1,1205 @@
+{
+  "name": "BMW - Finance Application Flow",
+  "content": {
+    "tiles": {
+      "0": {
+        "type": "markdown",
+        "content": "![](https://logo.clearbit.com/bmw.com)"
+      },
+      "1": {
+        "type": "markdown",
+        "content": "# BMW | Finance Application Flow Dashboard\n\nReal-time KPI monitoring..."
+      },
+      "2": {
+        "type": "bubbleMap",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType  | summarize count = count() by:{geo.location.latitude}, geo.location.longitude, json.region",
+        "visualizationSettings": {
+          "bubbleMap": {
+            "colorMapping": "region",
+            "bubbleSizeMapping": "count"
+          }
+        }
+      },
+      "3": {
+        "type": "data",
+        "query": "data record(section=\"Executive Summary\")",
+        "visualization": "singleValue",
+        "visualizationSettings": {
+          "singleValue": {
+            "colorThresholdTarget": "background",
+            "colorRules": [
+              {
+                "color": "#1a5276",
+                "threshold": 0
+              }
+            ]
+          }
+        }
+      },
+      "4": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType   | summarize conversionRate = sum(json.conversionRate) / count() * 100",
+        "visualization": "singleValue",
+        "visualizationSettings": {
+          "singleValue": {
+            "colorThresholdTarget": "background",
+            "colorRules": [
+              {
+                "color": "#27ae60",
+                "threshold": 60
+              },
+              {
+                "color": "#f1c40f",
+                "threshold": 40
+              },
+              {
+                "color": "#e74c3c",
+                "threshold": 0
+              }
+            ],
+            "unit": "%"
+          }
+        }
+      },
+      "5": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType   | summarize avgSessionDuration = avg(json.sessionDuration)",
+        "visualization": "singleValue",
+        "visualizationSettings": {
+          "singleValue": {
+            "colorThresholdTarget": "background",
+            "colorRules": [
+              {
+                "color": "#27ae60",
+                "threshold": 600
+              },
+              {
+                "color": "#f1c40f",
+                "threshold": 300
+              },
+              {
+                "color": "#e74c3c",
+                "threshold": 0
+              }
+            ],
+            "unit": "s"
+          }
+        }
+      },
+      "6": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType   | summarize totalApplicationVolume = count()",
+        "visualization": "singleValue",
+        "visualizationSettings": {
+          "singleValue": {
+            "colorThresholdTarget": "background",
+            "colorRules": [
+              {
+                "color": "#27ae60",
+                "threshold": 1000
+              },
+              {
+                "color": "#f1c40f",
+                "threshold": 500
+              },
+              {
+                "color": "#e74c3c",
+                "threshold": 0
+              }
+            ]
+          }
+        }
+      },
+      "7": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType   | summarize avgProcessingTime = avg(json.processingTime)",
+        "visualization": "singleValue",
+        "visualizationSettings": {
+          "singleValue": {
+            "colorThresholdTarget": "background",
+            "colorRules": [
+              {
+                "color": "#27ae60",
+                "threshold": 10
+              },
+              {
+                "color": "#f1c40f",
+                "threshold": 15
+              },
+              {
+                "color": "#e74c3c",
+                "threshold": 20
+              }
+            ],
+            "unit": "s"
+          }
+        }
+      },
+      "8": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType   | summarize avgCustomerLifetimeValue = avg(json.customerLifetimeValue)",
+        "visualization": "singleValue",
+        "visualizationSettings": {
+          "singleValue": {
+            "colorThresholdTarget": "background",
+            "colorRules": [
+              {
+                "color": "#27ae60",
+                "threshold": 1200
+              },
+              {
+                "color": "#f1c40f",
+                "threshold": 900
+              },
+              {
+                "color": "#e74c3c",
+                "threshold": 600
+              }
+            ],
+            "unit": "€"
+          }
+        }
+      },
+      "9": {
+        "type": "data",
+        "query": "data record(section=\"Revenue & Sales\")",
+        "visualization": "singleValue",
+        "visualizationSettings": {
+          "singleValue": {
+            "colorThresholdTarget": "background",
+            "colorRules": [
+              {
+                "color": "#935116",
+                "threshold": 0
+              }
+            ]
+          }
+        }
+      },
+      "10": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType   | summarize totalRevenue = sum(json.transactionValue)",
+        "visualization": "singleValue",
+        "visualizationSettings": {
+          "singleValue": {
+            "colorThresholdTarget": "background",
+            "colorRules": [
+              {
+                "color": "#27ae60",
+                "threshold": 100000
+              },
+              {
+                "color": "#f1c40f",
+                "threshold": 50000
+              },
+              {
+                "color": "#e74c3c",
+                "threshold": 10000
+              }
+            ],
+            "unit": "€"
+          }
+        }
+      },
+      "11": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType   | summarize avgOrderValue = avg(json.averageOrderValue)",
+        "visualization": "singleValue",
+        "visualizationSettings": {
+          "singleValue": {
+            "colorThresholdTarget": "background",
+            "colorRules": [
+              {
+                "color": "#27ae60",
+                "threshold": 100
+              },
+              {
+                "color": "#f1c40f",
+                "threshold": 75
+              },
+              {
+                "color": "#e74c3c",
+                "threshold": 50
+              }
+            ],
+            "unit": "€"
+          }
+        }
+      },
+      "12": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType   | summarize profitMargin = sum(json.profitMargin) / count() * 100",
+        "visualization": "singleValue",
+        "visualizationSettings": {
+          "singleValue": {
+            "colorThresholdTarget": "background",
+            "colorRules": [
+              {
+                "color": "#27ae60",
+                "threshold": 20
+              },
+              {
+                "color": "#f1c40f",
+                "threshold": 15
+              },
+              {
+                "color": "#e74c3c",
+                "threshold": 10
+              }
+            ],
+            "unit": "%"
+          }
+        }
+      },
+      "13": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType   | summarize acquisitionCost = avg(json.acquisitionCost)",
+        "visualization": "singleValue",
+        "visualizationSettings": {
+          "singleValue": {
+            "colorThresholdTarget": "background",
+            "colorRules": [
+              {
+                "color": "#27ae60",
+                "threshold": 50
+              },
+              {
+                "color": "#f1c40f",
+                "threshold": 75
+              },
+              {
+                "color": "#e74c3c",
+                "threshold": 100
+              }
+            ],
+            "unit": "€"
+          }
+        }
+      },
+      "14": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType   | makeTimeseries revenue = sum(json.transactionValue), bins: 20",
+        "visualization": "lineChart",
+        "visualizationSettings": {
+          "chartSettings": {
+            "lineChartSettings": {
+              "seriesSettings": {
+                "revenue": {
+                  "color": "#935116"
+                }
+              }
+            }
+          }
+        }
+      },
+      "15": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType   | makeTimeseries avgOrderValue = avg(json.averageOrderValue), bins: 20",
+        "visualization": "areaChart",
+        "visualizationSettings": {
+          "chartSettings": {
+            "areaChartSettings": {
+              "seriesSettings": {
+                "avgOrderValue": {
+                  "color": "#935116"
+                }
+              }
+            }
+          }
+        }
+      },
+      "16": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType   | makeTimeseries profitMargin = sum(json.profitMargin) / count() * 100, bins: 20",
+        "visualization": "lineChart",
+        "visualizationSettings": {
+          "chartSettings": {
+            "lineChartSettings": {
+              "seriesSettings": {
+                "profitMargin": {
+                  "color": "#935116"
+                }
+              }
+            }
+          }
+        }
+      },
+      "17": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType   | summarize by:{json.productType}",
+        "visualization": "donutChart",
+        "visualizationSettings": {
+          "chartSettings": {
+            "barChartSettings": {
+              "categoryField": "json.productType",
+              "valueField": "count",
+              "color": "#935116"
+            }
+          }
+        }
+      },
+      "18": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType   | summarize by:{json.pricingTier}",
+        "visualization": "honeycomb",
+        "visualizationSettings": {
+          "honeycomb": {
+            "dataMappings": {
+              "value": "count"
+            },
+            "color": "#935116"
+          }
+        }
+      },
+      "19": {
+        "type": "data",
+        "query": "data record(section=\"Operations\")",
+        "visualization": "singleValue",
+        "visualizationSettings": {
+          "singleValue": {
+            "colorThresholdTarget": "background",
+            "colorRules": [
+              {
+                "color": "#1e8449",
+                "threshold": 0
+              }
+            ]
+          }
+        }
+      },
+      "20": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType   | summarize operationalCost = sum(json.operationalCost)",
+        "visualization": "singleValue",
+        "visualizationSettings": {
+          "singleValue": {
+            "colorThresholdTarget": "background",
+            "colorRules": [
+              {
+                "color": "#27ae60",
+                "threshold": 50000
+              },
+              {
+                "color": "#f1c40f",
+                "threshold": 75000
+              },
+              {
+                "color": "#e74c3c",
+                "threshold": 100000
+              }
+            ],
+            "unit": "€"
+          }
+        }
+      },
+      "21": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType   | summarize efficiencyRating = avg(json.efficiencyRating)",
+        "visualization": "singleValue",
+        "visualizationSettings": {
+          "singleValue": {
+            "colorThresholdTarget": "background",
+            "colorRules": [
+              {
+                "color": "#27ae60",
+                "threshold": 80
+              },
+              {
+                "color": "#f1c40f",
+                "threshold": 60
+              },
+              {
+                "color": "#e74c3c",
+                "threshold": 40
+              }
+            ]
+          }
+        }
+      },
+      "22": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType   | summarize resourceUtilization = avg(json.resourceUtilization) * 100",
+        "visualization": "singleValue",
+        "visualizationSettings": {
+          "singleValue": {
+            "colorThresholdTarget": "background",
+            "colorRules": [
+              {
+                "color": "#27ae60",
+                "threshold": 80
+              },
+              {
+                "color": "#f1c40f",
+                "threshold": 60
+              },
+              {
+                "color": "#e74c3c",
+                "threshold": 40
+              }
+            ],
+            "unit": "%"
+          }
+        }
+      },
+      "23": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType   | summarize complianceScore = avg(json.complianceScore)",
+        "visualization": "singleValue",
+        "visualizationSettings": {
+          "singleValue": {
+            "colorThresholdTarget": "background",
+            "colorRules": [
+              {
+                "color": "#27ae60",
+                "threshold": 95
+              },
+              {
+                "color": "#f1c40f",
+                "threshold": 85
+              },
+              {
+                "color": "#e74c3c",
+                "threshold": 70
+              }
+            ]
+          }
+        }
+      },
+      "24": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType   | makeTimeseries operationalCost = sum(json.operationalCost), bins: 20",
+        "visualization": "areaChart",
+        "visualizationSettings": {
+          "chartSettings": {
+            "areaChartSettings": {
+              "seriesSettings": {
+                "operationalCost": {
+                  "color": "#1e8449"
+                }
+              }
+            }
+          }
+        }
+      },
+      "25": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType   | makeTimeseries resourceUtilization = avg(json.resourceUtilization) * 100, bins: 20",
+        "visualization": "lineChart",
+        "visualizationSettings": {
+          "chartSettings": {
+            "lineChartSettings": {
+              "seriesSettings": {
+                "resourceUtilization": {
+                  "color": "#1e8449"
+                }
+              }
+            }
+          }
+        }
+      },
+      "26": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType   | summarize by:{json.department}",
+        "visualization": "donutChart",
+        "visualizationSettings": {
+          "chartSettings": {
+            "barChartSettings": {
+              "categoryField": "json.department",
+              "valueField": "count",
+              "color": "#1e8449"
+            }
+          }
+        }
+      },
+      "27": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType   | summarize by:{json.deviceType}",
+        "visualization": "honeycomb",
+        "visualizationSettings": {
+          "honeycomb": {
+            "dataMappings": {
+              "value": "count"
+            },
+            "color": "#1e8449"
+          }
+        }
+      },
+      "28": {
+        "type": "data",
+        "query": "data record(section=\"Customer Journey\")",
+        "visualization": "singleValue",
+        "visualizationSettings": {
+          "singleValue": {
+            "colorThresholdTarget": "background",
+            "colorRules": [
+              {
+                "color": "#6c3483",
+                "threshold": 0
+              }
+            ]
+          }
+        }
+      },
+      "29": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType   | summarize retentionProbability = sum(json.retentionProbability) / count() * 100",
+        "visualization": "singleValue",
+        "visualizationSettings": {
+          "singleValue": {
+            "colorThresholdTarget": "background",
+            "colorRules": [
+              {
+                "color": "#27ae60",
+                "threshold": 80
+              },
+              {
+                "color": "#f1c40f",
+                "threshold": 60
+              },
+              {
+                "color": "#e74c3c",
+                "threshold": 40
+              }
+            ],
+            "unit": "%"
+          }
+        }
+      },
+      "30": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType   | summarize avgEngagementScore = avg(json.engagementScore)",
+        "visualization": "singleValue",
+        "visualizationSettings": {
+          "singleValue": {
+            "colorThresholdTarget": "background",
+            "colorRules": [
+              {
+                "color": "#27ae60",
+                "threshold": 70
+              },
+              {
+                "color": "#f1c40f",
+                "threshold": 50
+              },
+              {
+                "color": "#e74c3c",
+                "threshold": 30
+              }
+            ]
+          }
+        }
+      },
+      "31": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType   | summarize satisfactionRating = avg(json.satisfactionRating)",
+        "visualization": "singleValue",
+        "visualizationSettings": {
+          "singleValue": {
+            "colorThresholdTarget": "background",
+            "colorRules": [
+              {
+                "color": "#27ae60",
+                "threshold": 4.5
+              },
+              {
+                "color": "#f1c40f",
+                "threshold": 3.5
+              },
+              {
+                "color": "#e74c3c",
+                "threshold": 2.5
+              }
+            ]
+          }
+        }
+      },
+      "32": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType   | summarize netPromoterScore = avg(json.netPromoterScore)",
+        "visualization": "singleValue",
+        "visualizationSettings": {
+          "singleValue": {
+            "colorThresholdTarget": "background",
+            "colorRules": [
+              {
+                "color": "#27ae60",
+                "threshold": 60
+              },
+              {
+                "color": "#f1c40f",
+                "threshold": 40
+              },
+              {
+                "color": "#e74c3c",
+                "threshold": 20
+              }
+            ]
+          }
+        }
+      },
+      "33": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType   | makeTimeseries retentionProbability = sum(json.retentionProbability) / count() * 100, bins: 20",
+        "visualization": "lineChart",
+        "visualizationSettings": {
+          "chartSettings": {
+            "lineChartSettings": {
+              "seriesSettings": {
+                "retentionProbability": {
+                  "color": "#6c3483"
+                }
+              }
+            }
+          }
+        }
+      },
+      "34": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType   | makeTimeseries avgEngagementScore = avg(json.engagementScore), bins: 20",
+        "visualization": "areaChart",
+        "visualizationSettings": {
+          "chartSettings": {
+            "areaChartSettings": {
+              "seriesSettings": {
+                "avgEngagementScore": {
+                  "color": "#6c3483"
+                }
+              }
+            }
+          }
+        }
+      },
+      "35": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType   | summarize by:{json.customerSegmentValue}",
+        "visualization": "donutChart",
+        "visualizationSettings": {
+          "chartSettings": {
+            "barChartSettings": {
+              "categoryField": "json.customerSegmentValue",
+              "valueField": "count",
+              "color": "#6c3483"
+            }
+          }
+        }
+      },
+      "36": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType   | summarize by:{json.loyaltyStatus}",
+        "visualization": "honeycomb",
+        "visualizationSettings": {
+          "honeycomb": {
+            "dataMappings": {
+              "value": "count"
+            },
+            "color": "#6c3483"
+          }
+        }
+      },
+      "37": {
+        "type": "data",
+        "query": "data record(section=\"Compliance & Quality\")",
+        "visualization": "singleValue",
+        "visualizationSettings": {
+          "singleValue": {
+            "colorThresholdTarget": "background",
+            "colorRules": [
+              {
+                "color": "#1a252f",
+                "threshold": 0
+              }
+            ]
+          }
+        }
+      },
+      "38": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType  | summarize fraudRiskHigh = countIf(json.fraudRisk == \"high\")",
+        "visualization": "singleValue",
+        "visualizationSettings": {
+          "singleValue": {
+            "colorThresholdTarget": "background",
+            "colorRules": [
+              {
+                "color": "#e74c3c",
+                "threshold": 50
+              },
+              {
+                "color": "#f1c40f",
+                "threshold": 20
+              },
+              {
+                "color": "#27ae60",
+                "threshold": 0
+              }
+            ]
+          }
+        }
+      },
+      "39": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType  | summarize securityRatingA = countIf(json.securityRating == \"A\")",
+        "visualization": "singleValue",
+        "visualizationSettings": {
+          "singleValue": {
+            "colorThresholdTarget": "background",
+            "colorRules": [
+              {
+                "color": "#27ae60",
+                "threshold": 80
+              },
+              {
+                "color": "#f1c40f",
+                "threshold": 60
+              },
+              {
+                "color": "#e74c3c",
+                "threshold": 40
+              }
+            ]
+          }
+        }
+      },
+      "40": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType  | summarize avgComplianceScore = avg(json.complianceScore)",
+        "visualization": "singleValue",
+        "visualizationSettings": {
+          "singleValue": {
+            "colorThresholdTarget": "background",
+            "colorRules": [
+              {
+                "color": "#27ae60",
+                "threshold": 95
+              },
+              {
+                "color": "#f1c40f",
+                "threshold": 85
+              },
+              {
+                "color": "#e74c3c",
+                "threshold": 70
+              }
+            ]
+          }
+        }
+      },
+      "41": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType  | summarize avgRiskLevelLow = countIf(json.riskLevel == \"Low\")",
+        "visualization": "singleValue",
+        "visualizationSettings": {
+          "singleValue": {
+            "colorThresholdTarget": "background",
+            "colorRules": [
+              {
+                "color": "#27ae60",
+                "threshold": 90
+              },
+              {
+                "color": "#f1c40f",
+                "threshold": 70
+              },
+              {
+                "color": "#e74c3c",
+                "threshold": 50
+              }
+            ]
+          }
+        }
+      },
+      "42": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType  | summarize by:{json.competitorComparison}",
+        "visualization": "donutChart",
+        "visualizationSettings": {
+          "chartSettings": {
+            "barChartSettings": {
+              "categoryField": "json.competitorComparison",
+              "valueField": "count",
+              "color": "#1a252f"
+            }
+          }
+        }
+      },
+      "43": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType  | summarize by:{json.marketTrend}",
+        "visualization": "honeycomb",
+        "visualizationSettings": {
+          "honeycomb": {
+            "dataMappings": {
+              "value": "count"
+            },
+            "color": "#1a252f"
+          }
+        }
+      },
+      "44": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType  | sort json.sessionDuration desc | limit 10 | fields json.sessionDuration, json.customerIntent, json.region, json.deviceType, json.browser",
+        "visualization": "table",
+        "visualizationSettings": {
+          "table": {
+            "columns": [
+              {
+                "field": "json.sessionDuration",
+                "label": "Session Duration (s)"
+              },
+              {
+                "field": "json.customerIntent",
+                "label": "Intent"
+              },
+              {
+                "field": "json.region",
+                "label": "Region"
+              },
+              {
+                "field": "json.deviceType",
+                "label": "Device"
+              },
+              {
+                "field": "json.browser",
+                "label": "Browser"
+              }
+            ]
+          }
+        }
+      },
+      "45": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType  | sort json.transactionValue desc | limit 10 | fields json.transactionValue, json.product, json.productType, json.region, json.pricingTier",
+        "visualization": "table",
+        "visualizationSettings": {
+          "table": {
+            "columns": [
+              {
+                "field": "json.transactionValue",
+                "label": "Transaction Value (€)"
+              },
+              {
+                "field": "json.product",
+                "label": "Product"
+              },
+              {
+                "field": "json.productType",
+                "label": "Product Type"
+              },
+              {
+                "field": "json.region",
+                "label": "Region"
+              },
+              {
+                "field": "json.pricingTier",
+                "label": "Pricing Tier"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "layouts": {
+      "0": {
+        "x": 0,
+        "y": 0,
+        "w": 6,
+        "h": 2
+      },
+      "1": {
+        "x": 6,
+        "y": 0,
+        "w": 18,
+        "h": 2
+      },
+      "2": {
+        "x": 0,
+        "y": 2,
+        "w": 24,
+        "h": 8
+      },
+      "3": {
+        "x": 0,
+        "y": 10,
+        "w": 24,
+        "h": 1
+      },
+      "4": {
+        "x": 0,
+        "y": 11,
+        "w": 6,
+        "h": 2
+      },
+      "5": {
+        "x": 6,
+        "y": 11,
+        "w": 6,
+        "h": 2
+      },
+      "6": {
+        "x": 12,
+        "y": 11,
+        "w": 6,
+        "h": 2
+      },
+      "7": {
+        "x": 18,
+        "y": 11,
+        "w": 6,
+        "h": 2
+      },
+      "8": {
+        "x": 0,
+        "y": 13,
+        "w": 6,
+        "h": 2
+      },
+      "9": {
+        "x": 0,
+        "y": 15,
+        "w": 24,
+        "h": 1
+      },
+      "10": {
+        "x": 0,
+        "y": 16,
+        "w": 6,
+        "h": 2
+      },
+      "11": {
+        "x": 6,
+        "y": 16,
+        "w": 6,
+        "h": 2
+      },
+      "12": {
+        "x": 12,
+        "y": 16,
+        "w": 6,
+        "h": 2
+      },
+      "13": {
+        "x": 18,
+        "y": 18,
+        "w": 6,
+        "h": 2
+      },
+      "14": {
+        "x": 0,
+        "y": 20,
+        "w": 6,
+        "h": 4
+      },
+      "15": {
+        "x": 6,
+        "y": 20,
+        "w": 6,
+        "h": 4
+      },
+      "16": {
+        "x": 12,
+        "y": 20,
+        "w": 6,
+        "h": 4
+      },
+      "17": {
+        "x": 18,
+        "y": 20,
+        "w": 6,
+        "h": 4
+      },
+      "18": {
+        "x": 0,
+        "y": 24,
+        "w": 6,
+        "h": 4
+      },
+      "19": {
+        "x": 0,
+        "y": 28,
+        "w": 24,
+        "h": 1
+      },
+      "20": {
+        "x": 0,
+        "y": 29,
+        "w": 6,
+        "h": 2
+      },
+      "21": {
+        "x": 6,
+        "y": 29,
+        "w": 6,
+        "h": 2
+      },
+      "22": {
+        "x": 12,
+        "y": 29,
+        "w": 6,
+        "h": 2
+      },
+      "23": {
+        "x": 18,
+        "y": 29,
+        "w": 6,
+        "h": 2
+      },
+      "24": {
+        "x": 0,
+        "y": 31,
+        "w": 6,
+        "h": 4
+      },
+      "25": {
+        "x": 6,
+        "y": 31,
+        "w": 6,
+        "h": 4
+      },
+      "26": {
+        "x": 12,
+        "y": 31,
+        "w": 6,
+        "h": 4
+      },
+      "27": {
+        "x": 18,
+        "y": 31,
+        "w": 6,
+        "h": 4
+      },
+      "28": {
+        "x": 0,
+        "y": 35,
+        "w": 24,
+        "h": 1
+      },
+      "29": {
+        "x": 0,
+        "y": 36,
+        "w": 6,
+        "h": 2
+      },
+      "30": {
+        "x": 6,
+        "y": 36,
+        "w": 6,
+        "h": 2
+      },
+      "31": {
+        "x": 12,
+        "y": 36,
+        "w": 6,
+        "h": 2
+      },
+      "32": {
+        "x": 18,
+        "y": 36,
+        "w": 6,
+        "h": 2
+      },
+      "33": {
+        "x": 0,
+        "y": 38,
+        "w": 6,
+        "h": 4
+      },
+      "34": {
+        "x": 6,
+        "y": 38,
+        "w": 6,
+        "h": 4
+      },
+      "35": {
+        "x": 12,
+        "y": 38,
+        "w": 6,
+        "h": 4
+      },
+      "36": {
+        "x": 18,
+        "y": 38,
+        "w": 6,
+        "h": 4
+      },
+      "37": {
+        "x": 0,
+        "y": 42,
+        "w": 24,
+        "h": 1
+      },
+      "38": {
+        "x": 0,
+        "y": 43,
+        "w": 6,
+        "h": 2
+      },
+      "39": {
+        "x": 6,
+        "y": 43,
+        "w": 6,
+        "h": 2
+      },
+      "40": {
+        "x": 12,
+        "y": 43,
+        "w": 6,
+        "h": 2
+      },
+      "41": {
+        "x": 18,
+        "y": 43,
+        "w": 6,
+        "h": 2
+      },
+      "42": {
+        "x": 0,
+        "y": 45,
+        "w": 6,
+        "h": 4
+      },
+      "43": {
+        "x": 6,
+        "y": 45,
+        "w": 6,
+        "h": 4
+      },
+      "44": {
+        "x": 0,
+        "y": 49,
+        "w": 12,
+        "h": 5
+      },
+      "45": {
+        "x": 0,
+        "y": 54,
+        "w": 12,
+        "h": 5
+      }
+    },
+    "version": 21,
+    "variables": [
+      {
+        "name": "Event Provider",
+        "key": "EventProvider",
+        "type": "query",
+        "multiple": false,
+        "input": "data record(value = \"BMW\")",
+        "defaultValue": "BMW"
+      },
+      {
+        "name": "Journey Type",
+        "key": "JourneyType",
+        "type": "query",
+        "multiple": false,
+        "input": "fetch bizevents | filter json.companyName == $EventProvider | fields json.journeyType | filter isNotNull(json.journeyType)| dedup json.journeyType",
+        "defaultValue": "Finance Application Flow"
+      }
+    ]
+  },
+  "type": "dashboard",
+  "version": 1,
+  "metadata": {
+    "company": "BMW",
+    "journeyType": "Finance Application Flow"
+  }
+}

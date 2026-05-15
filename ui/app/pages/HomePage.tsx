@@ -302,6 +302,10 @@ export const HomePage = () => {
   const [isLoadingHealth, setIsLoadingHealth] = useState(false);
   const [isRunningCleanup, setIsRunningCleanup] = useState(false);
   const [cleanupResult, setCleanupResult] = useState<any>(null);
+  const [generatedDashboards, setGeneratedDashboards] = useState<any[]>([]);
+  const [isLoadingGeneratedDashboards, setIsLoadingGeneratedDashboards] = useState(false);
+  const [deletingDashboardId, setDeletingDashboardId] = useState<string | null>(null);
+  const [dashboardMgmtStatus, setDashboardMgmtStatus] = useState('');
 
   // EdgeConnect state
   const [edgeConnects, setEdgeConnects] = useState<any[]>([]);
@@ -672,6 +676,9 @@ export const HomePage = () => {
   const [availableJourneys, setAvailableJourneys] = useState<string[]>([]);
   const [isLoadingDashboardData, setIsLoadingDashboardData] = useState(false);
   const [dashboardGenerationStatus, setDashboardGenerationStatus] = useState('');
+  const [bizEventsAvailable, setBizEventsAvailable] = useState<null | boolean>(null);
+  const [bizEventsCount, setBizEventsCount] = useState<number>(0);
+  const [isBizEventsChecking, setIsBizEventsChecking] = useState(false);
 
 
 
@@ -1145,7 +1152,7 @@ export const HomePage = () => {
               // If current model not in list, default to first available
               const ids = modelsRes.data.models.map((m: any) => m.id);
               if (!ids.includes(ghCopilotModel)) {
-                const preferred = ids.find((id: string) => id === 'gpt-4o') || ids[0];
+                const preferred = ids.find((id: string) => id === 'gpt-4.1') || ids[0];
                 setGhCopilotModel(preferred);
               }
             }
@@ -1485,6 +1492,79 @@ export const HomePage = () => {
     setIsRunningCleanup(false);
   };
 
+  const loadGeneratedDashboards = async () => {
+    setIsLoadingGeneratedDashboards(true);
+    try {
+      const result = await callProxyWithRetry(
+        { action: 'list-generated-dashboards', apiHost: apiSettings.host, apiPort: apiSettings.port, apiProtocol: apiSettings.protocol },
+        2,
+        1000
+      ) as any;
+      if (result.success) {
+        setGeneratedDashboards(Array.isArray(result.dashboards) ? result.dashboards : []);
+      } else {
+        setGeneratedDashboards([]);
+        setDashboardMgmtStatus(`❌ ${result.error || 'Failed to list dashboards'}`);
+      }
+    } catch (err: any) {
+      setGeneratedDashboards([]);
+      setDashboardMgmtStatus(`❌ ${err.message || 'Failed to list dashboards'}`);
+    }
+    setIsLoadingGeneratedDashboards(false);
+  };
+
+  const deleteGeneratedDashboard = async (dashboardId: string) => {
+    const id = String(dashboardId || '').trim();
+    if (!id) return;
+    const ok = window.confirm(`Delete dashboard ${id}? This cannot be undone.`);
+    if (!ok) return;
+
+    setDeletingDashboardId(id);
+    setDashboardMgmtStatus('');
+    try {
+      const result = await callProxyWithRetry(
+        {
+          action: 'delete-generated-dashboard',
+          apiHost: apiSettings.host,
+          apiPort: apiSettings.port,
+          apiProtocol: apiSettings.protocol,
+          body: { dashboardId: id },
+        },
+        2,
+        1000
+      ) as any;
+
+      if (result.success) {
+        setDashboardMgmtStatus(`✅ Deleted ${id}`);
+        setGeneratedDashboards(prev => prev.filter((d: any) => String(d?.id || '') !== id));
+      } else {
+        setDashboardMgmtStatus(`❌ ${result.error || `Failed to delete ${id}`}`);
+      }
+    } catch (err: any) {
+      setDashboardMgmtStatus(`❌ ${err.message || `Failed to delete ${id}`}`);
+    }
+    setDeletingDashboardId(null);
+  };
+
+  const repairGeneratedDashboardSharing = async () => {
+    setDashboardMgmtStatus('⏳ Repairing dashboard sharing...');
+    try {
+      const result = await callProxyWithRetry(
+        { action: 'repair-dashboard-sharing', apiHost: apiSettings.host, apiPort: apiSettings.port, apiProtocol: apiSettings.protocol },
+        2,
+        1000
+      ) as any;
+      if (result.success) {
+        setDashboardMgmtStatus(`✅ Sharing repaired for ${result.repairedCount || 0} dashboard(s)`);
+      } else {
+        setDashboardMgmtStatus(`❌ ${result.error || 'Failed to repair sharing'}`);
+      }
+    } catch (err: any) {
+      setDashboardMgmtStatus(`❌ ${err.message || 'Failed to repair sharing'}`);
+    }
+    loadGeneratedDashboards();
+  };
+
   const testConnectionFromModal = async () => {
     setIsTestingConnection(true);
     setSettingsStatus('🔄 Testing connection...');
@@ -1816,7 +1896,13 @@ export const HomePage = () => {
         chaosProxy('chaos-get-recipes'),
         chaosProxy('chaos-get-targeted'),
       ]);
-      if (activeRes.success) setActiveFaults(activeRes.data?.activeFaults || activeRes.data || []);
+      if (activeRes.success) {
+        const rawFaults = activeRes.data?.activeFaults || activeRes.data || [];
+        const normalized = Array.isArray(rawFaults)
+          ? rawFaults.map((f: any) => ({ ...f, id: f?.id || f?.chaosId || '' }))
+          : [];
+        setActiveFaults(normalized);
+      }
       if (recipesRes.success) setChaosRecipes(activeRes.data?.recipes || recipesRes.data?.recipes || recipesRes.data || []);
       if (targetedRes.success) setTargetedServices(targetedRes.data?.serviceOverrides || targetedRes.data || {});
     } catch (error: any) {
@@ -1865,11 +1951,17 @@ export const HomePage = () => {
     setIsInjectingChaos(false);
   };
 
-  const revertFault = async (faultId: string) => {
+  const revertFault = async (faultId?: string) => {
+    const resolvedFaultId = String(faultId || '').trim();
+    if (!resolvedFaultId) {
+      setChaosStatus('❌ Revert failed: missing fault ID. Refresh active faults and try again.');
+      showToast('❌ Revert failed: missing fault ID', 'error');
+      return;
+    }
     setIsRevertingChaos(true);
     setChaosStatus('🔄 Reverting fault...');
     try {
-      const result = await chaosProxy('chaos-revert', { faultId });
+      const result = await chaosProxy('chaos-revert', { faultId: resolvedFaultId });
       if (result.success) {
         setChaosStatus('✅ Fault reverted');
         showToast('✅ Chaos fault reverted', 'success');
@@ -1965,6 +2057,9 @@ export const HomePage = () => {
     setDashboardCompanyName('');
     setDashboardJourneyType('');
     setDashboardGenerationStatus('');
+    setBizEventsAvailable(null);
+    setBizEventsCount(0);
+    setIsBizEventsChecking(false);
     setPdfStatus('');
     setVisualsSubTab('dashboard');
     setShowDashboardPreflightDetails(false);
@@ -1977,9 +2072,14 @@ export const HomePage = () => {
     void ensureDashboardDeployReady().catch(() => {});
 
     try {
-      const result = await callProxyWithRetry(
-        { action: 'get-services', apiHost: apiSettings.host, apiPort: apiSettings.port, apiProtocol: apiSettings.protocol }
-      ) as any;
+      const result = await Promise.race([
+        callProxyWithRetry(
+          { action: 'get-services', apiHost: apiSettings.host, apiPort: apiSettings.port, apiProtocol: apiSettings.protocol },
+          2,
+          1000
+        ) as Promise<any>,
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Timed out loading services for dashboard generation')), 15000)),
+      ]) as any;
       if (result.success && result.data?.childServices) {
         const services = result.data.childServices as RunningService[];
         const companies = Array.from(new Set(services.map(s => s.companyName).filter(Boolean))) as string[];
@@ -1993,10 +2093,25 @@ export const HomePage = () => {
       }
     } catch (error: any) {
       console.warn('[Generate Visuals] Failed to load services:', error.message);
-      setAvailableCompanies([]);
-      setAvailableJourneys([]);
+      // Fallback to already loaded in-memory journey inventory so UI does not get stuck.
+      const fallbackCompanies = Array.from(new Set(
+        journeyInventory
+          .map(s => s.companyName)
+          .filter((v): v is string => Boolean(v && String(v).trim()))
+      )).sort();
+      const fallbackJourneys = Array.from(new Set(
+        journeyInventory
+          .map(s => s.journeyType)
+          .filter((v): v is string => Boolean(v && String(v).trim()))
+      )).sort();
+      setAvailableCompanies(fallbackCompanies);
+      setAvailableJourneys(fallbackJourneys);
+      if (fallbackCompanies.length === 0) {
+        setDashboardGenerationStatus('⚠️ Could not load services from server. Open Journeys first or retry in a few seconds.');
+      }
+    } finally {
+      setIsLoadingDashboardData(false);
     }
-    setIsLoadingDashboardData(false);
   };
 
   // Load saved dashboards from EC2 host
@@ -2133,7 +2248,7 @@ export const HomePage = () => {
         apiHost: apiSettings.host,
         apiPort: apiSettings.port,
         apiProtocol: apiSettings.protocol,
-        body: { company: item.company, journeyType: item.journeyType, useAI: true, model: ghCopilotModel },
+        body: { company: item.company, journeyType: item.journeyType, useAI: true, model: 'gpt-4.1' },
       }, 5, 3000, setDashboardGenerationStatus) as any;
       if (result.success && result.data?.dashboardUrl) {
         const { dashboardUrl, tileCount, alreadyExisted } = result.data;
@@ -2168,7 +2283,7 @@ export const HomePage = () => {
 
   // Retry helper for EdgeConnect calls — retries with exponential backoff to survive reconnection gaps and timeouts.
   const callProxyWithRetry = async (payload: any, attempts = 5, initialDelayMs = 2000, statusSetter?: (msg: string) => void) => {
-    const isRetryableMessage = (msg: string) => /connection error|edgeconnect|timed out|signal|rate limit|too many requests|429|try again in a few minutes/i.test(msg || '');
+    const isRetryableMessage = (msg: string) => /connection error|edgeconnect|timed out|signal|rate limit|too many requests|429|try again in a few minutes|function\s+proxy-api\s+has\s+failed|has\s+failed/i.test(msg || '');
     const enrichedPayload = { ...payload, ...getAuditUser() };
 
     let lastErr: any;
@@ -2219,21 +2334,40 @@ export const HomePage = () => {
     statusSetter?: (msg: string) => void,
     phaseLabel = 'Generation'
   ) => {
+    const isTransientProxyFailure = (msg: string) => /function\s+proxy-api\s+has\s+failed|timed out|timeout|signal|rate limit|too many requests|429/i.test(msg || '');
     const maxRateLimitCycles = 4;
     for (let cycle = 1; cycle <= maxRateLimitCycles; cycle++) {
-      const res = await callProxyWithRetry({
-        action: 'github-copilot-generate',
-        apiHost: apiSettings.host,
-        apiPort: apiSettings.port,
-        apiProtocol: apiSettings.protocol,
-        body: { prompt, model },
-      }, 1, 2000, statusSetter);
+      let res: any;
+      try {
+        res = await callProxyWithRetry({
+          action: 'github-copilot-generate',
+          apiHost: apiSettings.host,
+          apiPort: apiSettings.port,
+          apiProtocol: apiSettings.protocol,
+          body: { prompt, model },
+        }, 2, 2000, statusSetter);
+      } catch (err: any) {
+        const errMsg = String(err?.message || 'Unknown error');
+        if (isTransientProxyFailure(errMsg) && cycle < maxRateLimitCycles) {
+          const waitMs = Math.min(20000, 4000 * cycle);
+          if (statusSetter) {
+            statusSetter(`⏳ ${phaseLabel}: transient proxy issue, retrying in ${Math.round(waitMs / 1000)}s...`);
+          }
+          await new Promise(r => setTimeout(r, waitMs));
+          continue;
+        }
+        return { success: false, error: errMsg };
+      }
 
       if (res?.success) return res;
 
       const errMsg = String(res?.error || res?.message || 'Unknown error');
-      const rateLimited = /rate limit|too many requests|429|try again in a few minutes/i.test(errMsg);
-      if (!rateLimited || cycle === maxRateLimitCycles) return res;
+      const code = String(res?.code || '').toUpperCase();
+      const retryable =
+        /rate limit|too many requests|429|try again in a few minutes|timed out|timeout|signal|abort/i.test(errMsg) ||
+        code === 'RATE_LIMITED' ||
+        code === 'GEN_TIMEOUT';
+      if (!retryable || cycle === maxRateLimitCycles) return res;
 
       const waitMs = Math.min(30000, 5000 * cycle);
       if (statusSetter) {
@@ -2242,6 +2376,19 @@ export const HomePage = () => {
       await new Promise(r => setTimeout(r, waitMs));
     }
     return { success: false, error: `${phaseLabel}: rate limit retries exhausted` };
+  };
+
+  const callDynatraceAssistGenerateWithBackoff = async (
+    prompt: string,
+    statusSetter?: (msg: string) => void,
+    phaseLabel = 'C-Suite generation'
+  ) => {
+    return callGithubCopilotGenerateWithBackoff(
+      prompt,
+      'gpt-4.1',
+      statusSetter,
+      phaseLabel
+    );
   };
 
   const commitJourneyToRepo = async (journeyPayload: any, source: 'manual' | 'ai-agent' | 'pasted-ai' = 'manual') => {
@@ -2273,74 +2420,29 @@ export const HomePage = () => {
   // Called both manually (Generate Dashboard button) and automatically after a new journey is created.
   // When customPrompt is provided, Copilot shapes the dashboard according to the requested focus.
   const autoDownloadDashboard = async (company: string, journeyType: string, customPrompt?: string) => {
-    try {
-      const label = customPrompt ? '⏳ AI is crafting your custom dashboard...' : '⏳ Generating & deploying dashboard...';
-      setDashboardStatus(label);
-      await ensureDashboardDeployReady();
-      const bodyPayload: any = { company, journeyType, useAI: true };
-      if (customPrompt) bodyPayload.customPrompt = customPrompt;
-        bodyPayload.model = ghCopilotModel;
-      const result = await callProxyWithRetry({
-          action: 'generate-deploy-dashboard',
-          apiHost: apiSettings.host,
-          apiPort: apiSettings.port,
-          apiProtocol: apiSettings.protocol,
-          body: bodyPayload
-      }, 3, 5000, setDashboardStatus) as any;
+    const label = customPrompt ? '⏳ AI is crafting your custom dashboard...' : '⏳ Generating dashboard with AI, deploying via dtctl...';
+    setDashboardStatus(label);
+    await ensureDashboardDeployReady();
+    const bodyPayload: any = { company, journeyType, useAI: true };
+    if (customPrompt) bodyPayload.customPrompt = customPrompt;
+    bodyPayload.model = 'gpt-4.1';
+    const result = await callProxyWithRetry({
+        action: 'generate-deploy-dashboard',
+        apiHost: apiSettings.host,
+        apiPort: apiSettings.port,
+        apiProtocol: apiSettings.protocol,
+        body: bodyPayload
+    }, 3, 5000, setDashboardStatus) as any;
 
-      if (result.success && result.data?.dashboardUrl) {
-        const { dashboardUrl, tileCount, dashboardName, generationMethod, alreadyExisted } = result.data;
-        setGeneratedDashboardJson(null); // No local JSON needed — it's deployed
-        const verb = alreadyExisted ? 'updated' : 'deployed';
-        setDashboardStatus(`✅ ${tileCount} tiles ${verb} for ${company} via ${generationMethod}`);
-        setDashboardUrl(`${TENANT_URL}${dashboardUrl}`);
-        showToast(`📊 Dashboard ${verb}! Click the link to open it in Dynatrace.`, 'success', 8000);
-      } else {
-        throw new Error(result.error || result.data?.error || 'Dashboard generation failed');
-      }
-    } catch (err: any) {
-      console.error('[Dashboard deploy] ❌', err);
-      // Fallback: try the old download approach
-      console.log('[Dashboard] Falling back to download mode...');
-      try {
-        setDashboardStatus('⏳ Falling back to download mode...');
-        const fallbackBody: any = { journeyData: { company, journeyType, tenantUrl: TENANT_URL }, useAI: true };
-        if (customPrompt) fallbackBody.customPrompt = customPrompt;
-        const generateData = await callProxyWithRetry({
-            action: 'generate-dashboard',
-            apiHost: apiSettings.host,
-            apiPort: apiSettings.port,
-            apiProtocol: apiSettings.protocol,
-            body: fallbackBody
-        }, 3, 5000, setDashboardStatus) as any;
-        let dashboard = null;
-        if (generateData.success && generateData.dashboard) {
-          dashboard = generateData.dashboard;
-        } else if (generateData.success && generateData.data?.dashboard) {
-          dashboard = generateData.data.dashboard;
-        } else {
-          throw new Error(generateData.error || generateData.data?.error || 'Dashboard generation failed');
-        }
-        setGeneratedDashboardJson(dashboard);
-        const dashboardName = dashboard.name || `${company}-${journeyType}`;
-        const tileCount = dashboard.content?.tiles ? Object.keys(dashboard.content.tiles || {}).length : '?';
-        const exportJson = JSON.stringify(dashboard.content, null, 2);
-        const blob = new Blob([exportJson], { type: 'application/json' });
-        const downloadUrl = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = downloadUrl;
-        a.download = `${dashboardName.replace(/[\s/]+/g, '-').toLowerCase()}.json`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(downloadUrl);
-        setDashboardStatus(`✅ ${tileCount} tiles generated for ${company} — ready to import`);
-        setDashboardUrl(`${TENANT_URL}/ui/apps/dynatrace.dashboards`);
-        showToast(`📥 Dashboard downloaded! Import it via Dynatrace → Dashboards → Upload.`, 'success', 8000);
-      } catch (fallbackErr: any) {
-        console.error('[Dashboard fallback download] ❌', fallbackErr);
-        showToast(`⚠️ Dashboard failed: ${fallbackErr.message}`, 'warning', 6000);
-      }
+    if (result.success && result.data?.dashboardUrl) {
+      const { dashboardUrl, tileCount, alreadyExisted } = result.data;
+      setGeneratedDashboardJson(null);
+      const verb = alreadyExisted ? 'updated' : 'deployed';
+      setDashboardStatus(`✅ ${tileCount} tiles ${verb} via dtctl`);
+      setDashboardUrl(`${TENANT_URL}${dashboardUrl}`);
+      showToast(`📊 Dashboard ${verb} via dtctl! Click the link to open it in Dynatrace.`, 'success', 8000);
+    } else {
+      throw new Error(result.error || result.data?.error || 'Dashboard generation failed — check dtctl credentials in Settings');
     }
   };
   // Auto-deploy a tailored Business Flow to Dynatrace whenever a journey is created.
@@ -2377,6 +2479,41 @@ export const HomePage = () => {
       .toLowerCase();
   };
 
+  // BizEvents availability check when company + journey are both selected
+  useEffect(() => {
+    if (!dashboardCompanyName || !dashboardJourneyType) {
+      setBizEventsAvailable(null);
+      setBizEventsCount(0);
+      return;
+    }
+    let cancelled = false;
+    setIsBizEventsChecking(true);
+    setBizEventsAvailable(null);
+    const safeCompany = dashboardCompanyName.replace(/["\\]/g, '');
+    const safeJourney = dashboardJourneyType.replace(/["\\]/g, '');
+    callProxyWithRetry({
+      action: 'execute-dql',
+      apiHost: apiSettings.host,
+      apiPort: apiSettings.port,
+      apiProtocol: apiSettings.protocol,
+      body: {
+        query: `fetch bizevents | filter event.kind == "BIZ_EVENT" | filter json.companyName == "${safeCompany}" | filter json.journeyType == "${safeJourney}" | summarize count()`,
+        timeoutMs: 15000,
+        maxRecords: 1,
+      },
+    }, 1, 0).then((result: any) => {
+      if (cancelled) return;
+      const count: number = result?.records?.[0]?.count ?? result?.records?.[0]?.['count()'] ?? 0;
+      setBizEventsAvailable(result.success && count > 0);
+      setBizEventsCount(count);
+    }).catch(() => {
+      if (!cancelled) setBizEventsAvailable(false);
+    }).finally(() => {
+      if (!cancelled) setIsBizEventsChecking(false);
+    });
+    return () => { cancelled = true; };
+  }, [dashboardCompanyName, dashboardJourneyType]);
+
   const generateAndDeployDashboard = async () => {
     if (!dashboardCompanyName || !dashboardJourneyType) {
       setDashboardGenerationStatus('⚠️ Please select both company and journey type');
@@ -2387,7 +2524,7 @@ export const HomePage = () => {
     const hasPrompt = !!mcpDashboardPrompt.trim();
     setDashboardGenerationStatus(hasPrompt
       ? '🧠 AI is crafting your custom dashboard — this may take a minute...'
-      : '🚀 Generating & deploying dashboard via MCP...');
+      : '⏳ Generating dashboard with AI, deploying via dtctl...');
 
     try {
       console.log('[Dashboard] 📊 MCP generate+deploy via proxy:', {
@@ -2509,7 +2646,6 @@ export const HomePage = () => {
     const shouldStopExisting = window.confirm(
       `${identity.companyName} / ${identity.journeyType} already has ${conflictingServices.length} running service(s).\n\nStop the existing journey and replace it with the new one?`
     );
-
     if (!shouldStopExisting) {
       showToast(`Cancelled. Existing ${identity.companyName} / ${identity.journeyType} journey is still running.`, 'warning', 5000);
       return false;
@@ -2545,129 +2681,186 @@ export const HomePage = () => {
     return true;
   };
 
-  const parseJourneyJsonWithRepair = (raw: string): { parsed: any; cleanJson: string } => {
-    let cleanJson = (raw || '').trim();
-    if (cleanJson.startsWith('```')) {
-      cleanJson = cleanJson.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '');
-    }
+    const parseJourneyJsonWithRepair = (raw: string): { parsed: any; cleanJson: string } => {
+      let cleanJson = (raw || '').trim();
+      if (cleanJson.startsWith('```')) {
+        cleanJson = cleanJson.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '');
+      }
 
-    const firstBrace = cleanJson.indexOf('{');
-    const lastBrace = cleanJson.lastIndexOf('}');
-    if (firstBrace >= 0 && lastBrace > firstBrace) {
-      cleanJson = cleanJson.slice(firstBrace, lastBrace + 1);
-    }
+      const firstBrace = cleanJson.indexOf('{');
+      const lastBrace = cleanJson.lastIndexOf('}');
+      if (firstBrace >= 0 && lastBrace > firstBrace) {
+        cleanJson = cleanJson.slice(firstBrace, lastBrace + 1);
+      }
 
-    const attempts: string[] = [cleanJson];
+      const attempts: string[] = [cleanJson];
 
-    // Escapes stray quotes inside string values that LLMs sometimes emit unescaped,
-    // e.g. "stepName": "Quote "Reprice" Flow".
-    const repairUnescapedInnerQuotes = (text: string) => {
-      let out = '';
-      let inString = false;
-      let escape = false;
-
-      for (let i = 0; i < text.length; i++) {
-        const ch = text[i];
-        if (escape) {
+      const repairUnescapedInnerQuotes = (text: string) => {
+        let out = '';
+        let inString = false;
+        let escape = false;
+        for (let i = 0; i < text.length; i++) {
+          const ch = text[i];
+          if (escape) { out += ch; escape = false; continue; }
+          if (ch === '\\') { out += ch; escape = true; continue; }
+          if (ch === '"') {
+            if (!inString) { inString = true; out += ch; continue; }
+            let j = i + 1;
+            while (j < text.length && /\s/.test(text[j])) j++;
+            const next = text[j] || '';
+            const looksLikeTerminator = next === ',' || next === '}' || next === ']' || next === ':';
+            if (looksLikeTerminator) { inString = false; out += ch; } else { out += '\\"'; }
+            continue;
+          }
           out += ch;
-          escape = false;
-          continue;
         }
+        return out;
+      };
 
-        if (ch === '\\') {
-          out += ch;
-          escape = true;
-          continue;
-        }
+      const repairedBasic = cleanJson
+        .replace(/\r/g, '').replace(/\n/g, ' ').replace(/[\u0000-\u001F]/g, ' ')
+        .replace(/,\s*([}\]])/g, '$1')
+        .replace(/([{,]\s*)([A-Za-z_][A-Za-z0-9_]*)\s*:/g, '$1"$2":')
+        .replace(/'([^'\\]*(?:\\.[^'\\]*)*)'/g, '"$1"')
+        .replace(/\u201c|\u201d/g, '"').replace(/\u2018|\u2019/g, "'");
+      attempts.push(repairedBasic);
 
-        if (ch === '"') {
-          if (!inString) {
-            inString = true;
+      const repairedQuotes = repairUnescapedInnerQuotes(repairedBasic);
+      attempts.push(repairedQuotes);
+
+      // Common LLM defect: missing comma between sibling properties.
+      // Example: {"a":"x" "b":"y"} -> {"a":"x", "b":"y"}
+      const repairMissingCommasBetweenProperties = (text: string) => {
+        let out = text;
+        // String value followed by next property key
+        out = out.replace(/(:\s*"(?:\\.|[^"\\])*")\s+("[A-Za-z0-9_.$-]+"\s*:)/g, '$1, $2');
+        // Number/boolean/null value followed by next property key
+        out = out.replace(/(:\s*(?:-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|true|false|null))\s+("[A-Za-z0-9_.$-]+"\s*:)/g, '$1, $2');
+        // Object/array value followed by next property key
+        out = out.replace(/([}\]])\s+("[A-Za-z0-9_.$-]+"\s*:)/g, '$1, $2');
+        return out;
+      };
+      const repairedCommas = repairMissingCommasBetweenProperties(repairedQuotes);
+      attempts.push(repairedCommas);
+
+      // Common LLM defect: missing comma between array items.
+      // Example: [{"a":1} {"b":2}] -> [{"a":1}, {"b":2}]
+      const repairMissingCommasBetweenArrayItems = (text: string) => {
+        let out = '';
+        let inString = false;
+        let escape = false;
+        let lastSignificant = '';
+        let sawWhitespaceSinceLastSignificant = false;
+        const stack: string[] = [];
+
+        const canStartArrayValue = (ch: string) => {
+          return ch === '{' || ch === '[' || ch === '"' || ch === '-' || /\d/.test(ch) || ch === 't' || ch === 'f' || ch === 'n';
+        };
+
+        const shouldInsertComma = (ch: string) => {
+          if (stack[stack.length - 1] !== '[') return false;
+          if (!canStartArrayValue(ch)) return false;
+          if (!lastSignificant || lastSignificant === '[' || lastSignificant === ',' || lastSignificant === ':') return false;
+
+          // Prefer cases where a boundary is obvious, while still covering direct object/array adjacency.
+          return sawWhitespaceSinceLastSignificant || lastSignificant === '}' || lastSignificant === ']' || lastSignificant === '"';
+        };
+
+        for (let i = 0; i < text.length; i++) {
+          const ch = text[i];
+
+          if (escape) {
             out += ch;
+            escape = false;
             continue;
           }
 
-          // If this quote doesn't look like a valid string terminator, escape it.
-          let j = i + 1;
-          while (j < text.length && /\s/.test(text[j])) j++;
-          const next = text[j] || '';
-          const looksLikeTerminator = next === ',' || next === '}' || next === ']' || next === ':';
-          if (looksLikeTerminator) {
-            inString = false;
+          if (inString) {
             out += ch;
-          } else {
-            out += '\\"';
+            if (ch === '\\') {
+              escape = true;
+            } else if (ch === '"') {
+              inString = false;
+              lastSignificant = '"';
+              sawWhitespaceSinceLastSignificant = false;
+            }
+            continue;
           }
-          continue;
+
+          if (/\s/.test(ch)) {
+            out += ch;
+            sawWhitespaceSinceLastSignificant = true;
+            continue;
+          }
+
+          if (shouldInsertComma(ch)) {
+            out += ', ';
+            lastSignificant = ',';
+            sawWhitespaceSinceLastSignificant = false;
+          }
+
+          out += ch;
+
+          if (ch === '"') {
+            inString = true;
+            sawWhitespaceSinceLastSignificant = false;
+            continue;
+          }
+
+          if (ch === '{' || ch === '[') {
+            stack.push(ch);
+          } else if (ch === '}' && stack[stack.length - 1] === '{') {
+            stack.pop();
+          } else if (ch === ']' && stack[stack.length - 1] === '[') {
+            stack.pop();
+          }
+
+          lastSignificant = ch;
+          sawWhitespaceSinceLastSignificant = false;
         }
 
-        out += ch;
-      }
+        return out;
+      };
+      const repairedArrayItemCommas = repairMissingCommasBetweenArrayItems(repairedCommas);
+      attempts.push(repairedArrayItemCommas);
 
-      return out;
+      const balanceLikelyTruncated = (text: string) => {
+        let inString = false; let escape = false; let curly = 0; let square = 0;
+        for (let i = 0; i < text.length; i++) {
+          const ch = text[i];
+          if (escape) { escape = false; continue; }
+          if (ch === '\\') { escape = true; continue; }
+          if (ch === '"') { inString = !inString; continue; }
+          if (inString) continue;
+          if (ch === '{') curly++; else if (ch === '}') curly = Math.max(0, curly - 1);
+          else if (ch === '[') square++; else if (ch === ']') square = Math.max(0, square - 1);
+        }
+        let out = text;
+        if (inString) out += '"';
+        out += ']'.repeat(square);
+        out += '}'.repeat(curly);
+        return out;
+      };
+      attempts.push(balanceLikelyTruncated(repairedBasic));
+      attempts.push(balanceLikelyTruncated(repairedQuotes));
+      attempts.push(balanceLikelyTruncated(repairedCommas));
+      attempts.push(balanceLikelyTruncated(repairedArrayItemCommas));
+
+      const errors: string[] = [];
+      for (const attempt of attempts) {
+        try { return { parsed: JSON.parse(attempt), cleanJson: attempt }; } catch (e: any) { errors.push(e?.message || String(e)); }
+      }
+      const lastErr = errors[errors.length - 1] || 'Invalid JSON response';
+      const posMatch = String(lastErr).match(/position\s+(\d+)/i);
+      if (posMatch) {
+        const pos = Number(posMatch[1]);
+        const start = Math.max(0, pos - 80);
+        const end = Math.min(cleanJson.length, pos + 80);
+        const snippet = cleanJson.slice(start, end).replace(/\s+/g, ' ');
+        throw new Error(`${lastErr}. Near: ${snippet}`);
+      }
+      throw new Error(lastErr);
     };
-
-    // Generic cleanup for common LLM JSON issues.
-    const repairedBasic = cleanJson
-      .replace(/\r/g, '')
-      .replace(/\n/g, ' ')
-      .replace(/[\u0000-\u001F]/g, ' ')
-      .replace(/,\s*([}\]])/g, '$1')
-      .replace(/([{,]\s*)([A-Za-z_][A-Za-z0-9_]*)\s*:/g, '$1"$2":')
-      .replace(/'([^'\\]*(?:\\.[^'\\]*)*)'/g, '"$1"')
-      .replace(/\u201c|\u201d/g, '"')
-      .replace(/\u2018|\u2019/g, "'");
-    attempts.push(repairedBasic);
-
-    const repairedQuotes = repairUnescapedInnerQuotes(repairedBasic);
-    attempts.push(repairedQuotes);
-
-    // Repair likely truncation/unterminated string by balancing quotes/brackets.
-    const balanceLikelyTruncated = (text: string) => {
-      let inString = false;
-      let escape = false;
-      let curly = 0;
-      let square = 0;
-      for (let i = 0; i < text.length; i++) {
-        const ch = text[i];
-        if (escape) {
-          escape = false;
-          continue;
-        }
-        if (ch === '\\') {
-          escape = true;
-          continue;
-        }
-        if (ch === '"') {
-          inString = !inString;
-          continue;
-        }
-        if (inString) continue;
-        if (ch === '{') curly++;
-        else if (ch === '}') curly = Math.max(0, curly - 1);
-        else if (ch === '[') square++;
-        else if (ch === ']') square = Math.max(0, square - 1);
-      }
-      let out = text;
-      if (inString) out += '"';
-      out += ']'.repeat(square);
-      out += '}'.repeat(curly);
-      return out;
-    };
-    attempts.push(balanceLikelyTruncated(repairedBasic));
-    attempts.push(balanceLikelyTruncated(repairedQuotes));
-
-    const errors: string[] = [];
-    for (const attempt of attempts) {
-      try {
-        return { parsed: JSON.parse(attempt), cleanJson: attempt };
-      } catch (e: any) {
-        errors.push(e?.message || String(e));
-      }
-    }
-
-    throw new Error(errors[errors.length - 1] || 'Invalid JSON response');
-  };
 
   const validateJourneyNamingConventions = (parsedResponse: any) => {
     const journeyConfig = parsedResponse?.journey || parsedResponse;
@@ -2932,15 +3125,12 @@ export const HomePage = () => {
       { label: 'Generating Journey Config', status: 'pending' },
       { label: 'Validating JSON', status: 'pending' },
       { label: 'Creating Services', status: 'pending' },
-      { label: 'Generating & Deploying Bespoke Dashboard', status: 'pending' },
+      { label: 'Saving Journey to GitHub', status: 'pending' },
       { label: 'Saving to My Templates', status: 'pending' },
     ];
     setAiGenSteps([...steps]);
     setAiGenComplete(false);
     setAiGenError('');
-    setAiGenDashboardUrl(null);
-    setAiGenDashboardCompany('');
-    setAiGenDashboardJourney('');
     setShowAiGenModal(true);
     let stepIdx = 0;
 
@@ -2956,9 +3146,8 @@ export const HomePage = () => {
       setGhResult1('');
       const csuite = generateCsuitePrompt({ companyName, domain, requirements });
       setPrompt1(csuite);
-      const res1 = await callGithubCopilotGenerateWithBackoff(
+      const res1 = await callDynatraceAssistGenerateWithBackoff(
         csuite,
-        'gpt-4.1',
         (msg) => updateStep(stepIdx, { status: 'running', detail: msg }),
         'C-Suite generation'
       );
@@ -3087,46 +3276,15 @@ export const HomePage = () => {
       }));
       autoDeployBusinessFlow(jCompany, jType, fullSteps);
 
-      // Generate + deploy bespoke dashboard from discovered journey fields
+      // Commit journey to GitHub repo
       updateStep(stepIdx, { status: 'running' });
-      const dashboardRes = await callProxyWithRetry({
-        action: 'generate-deploy-dashboard',
-        apiHost: apiSettings.host,
-        apiPort: apiSettings.port,
-        apiProtocol: apiSettings.protocol,
-        body: {
-          company: jCompany,
-          journeyType: jType,
-          useAI: true,
-          model: ghCopilotModel,
-        },
-      }, 3, 1500) as any;
-
-      if (!dashboardRes.success) {
-        throw new Error(`Bespoke dashboard deployment failed: ${dashboardRes.error || 'unknown error'}`);
-      }
-
-      const rawDashboardUrl = dashboardRes?.data?.dashboardUrl || '';
-      const resolvedDashboardUrl = rawDashboardUrl
-        ? (rawDashboardUrl.startsWith('http') ? rawDashboardUrl : `${TENANT_URL}${rawDashboardUrl}`)
-        : null;
-      setAiGenDashboardUrl(resolvedDashboardUrl);
-      setAiGenDashboardCompany(jCompany);
-      setAiGenDashboardJourney(jType);
-
-      updateStep(stepIdx, {
-        status: 'done',
-        detail: dashboardRes?.data?.dashboardName
-          ? `Deployed: ${dashboardRes.data.dashboardName}`
-          : 'Dashboard deployed',
-      });
-      stepIdx++;
-
       await commitJourneyToRepo({
         ...journeyConfig,
         companyName: journeyConfig.companyName || jCompany,
         journeyType: jType,
       }, 'ai-agent');
+      updateStep(stepIdx, { status: 'done', detail: 'Journey saved to repo' });
+      stepIdx++;
 
       // Auto-save to My Templates
       updateStep(stepIdx, { status: 'running' });
@@ -3149,8 +3307,10 @@ export const HomePage = () => {
       saveTenantField({ promptTemplates: JSON.stringify(updated) });
       updateStep(stepIdx, { status: 'done', detail: `Saved as "${autoTemplateName}"` });
 
+      setAiGenDashboardCompany(jCompany);
+      setAiGenDashboardJourney(jType);
       setAiGenComplete(true);
-      setGenerationStatus(`✅ Services created successfully! Journey ID: ${jId}`);
+      setGenerationStatus(`✅ Journey created! Services live and ready. Go to Navigation > Generate Visuals to create dashboards. Journey ID: ${jId}`);
       setActiveTab('step2');
       setStep2Phase('generate');
     } catch (err: any) {
@@ -3159,9 +3319,6 @@ export const HomePage = () => {
       setIsGeneratingServices(false);
       setShowJourneyPickerModal(false);
       setJourneyPickerResolve(null);
-      setAiGenDashboardUrl(null);
-      setAiGenDashboardCompany('');
-      setAiGenDashboardJourney('');
       const failedIdx = steps.findIndex(s => s.status === 'running');
       if (failedIdx >= 0) updateStep(failedIdx, { status: 'error', detail: err.message });
       setAiGenError(err.message);
@@ -3171,54 +3328,110 @@ export const HomePage = () => {
   // ── Extract journey names from a pasted C-Suite AI response ─────────────
   const extractJourneysFromText = (text: string): string[] => {
     const journeys: string[] = [];
-    // Look for quoted journey names after "Journey Names" or "Journey Classification"
-    const classificationMatch = text.match(/Journey (?:Names|Classification)[:\s]*\n([\s\S]*?)(?:\n###|\n##|\n\*\*[A-Z]|\n---|\n$)/i);
-    if (classificationMatch) {
-      const block = classificationMatch[1];
-      // Match quoted strings like "Vehicle Purchase Journey"
-      const quoted = block.match(/[""\u201C\u201D]([^""\u201C\u201D]+)[""\u201C\u201D]/g);
-      if (quoted) {
-        quoted.forEach(q => {
-          const name = q.replace(/[""\u201C\u201D]/g, '').trim();
-          if (name && !name.toLowerCase().includes('industry type') && !name.toLowerCase().match(/^journey\s*(names?|classification)\s*:?$/)) journeys.push(name);
-        });
-      }
-      // Also match bullet items like - Vehicle Purchase Journey (without quotes)
-      if (journeys.length === 0) {
-        const bullets = block.match(/[-•]\s+(.+)/g);
-        if (bullets) {
-          bullets.forEach(b => {
-            const name = b.replace(/^[-•]\s+/, '').replace(/\*\*/g, '').replace(/"/g, '').replace(/:+\s*$/, '').trim();
-            if (name && name.length < 80 && !name.toLowerCase().includes('industry type') && !name.toLowerCase().match(/^journey\s*(names?|classification)\s*:?$/)) journeys.push(name);
-          });
+    const seenLower = new Set<string>();
+
+    const normalizeJourneyName = (value: string) => {
+      let out = value.trim();
+      // Remove common generic prefixes that are not useful as a journey label.
+      out = out.replace(/^(?:business|customer|digital)\s+journey\s+/i, '');
+      out = out.replace(/^journey\s*[:\-]\s*/i, '');
+      // Keep only the concise journey title when models append descriptions.
+      out = out.replace(/\s*[:\-]\s+.*$/, '');
+      // Keep labels concise for the picker.
+      out = out.replace(/\s*\([^)]*\)\s*$/, '');
+      out = out.replace(/[.;:,\s]+$/, '');
+      out = out.replace(/\s{2,}/g, ' ').trim();
+      return out ? out.charAt(0).toUpperCase() + out.slice(1) : out;
+    };
+    
+    const addJourney = (name: string) => {
+      const clean = normalizeJourneyName(name
+        .replace(/^[-•*]\s+/, '')
+        .replace(/^\d+\.\s+/, '')
+        .replace(/\*\*/g, '')
+        .replace(/[""\u201C\u201D]/g, '')
+        .replace(/:+\s*$/, '')
+        .trim());
+      if (clean && clean.length < 100 && clean.length > 2 && !seenLower.has(clean.toLowerCase())) {
+        const lower = clean.toLowerCase();
+        if (
+          !lower.includes('instructions') &&
+          !lower.includes('replace the bracketed') &&
+          !lower.includes('e.g.') &&
+          !lower.includes('constraints from input') &&
+          !lower.match(/^journey\s?(names?|classification|candidates)/i)
+        ) {
+          journeys.push(clean);
+          seenLower.add(lower);
         }
       }
-    }
-    // Broader fallback: scan the entire text for "Journey Names" followed by a bullet list with quoted names
-    if (journeys.length === 0) {
-      const allQuoted = text.match(/[-•*]\s*[""\u201C\u201D]([^""\u201C\u201D]{5,80})[""\u201C\u201D]/g);
-      if (allQuoted) {
-        allQuoted.forEach(m => {
-          const name = m.replace(/^[-•*]\s*[""\u201C\u201D]/, '').replace(/[""\u201C\u201D]$/, '').trim();
-          if (name && !name.toLowerCase().match(/^journey|^industry|^critical/)) journeys.push(name);
-        });
+    };
+
+    // Primary: "Recommended Journey Candidates" section with any format
+    const recommendedMatch = text.match(/(?:Recommended Journey Candidates|Journey Candidates)[:\s]*\n([\s\S]*?)(?:\n##|\n###|\n\*\*|\n---|\n$)/i);
+    if (recommendedMatch) {
+      const block = recommendedMatch[1];
+      const bullets = block.match(/(?:[-•*]|\d+[.)])\s+["\u201C]?[^"\n]+["\u201D]?/g) || [];
+      bullets.forEach(b => addJourney(b));
+
+      // Some models return plain lines in this section without bullets.
+      if (journeys.length < 3) {
+        block
+          .split(/\r?\n/)
+          .map(line => line.trim())
+          .filter(line => line && !line.startsWith('#') && !/^\*\*?instructions?/i.test(line))
+          .forEach(line => addJourney(line));
       }
     }
-    // Fallback: look for "Critical User Journeys" section
+
+    // Secondary: "Critical User Journeys" section
     if (journeys.length === 0) {
-      const criticalMatch = text.match(/Critical User (?:Journeys|Flows)[:\s]*\n([\s\S]*?)(?:\n###|\n##|\n\*\*[A-Z]|\n---|\n$)/i);
+      const criticalMatch = text.match(/Critical User (?:Journeys|Flows|Processes)[:\s]*\n([\s\S]*?)(?:\n##|\n###|\n\*\*[A-Z]|\n---|\n$)/i);
       if (criticalMatch) {
         const block = criticalMatch[1];
-        const bullets = block.match(/[-•]\s+\*\*([^*]+)\*\*/g);
-        if (bullets) {
-          bullets.forEach(b => {
-            const name = b.replace(/^[-•]\s+\*\*/, '').replace(/\*\*$/, '').trim();
-            if (name) journeys.push(name);
-          });
-        }
+        const bullets = block.match(/(?:[-•*]|\d+[.)])\s+[^'\n]+/g) || [];
+        bullets.forEach(b => addJourney(b));
       }
     }
-    return journeys;
+
+    // Tertiary: "Journey Classification" or "Journey Names"
+    if (journeys.length === 0) {
+      const classMatch = text.match(/Journey (?:Classification|Names)[:\s]*\n([\s\S]*?)(?:\n##|\n###|\n\*\*[A-Z]|\n---|\n$)/i);
+      if (classMatch) {
+        const block = classMatch[1];
+        const bullets = block.match(/(?:[-•*]|\d+[.)])\s+[^'\n]+/g) || [];
+        bullets.forEach(b => addJourney(b));
+      }
+    }
+
+    // Fallback 1: All quoted journey-like names (5+ characters, no "instructions")
+    if (journeys.length === 0) {
+      const allQuoted = text.match(/(?:[-•*]|\d+[.)])\s+["\u201C]([^"\u201D]{5,80})["\u201D]/g) || [];
+      allQuoted.forEach(m => addJourney(m));
+    }
+
+    // Fallback 2: Any bullet points after the word "journey" lowercase
+    if (journeys.length === 0) {
+      const journeyIdx = text.toLowerCase().lastIndexOf('journey');
+      if (journeyIdx > -1) {
+        const afterJourney = text.slice(journeyIdx);
+        const bullets = afterJourney.match(/(?:[-•*]|\d+[.)])\s+([^\n]{5,80})/g) || [];
+        bullets.slice(0, 5).forEach(b => addJourney(b));
+      }
+    }
+
+    // Fallback 3: Parse any uppercase-starting bullet points that look like journey names (2-5 words)
+    if (journeys.length === 0) {
+      const capitalBullets = text.match(/(?:[-•*]|\d+[.)])\s+([A-Z][^:\n]{5,75})/g) || [];
+      capitalBullets.forEach(b => {
+        const name = b.replace(/^(?:[-•*]|\d+[.)])\s+/, '').trim();
+        if (name && !name.match(/^(the|a|an|for)\s/i) && name.split(/\s+/).length <= 6) {
+          addJourney(name);
+        }
+      });
+    }
+
+    return journeys.slice(0, 3); // Always show a concise set of 3 journey choices
   };
 
   // ── Pipeline using pasted C-Suite analysis + selected journey ─────────────
@@ -3364,6 +3577,8 @@ export const HomePage = () => {
       saveTenantField({ promptTemplates: JSON.stringify(updated) });
       updateStep(4, { status: 'done', detail: `Saved as "${autoTemplateName}"` });
 
+      setAiGenDashboardCompany(jCompany);
+      setAiGenDashboardJourney(jType);
       setAiGenComplete(true);
       setGenerationStatus(`✅ Services created successfully! Journey ID: ${jId}`);
       setActiveTab('step2');
@@ -4455,7 +4670,7 @@ export const HomePage = () => {
                       ? ghAvailableModels.map(m => (
                           <option key={m.id} value={m.id}>{m.id}</option>
                         ))
-                      : ['gpt-4.1', 'gpt-4.1-mini', 'gpt-4.1-nano', 'gpt-4o', 'o4-mini', 'claude-sonnet-4'].map(id => (
+                      : ['gpt-4.1'].map(id => (
                           <option key={id} value={id}>{id}</option>
                         ))
                     }
@@ -4599,7 +4814,7 @@ export const HomePage = () => {
                       ? ghAvailableModels.map(m => (
                           <option key={m.id} value={m.id}>{m.id}</option>
                         ))
-                      : ['gpt-4.1', 'gpt-4.1-mini', 'gpt-4.1-nano', 'gpt-4o', 'o4-mini', 'claude-sonnet-4'].map(id => (
+                      : ['gpt-4.1'].map(id => (
                           <option key={id} value={id}>{id}</option>
                         ))
                     }
@@ -4821,9 +5036,8 @@ export const HomePage = () => {
                       setGhGenerating1(true);
                       setGhResult1('');
                       try {
-                        const res = await callGithubCopilotGenerateWithBackoff(
+                        const res = await callDynatraceAssistGenerateWithBackoff(
                           prompt1,
-                          'gpt-4.1',
                           undefined,
                           'C-Suite generation'
                         );
@@ -5916,7 +6130,13 @@ export const HomePage = () => {
                 ] as const).map(tab => (
                   <button
                     key={tab.id}
-                    onClick={() => { setSettingsTab(tab.id); if (tab.id === 'system' && !systemHealth) loadSystemHealth(); }}
+                    onClick={() => {
+                      setSettingsTab(tab.id);
+                      if (tab.id === 'system') {
+                        if (!systemHealth) loadSystemHealth();
+                        loadGeneratedDashboards();
+                      }
+                    }}
                     style={{
                       padding: '12px 20px', border: 'none', cursor: 'pointer',
                       background: settingsTab === tab.id ? 'transparent' : 'transparent',
@@ -6167,7 +6387,7 @@ export const HomePage = () => {
                     ? ghAvailableModels.map(m => (
                         <option key={m.id} value={m.id}>{m.id}{m.owned_by ? ` (${m.owned_by})` : ''}</option>
                       ))
-                    : ['gpt-4.1', 'gpt-4.1-mini', 'gpt-4.1-nano', 'gpt-4o', 'o4-mini', 'claude-sonnet-4'].map(id => (
+                    : ['gpt-4.1'].map(id => (
                         <option key={id} value={id}>{id}</option>
                       ))
                   }
@@ -6326,6 +6546,63 @@ export const HomePage = () => {
                       <Paragraph>System is clean — nothing to reclaim.</Paragraph>
                     </div>
                   )}
+
+                  {/* Generated Dashboard Management */}
+                  <div style={{ marginTop: 20, padding: 16, borderRadius: 10, border: `1px solid ${Colors.Border.Neutral.Default}`, background: 'rgba(0,0,0,0.02)' }}>
+                    <Flex justifyContent="space-between" alignItems="center" style={{ marginBottom: 10 }}>
+                      <div>
+                        <Strong style={{ fontSize: 13 }}>📊 Generated Dashboards</Strong>
+                        <div style={{ fontSize: 11, opacity: 0.6 }}>Delete one-by-one and repair sharing for tenant edit access.</div>
+                      </div>
+                      <Flex gap={8}>
+                        <button
+                          onClick={repairGeneratedDashboardSharing}
+                          style={{ padding: '6px 10px', borderRadius: 6, border: `1px solid ${Colors.Theme.Primary['70']}`, background: 'rgba(0,161,201,0.08)', cursor: 'pointer', fontSize: 11, fontWeight: 600, color: Colors.Theme.Primary['70'] }}
+                        >🔧 Repair Sharing</button>
+                        <button
+                          onClick={loadGeneratedDashboards}
+                          disabled={isLoadingGeneratedDashboards}
+                          style={{ padding: '6px 10px', borderRadius: 6, border: `1px solid ${Colors.Border.Neutral.Default}`, background: 'transparent', cursor: isLoadingGeneratedDashboards ? 'wait' : 'pointer', fontSize: 11, fontWeight: 600 }}
+                        >{isLoadingGeneratedDashboards ? '⏳ Refreshing...' : '🔄 Refresh'}</button>
+                      </Flex>
+                    </Flex>
+
+                    {dashboardMgmtStatus && (
+                      <div style={{ padding: 10, marginBottom: 10, borderRadius: 8, fontSize: 12, fontFamily: 'monospace',
+                        background: dashboardMgmtStatus.includes('✅') ? 'rgba(115,190,40,0.12)' : dashboardMgmtStatus.includes('❌') ? 'rgba(220,50,47,0.12)' : 'rgba(0,161,201,0.12)',
+                        border: `1px solid ${dashboardMgmtStatus.includes('✅') ? Colors.Theme.Success['70'] : dashboardMgmtStatus.includes('❌') ? '#dc322f' : Colors.Theme.Primary['70']}` }}>
+                        {dashboardMgmtStatus}
+                      </div>
+                    )}
+
+                    {isLoadingGeneratedDashboards ? (
+                      <div style={{ padding: 14, textAlign: 'center', opacity: 0.7 }}>⏳ Loading generated dashboards...</div>
+                    ) : generatedDashboards.length === 0 ? (
+                      <div style={{ padding: 14, textAlign: 'center', opacity: 0.6, fontSize: 12 }}>No generated dashboards found.</div>
+                    ) : (
+                      <div style={{ maxHeight: 280, overflow: 'auto' }}>
+                        {generatedDashboards.map((d: any) => (
+                          <Flex key={d.id} justifyContent="space-between" alignItems="center"
+                            style={{ padding: '8px 10px', marginBottom: 6, borderRadius: 8, border: `1px solid ${Colors.Border.Neutral.Default}`, background: 'rgba(255,255,255,0.02)' }}>
+                            <div style={{ minWidth: 0, flex: 1 }}>
+                              <div style={{ fontSize: 12, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.name || d.id}</div>
+                              <div style={{ fontSize: 10, opacity: 0.6, fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.id}</div>
+                              {d.canDelete === false && (
+                                <div style={{ fontSize: 10, opacity: 0.7, color: '#dc322f', marginTop: 2 }}>
+                                  🔒 Not deletable by current deploy token{d.owner ? ` (owner: ${d.owner})` : ''}
+                                </div>
+                              )}
+                            </div>
+                            <button
+                              onClick={() => deleteGeneratedDashboard(d.id)}
+                              disabled={deletingDashboardId === d.id || d.canDelete === false}
+                              style={{ marginLeft: 10, padding: '4px 10px', borderRadius: 6, border: '1px solid #dc322f', background: d.canDelete === false ? 'rgba(220,50,47,0.03)' : 'rgba(220,50,47,0.08)', cursor: deletingDashboardId === d.id ? 'wait' : (d.canDelete === false ? 'not-allowed' : 'pointer'), fontSize: 11, fontWeight: 700, color: d.canDelete === false ? 'rgba(220,50,47,0.45)' : '#dc322f' }}
+                            >{deletingDashboardId === d.id ? '⏳ Deleting...' : d.canDelete === false ? '🔒 Owner Only' : '🗑️ Delete'}</button>
+                          </Flex>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </>
               )}
 
@@ -7064,7 +7341,7 @@ export const HomePage = () => {
                                     </div>
                                   </Flex>
                                   <button
-                                    onClick={() => revertFault(fault.id)}
+                                    onClick={() => revertFault(fault.id || fault.chaosId)}
                                     disabled={isRevertingChaos}
                                     style={{ background: 'rgba(115,190,40,0.12)', border: '1px solid rgba(115,190,40,0.4)', color: Colors.Theme.Success['70'], borderRadius: 6, padding: '4px 14px', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
                                   >
@@ -7516,77 +7793,35 @@ export const HomePage = () => {
                     })()}
                   </div>
 
-                  {/* MCP Dashboard Prompt — Preset Dropdown + Free Text */}
+                  {/* BizEvents Availability Badge */}
+                  {(dashboardCompanyName && dashboardJourneyType) && (
+                    <div style={{ marginBottom: 16, padding: '10px 14px', borderRadius: 8, fontSize: 12,
+                      background: isBizEventsChecking ? 'rgba(0,161,201,0.08)' : bizEventsAvailable ? 'rgba(115,190,40,0.12)' : 'rgba(220,50,47,0.10)',
+                      border: `1px solid ${isBizEventsChecking ? Colors.Theme.Primary['70'] : bizEventsAvailable ? '#73be28' : '#dc322f'}`,
+                      display: 'flex', alignItems: 'center', gap: 8,
+                    }}>
+                      {isBizEventsChecking
+                        ? <><span>⏳</span><span>Checking for BizEvents...</span></>
+                        : bizEventsAvailable
+                          ? <><span>✅</span><Strong>BizEvents available</Strong><span style={{opacity:0.7}}>— {bizEventsCount.toLocaleString()} events found for {dashboardCompanyName} / {dashboardJourneyType}</span></>
+                          : <><span>❌</span><Strong>No BizEvents found</Strong><span style={{opacity:0.7}}>— Run a journey first, then wait 30–60s for events to ingest</span></>
+                      }
+                    </div>
+                  )}
+
+                  {/* Dashboard Focus — free-text only, AI-driven from bizevents fields */}
                   <div style={{ marginBottom: 20 }}>
                     <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 8, color: '#6c2c9c' }}>
-                      🧠 Dashboard Focus <span style={{ fontWeight: 400, opacity: 0.6 }}>(select a preset or write your own — each produces a distinct dashboard)</span>
+                      🧠 Dashboard Focus <span style={{ fontWeight: 400, opacity: 0.6 }}>(optional — leave blank to auto-generate from journey data)</span>
                     </label>
-
-                    {/* Preset Prompt Dropdown */}
-                    <select
-                      value={mcpDashboardPrompt}
-                      onChange={(e) => setMcpDashboardPrompt(e.target.value)}
-                      style={{
-                        width: '100%', padding: '10px 14px', borderRadius: 8, marginBottom: 10,
-                        border: `1px solid ${mcpDashboardPrompt ? '#6c2c9c' : Colors.Border.Neutral.Default}`,
-                        background: Colors.Background.Surface.Default,
-                        color: 'inherit', fontSize: 13, fontFamily: 'inherit', cursor: 'pointer',
-                      }}
-                    >
-                      <option value="">— Select a dashboard preset (or type your own below) —</option>
-                      <optgroup label="📊 Executive & Leadership">
-                        <option value="Create a C-level executive dashboard focused on revenue impact, customer lifetime value, churn risk, and strategic business KPIs. Use singleValue tiles for headline metrics, donut charts for distribution breakdowns, and area charts showing revenue trends over time. Minimal technical detail — this is for the boardroom.">
-                          C-Level Executive — Revenue & Strategic KPIs
-                        </option>
-                        <option value="Build a CFO financial operations dashboard highlighting total revenue, average order value, revenue by journey step, payment method breakdown, and pricing analysis. Include SLA compliance rates and error-driven revenue loss estimates. Use tables and single-value tiles.">
-                          CFO Financial Operations — Revenue & Pricing
-                        </option>
-                        <option value="Create a board-ready business health dashboard with a high-level journey funnel overview, success rate trends, total event volume, and customer satisfaction scores. Use clean singleValue KPIs and area charts. No infrastructure metrics — purely business outcomes.">
-                          Board Summary — Business Health Overview
-                        </option>
-                      </optgroup>
-                      <optgroup label="👥 Customer Experience">
-                        <option value="Build a customer experience deep-dive dashboard analyzing churn risk, NPS and satisfaction scores, loyalty tier or status distribution, and customer lifetime value. Include segment analysis, device type breakdown, and channel attribution. Use a mix of bar charts, donut charts, and tables. Use whichever field names actually exist in the data.">
-                          Customer 360 — Churn, NPS & Loyalty Deep Dive
-                        </option>
-                        <option value="Create a customer journey funnel dashboard showing step-by-step conversion rates, drop-off analysis by step name, error rate per step, and average processing time. Highlight which steps lose the most customers. Use a table for step metrics and area charts for time trends.">
-                          Journey Funnel — Conversion & Drop-off Analysis
-                        </option>
-                        <option value="Build a customer segmentation dashboard breaking down events by loyalty tier or status, customer segment, device type, browser, and acquisition channel. Show revenue per segment and conversion rates per channel using bar charts and donut charts. Use whichever field names actually exist in the data.">
-                          Customer Segmentation — Tiers, Channels & Devices
-                        </option>
-                      </optgroup>
-                      <optgroup label="⚙️ Operations & SRE">
-                        <option value="Create an SRE reliability dashboard with all four golden signals: traffic (request count), latency (response time with P50/P90/P99), errors (failure count and error flags), and saturation (CPU/memory). Include error message breakdown, step-level error rates, and SLA compliance. Use line charts for time series and tables for details.">
-                          SRE Golden Signals — Traffic, Latency, Errors, Saturation
-                        </option>
-                        <option value="Build an operations error analysis dashboard focused on error rate trends over time, errors by journey step, top error messages, error details table, and service failure counts. Include a heatmap of errors by step and hour. Use line charts, tables, and a heatmap.">
-                          Ops Error Analysis — Error Trends & Root Cause
-                        </option>
-                        <option value="Create a performance and SLA monitoring dashboard showing P90 response times, SLA compliance rates by step, step performance table with success rates, hourly activity patterns, and service-level latency trends. Use line charts for latency, tables for SLA, and a pie chart for hourly patterns.">
-                          Performance & SLA — Latency, Compliance & Patterns
-                        </option>
-                      </optgroup>
-                      <optgroup label="📈 Analytics & Trends">
-                        <option value="Build a trend analysis and forecasting dashboard with hourly activity patterns, volume histograms by step, event volume distribution, step-by-hour heatmap, weekly trend comparison, and geographic or regional distribution. Use heatmaps, pie charts, and area charts for time-series patterns.">
-                          Trend Analysis — Patterns, Heatmaps & Forecasting
-                        </option>
-                        <option value="Create a comprehensive full-stack dashboard including ALL available sections: executive KPIs, journey funnel overview, filtered step drill-downs, performance SLA, error analysis, all four golden signals (traffic, latency, errors, saturation), traces and observability, customer dynamic metrics, geographic view, and trend analysis. This is the complete picture.">
-                          Full Comprehensive — All Sections Combined
-                        </option>
-                        <option value="Build a product and subscription analytics dashboard showing product or plan selection breakdown, pricing analysis, subscription or membership types, conversion probability distribution, and revenue by product. Use bar charts for comparisons and tables for detail. Use whichever field names actually exist in the data.">
-                          Product Analytics — Plans, Subscriptions & Conversions
-                        </option>
-                      </optgroup>
-                    </select>
 
                     {/* Free-text Custom Prompt */}
                     <textarea
                       value={mcpDashboardPrompt}
                       onChange={(e) => setMcpDashboardPrompt(e.target.value)}
-                      placeholder="Or type a custom prompt: e.g. &quot;Show me churn risk vs revenue by customer segment, with error hotspots per journey step&quot;"
+                      placeholder="e.g. &quot;Focus on churn risk vs revenue by customer segment, with error hotspots per journey step&quot; — or leave blank to auto-generate"
                       style={{
-                        width: '100%', minHeight: 72, padding: '10px 14px', borderRadius: 8,
+                        width: '100%', minHeight: 80, padding: '10px 14px', borderRadius: 8,
                         border: `1px solid ${mcpDashboardPrompt ? '#6c2c9c' : Colors.Border.Neutral.Default}`,
                         background: mcpDashboardPrompt ? 'rgba(108,44,156,0.04)' : Colors.Background.Surface.Default,
                         color: 'inherit', fontSize: 13, fontFamily: 'inherit', resize: 'vertical',
@@ -7595,14 +7830,14 @@ export const HomePage = () => {
                     />
                     {mcpDashboardPrompt && (
                       <div style={{ fontSize: 11, marginTop: 4, color: '#6c2c9c', opacity: 0.8 }}>
-                        🎯 AI will use knowledge of bizevents fields (additionalfields.*, json.*, golden signals) to build a tailored dashboard
+                        🎯 AI will shape the dashboard around your focus using real bizevents fields from this journey
                       </div>
                     )}
                     {mcpDashboardPrompt && (
                       <button
                         onClick={() => setMcpDashboardPrompt('')}
                         style={{ marginTop: 6, padding: '4px 12px', fontSize: 11, borderRadius: 6, border: '1px solid #ccc', background: 'transparent', color: 'inherit', cursor: 'pointer' }}
-                      >✕ Clear prompt</button>
+                      >✕ Clear</button>
                     )}
                   </div>
 
@@ -7610,11 +7845,11 @@ export const HomePage = () => {
                   <Flex gap={8}>
                     <Button
                       onClick={generateAndDeployDashboard}
-                      disabled={isGeneratingDashboard || isLoadingDashboardData || !dashboardCompanyName || !dashboardJourneyType}
+                      disabled={isGeneratingDashboard || isLoadingDashboardData || !dashboardCompanyName || !dashboardJourneyType || isBizEventsChecking || bizEventsAvailable !== true}
                       variant="emphasized"
                       style={{ flex: 1, fontWeight: 700 }}
                     >
-                      {isGeneratingDashboard ? '⏳ Deploying...' : mcpDashboardPrompt ? '🧠 Ask MCP & Deploy' : '🚀 Generate & Deploy'}
+                      {isGeneratingDashboard ? '⏳ Deploying via dtctl...' : isBizEventsChecking ? '⏳ Checking events...' : mcpDashboardPrompt ? '🧠 Ask AI & Deploy via dtctl' : '🚀 Generate & Deploy via dtctl'}
                     </Button>
                     <Button onClick={() => setShowGenerateDashboardModal(false)} style={{ flex: 1 }}>Cancel</Button>
                   </Flex>
@@ -7624,9 +7859,10 @@ export const HomePage = () => {
                     <Strong style={{ color: Colors.Theme.Primary['70'], display: 'block', marginBottom: 8 }}>✨ How it works</Strong>
                     <ul style={{ margin: 0, paddingLeft: 20 }}>
                       <li><strong>Preset prompts</strong> are tuned to produce distinct dashboards — each targets a different audience and data focus</li>
-                      <li>AI knows the full bizevents field schema: <code>additionalfields.*</code>, <code>json.*</code>, golden signals, and DQL query patterns</li>
+                      <li>Claude first samples recent <code>bizevents</code> for the selected company and journey to discover real fields before generating DQL</li>
+                      <li>Every <code>fetch bizevents</code> query is enforced to include both filters: <code>json.companyName == $EventProvider</code> and <code>json.journeyType == $JourneyType</code></li>
                       <li>Each prompt generates a <strong>unique dashboard ID</strong> — different prompts won't overwrite each other</li>
-                      <li>Free-text prompts can reference specific fields like <code>additionalfields.churnRisk</code>, <code>additionalfields.orderTotal</code></li>
+                      <li>Free-text prompts can reference discovered fields like <code>additionalfields.churnRisk</code> and <code>additionalfields.orderTotal</code></li>
                       <li>Dashboard is deployed directly to Dynatrace — click the link to open it</li>
                     </ul>
                   </div>
@@ -8546,35 +8782,18 @@ export const HomePage = () => {
                   >
                     🔍 View AI Prompts in Dynatrace
                   </a>
-                  {aiGenDashboardCompany && aiGenDashboardJourney && (
-                    <Button
-                      onClick={() => {
-                        setShowAiGenModal(false);
-                        navigate(getDemonstratorDashboardsPath(aiGenDashboardCompany, aiGenDashboardJourney));
-                      }}
-                      style={{ padding: '9px 20px' }}
-                    >
-                      📈 Open App Dashboards
-                    </Button>
-                  )}
-                  {aiGenDashboardUrl && (
-                    <a
-                      href={aiGenDashboardUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      style={{
-                        display: 'inline-flex', alignItems: 'center', gap: 6,
-                        padding: '9px 16px', borderRadius: 8, fontSize: 12, fontWeight: 600,
-                        background: 'linear-gradient(135deg, rgba(115,190,40,0.12), rgba(0,161,201,0.12))',
-                        border: '1px solid rgba(115,190,40,0.45)',
-                        color: Colors.Text.Neutral.Default,
-                        textDecoration: 'none',
-                        transition: 'all 0.2s ease',
-                      }}
-                    >
-                      📊 Open Bespoke Dashboard
-                    </a>
-                  )}
+                  <Button
+                    onClick={() => {
+                      setShowAiGenModal(false);
+                      if (aiGenDashboardCompany) setDashboardCompanyName(aiGenDashboardCompany);
+                      if (aiGenDashboardJourney) setDashboardJourneyType(aiGenDashboardJourney);
+                      openGenerateDashboardModal();
+                    }}
+                    variant="emphasized"
+                    style={{ padding: '9px 20px', background: 'linear-gradient(135deg, #00a1c9, #6c2c9c)', color: 'white', border: 'none' }}
+                  >
+                    🎨 Generate Visuals
+                  </Button>
                 </Flex>
               )}
               {aiGenError && (
@@ -8810,7 +9029,7 @@ export const HomePage = () => {
                       ? ghAvailableModels.map(m => (
                           <option key={m.id} value={m.id}>{m.id}</option>
                         ))
-                      : ['gpt-4.1', 'gpt-4.1-mini', 'gpt-4.1-nano', 'gpt-4o', 'o4-mini', 'claude-sonnet-4'].map(id => (
+                      : ['gpt-4.1'].map(id => (
                           <option key={id} value={id}>{id}</option>
                         ))
                     }

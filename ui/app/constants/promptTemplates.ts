@@ -52,7 +52,23 @@ Return a structured analysis focusing on:
 
 Base your analysis on publicly available information about ${companyName}'s business model, but focus on practical observability scenarios rather than generic business strategy.
 
-⚠️ IMPORTANT: Respond in natural language prose — use clear headings, bullet points, and readable paragraphs. Do NOT return JSON. This analysis will be read by executives and stakeholders, so make it professional and easy to understand.`;
+⚠️ IMPORTANT: Respond in natural language prose — use clear headings, bullet points, and readable paragraphs. Do NOT return JSON. This analysis will be read by executives and stakeholders, so make it professional and easy to understand.
+
+🎯 **CRITICAL FINAL SECTION** (must be included exactly as specified):
+
+## Recommended Journey Candidates
+
+- [Journey Name 1]
+- [Journey Name 2]
+- [Journey Name 3]
+
+Rules for this section:
+- Return exactly 3 bullet items only
+- Each item must be a short journey name (2-6 words)
+- No descriptions, no explanatory text, no colons, no quoted examples
+- Journey names must be specific to ${companyName} and its industry
+
+These 3 names will be extracted directly and shown in the journey picker.`;
 };
 
 export const generateJourneyPrompt = (variables: PromptVariables): string => {
@@ -86,11 +102,11 @@ Return JSON with this structure:
         "description": "[What happens in this step]",
         "category": "[StepCategory]",
         "timestamp": "2025-11-21T00:00:00.000Z",
-        "estimatedDuration": "[realistic_minutes]",
+        "estimatedDuration": 12,
         "businessRationale": "[Why this duration for this industry]",
         "substeps": [
-          {"substepName": "[substep description]", "duration": "[minutes]"},
-          {"substepName": "[substep description]", "duration": "[minutes]"}
+          {"substepName": "[substep description]", "duration": 4},
+          {"substepName": "[substep description]", "duration": 8}
         ]
       }
     ]
@@ -141,6 +157,8 @@ Requirements:
 - NEVER use generic names like "Step1", "Step 2", "Stage1", "Phase2".
 - Every step needs estimatedDuration (minutes) and businessRationale explaining revenue/experience impact
 - Every substep needs duration (minutes) - substeps must add up to step duration
+- Every JSON array item must be comma-separated. Never omit commas between substep objects.
+- estimatedDuration and every substep duration must be JSON numbers, never strings.
 - ServiceName = StepName + 'Service' in PascalCase format (for microservice architecture)
 - ServiceName MUST also be domain-specific and must not be generic (forbidden: "Step1Service", "Step2Service").
 - Use realistic durations that match industry performance expectations
@@ -156,6 +174,12 @@ Requirements:
 - All percentage values should be numeric (e.g. 0.72 not "72%")
 - Durations must be numeric integers, not strings
 - Focus on scenarios that would appear in business observability dashboards
+
+Valid substeps example:
+"substeps": [
+  {"substepName": "CollectApplicantDetails", "duration": 4},
+  {"substepName": "DisplayUpsellOptions", "duration": 3}
+]
 
 Return the response in JSON code format that can be copied from this UI
 

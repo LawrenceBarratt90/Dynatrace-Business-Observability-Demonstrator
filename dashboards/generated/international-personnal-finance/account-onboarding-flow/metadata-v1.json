@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "company": "International Personnal Finance",
+  "journeyType": "Account Onboarding Flow",
+  "dashboardId": "bizobs-international-personnal-finance-account-onboarding-flow",
+  "dashboardUrl": "/ui/apps/dynatrace.dashboards/dashboard/bizobs-international-personnal-finance-account-onboarding-flow",
+  "dashboardName": "International Personnal Finance - Account Onboarding Flow",
+  "generationMethod": "direct-dtctl",
+  "generatedAt": "2026-05-12T12:50:57.083Z",
+  "tileCount": 43,
+  "artifactFiles": {
+    "dashboard": "dashboards/generated/international-personnal-finance/account-onboarding-flow/dashboard-v1.json",
+    "metadata": "dashboards/generated/international-personnal-finance/account-onboarding-flow/metadata-v1.json"
+  }
+}

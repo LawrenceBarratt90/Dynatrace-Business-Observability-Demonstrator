@@ -35,6 +35,92 @@ const GITHUB_MODELS_URL = 'https://models.inference.ai.azure.com/chat/completion
 const OLLAMA_ENDPOINT = process.env.OLLAMA_ENDPOINT || 'http://localhost:11434';
 const OLLAMA_OBSERVER_MODEL = process.env.OLLAMA_OBSERVER_MODEL || process.env.OLLAMA_MODEL || 'llama3.2:1b';
 const OLLAMA_OBSERVER_ENABLED = String(process.env.OLLAMA_OBSERVER_ENABLED || 'true').toLowerCase() !== 'false';
+const DYNATRACE_ASSIST_MODEL = process.env.DYNATRACE_ASSIST_MODEL || 'gpt-4.1';
+
+// ── POST /api/ai-generate/dynatrace-assist ──────────────────────────────
+// Model-backed assistant path used by Step 1 (C-Suite analysis).
+router.post('/dynatrace-assist', async (req, res) => {
+  const { prompt, model = DYNATRACE_ASSIST_MODEL } = req.body || {};
+  if (!prompt) {
+    return res.status(400).json({ success: false, error: 'prompt is required' });
+  }
+
+  const ghToken = req.headers['x-github-token'] || req.body.token || process.env.GITHUB_PAT;
+  if (!ghToken) {
+    return res.status(401).json({
+      success: false,
+      error: 'GitHub PAT required for assist generation. Configure GitHub credential in Settings.',
+      code: 'NO_CREDENTIAL',
+    });
+  }
+
+  const boundedPrompt = String(prompt).substring(0, 12000);
+  const started = Date.now();
+
+  try {
+    const resp = await fetch(GITHUB_MODELS_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${ghToken}`,
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          {
+            role: 'system',
+            content: 'You are Dynatrace Assist for executive journey analysis. Be specific, concise, and output practical C-Suite recommendations with named journey candidates.',
+          },
+          { role: 'user', content: boundedPrompt },
+        ],
+        temperature: 0.2,
+        max_tokens: 2200,
+      }),
+      signal: AbortSignal.timeout(70000),
+    });
+
+    const result = await resp.json().catch(() => null);
+    if (!resp.ok) {
+      const errText = typeof result === 'object' && result ? JSON.stringify(result).slice(0, 500) : `HTTP ${resp.status}`;
+      return res.status(resp.status || 500).json({
+        success: false,
+        error: `Dynatrace Assist generation failed (${resp.status}): ${errText}`,
+        code: 'ASSIST_MODEL_FAILED',
+      });
+    }
+
+    const content = result?.choices?.[0]?.message?.content;
+    if (!content) {
+      return res.status(502).json({
+        success: false,
+        error: 'Dynatrace Assist generation returned no content.',
+        code: 'ASSIST_EMPTY',
+      });
+    }
+
+    const usage = result?.usage || {};
+    const durationMs = Date.now() - started;
+    return res.json({
+      success: true,
+      data: {
+        content,
+        model,
+        usage,
+        genai: {
+          system: 'dynatrace_assist',
+          model,
+          promptTokens: usage?.prompt_tokens || 0,
+          completionTokens: usage?.completion_tokens || 0,
+          totalTokens: usage?.total_tokens || 0,
+          durationMs,
+          finishReason: result?.choices?.[0]?.finish_reason || 'stop',
+        },
+      },
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message || 'Dynatrace Assist failed' });
+  }
+});
 
 async function getOllamaObserverNote({ prompt, responseContent, sourceModel, durationMs, promptTokens, completionTokens }) {
   if (!OLLAMA_OBSERVER_ENABLED) return null;
@@ -194,19 +280,6 @@ router.post('/github', async (req, res) => {
     const promptTokens = usage.prompt_tokens || 0;
     const completionTokens = usage.completion_tokens || 0;
     const finishReason = result.choices?.[0]?.finish_reason || 'unknown';
-    let ollamaObserver = null;
-    try {
-      ollamaObserver = await getOllamaObserverNote({
-        prompt,
-        responseContent: content,
-        sourceModel: result.model || model,
-        durationMs: durationFinal,
-        promptTokens,
-        completionTokens,
-      });
-    } catch (observerErr) {
-      console.warn('[ai-generate] Ollama observer unavailable:', observerErr.message);
-    }
 
     // Set span attributes with response data
     span.setAttributes({
@@ -230,6 +303,21 @@ router.post('/github', async (req, res) => {
 
     span.setStatus({ code: SpanStatusCode.OK });
     span.end();
+
+    // Call Ollama observer AFTER span.end() so its timeout can't pollute the GenAI span
+    let ollamaObserver = null;
+    try {
+      ollamaObserver = await getOllamaObserverNote({
+        prompt,
+        responseContent: content,
+        sourceModel: result.model || model,
+        durationMs: durationFinal,
+        promptTokens,
+        completionTokens,
+      });
+    } catch (observerErr) {
+      console.warn('[ai-generate] Ollama observer unavailable:', observerErr.message);
+    }
 
     // Record OTel metrics
     const metricAttrs = {

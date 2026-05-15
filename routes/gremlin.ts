@@ -26,7 +26,11 @@ router.post('/inject', async (req: Request, res: Response): Promise<void> => {
     });
     res.json(result);
   } catch (err) {
-    res.status(500).json({ error: String(err) });
+    const error = err as Error & { details?: unknown };
+    res.status(500).json({
+      error: error.message || String(err),
+      details: error.details || null,
+    });
   }
 });
 

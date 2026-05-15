@@ -146,7 +146,7 @@ router.post('/start', (req, res) => {
         });
         
         const DT_ENV = process.env.DT_ENVIRONMENT || process.env.DYNATRACE_URL;
-        const DT_TOKEN = process.env.DT_PLATFORM_TOKEN || process.env.DYNATRACE_TOKEN;
+        const DT_TOKEN = process.env.DT_PLATFORM_TOKEN || process.env.DYNATRACE_TOKEN || process.env.DT_API_TOKEN;
         
         if (DT_ENV && DT_TOKEN) {
           const dtUrl = new URL(`${DT_ENV}/api/v2/events/ingest`);

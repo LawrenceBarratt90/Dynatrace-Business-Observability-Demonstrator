@@ -13,6 +13,7 @@ const SERVICE_PORTS = {
 function getServiceNameFromStep(stepName) {
   // Normalize: preserve CamelCase (ProductDiscovery -> ProductDiscoveryService) and handle spaces/underscores/hyphens
   if (!stepName) return null;
+  if (String(stepName).includes('-')) return String(stepName);
   if (/Service$/.test(String(stepName))) return String(stepName);
   const cleaned = String(stepName).replace(/[^a-zA-Z0-9_\-\s]/g, '').trim();
   const spaced = cleaned

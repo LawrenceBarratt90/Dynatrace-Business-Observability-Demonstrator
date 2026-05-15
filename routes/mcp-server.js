@@ -16,6 +16,93 @@ import { z } from 'zod';
 
 const router = express.Router();
 
+function extractFieldFromPrompt(prompt, regex) {
+  const match = String(prompt || '').match(regex);
+  return match ? String(match[1] || '').trim() : '';
+}
+
+function pickFocus(text) {
+  const lower = String(text || '').toLowerCase();
+  if (lower.includes('revenue') || lower.includes('sales') || lower.includes('conversion')) {
+    return {
+      summary: 'Revenue, conversion, and commercial performance',
+      riskLevel: 'Medium',
+      businessPattern: 'Top-of-funnel conversion sensitivity',
+      points: [
+        'Revenue is most likely being constrained by conversion friction or abandoned journeys.',
+        'Lead-to-close and step-to-step drop-off should be treated as executive KPIs.',
+        'Operational issues matter because they directly affect commercial outcomes.',
+      ],
+    };
+  }
+  if (lower.includes('operations') || lower.includes('latency') || lower.includes('sla') || lower.includes('incident')) {
+    return {
+      summary: 'Operational resilience and SLA health',
+      riskLevel: 'High',
+      businessPattern: 'Service reliability sensitivity',
+      points: [
+        'Execution latency and error rates likely have a direct customer impact.',
+        'Executive reporting should emphasize SLA attainment and stability over raw throughput.',
+        'Bottlenecks in a single journey step can cascade across the whole flow.',
+      ],
+    };
+  }
+  if (lower.includes('customer') || lower.includes('experience') || lower.includes('churn') || lower.includes('nps')) {
+    return {
+      summary: 'Customer experience and retention risk',
+      riskLevel: 'Medium',
+      businessPattern: 'Journey completion sensitivity',
+      points: [
+        'Customer experience likely degrades when key steps are slow or inconsistent.',
+        'Retention risk should be tied to friction, abandonment, and repeated failures.',
+        'The dashboard should make it obvious where customers leave the journey.',
+      ],
+    };
+  }
+
+  return {
+    summary: 'Balanced executive journey health',
+    riskLevel: 'Medium',
+    businessPattern: 'Cross-functional journey health',
+    points: [
+      'Track end-to-end journey completion and the primary business KPI tied to that flow.',
+      'Use operational indicators to explain any drop in business performance.',
+      'Keep the analysis focused on decisions an executive team can act on quickly.',
+    ],
+  };
+}
+
+function suggestJourneys(text, fallbackJourney) {
+  const lower = String(text || '').toLowerCase();
+  const journeys = [];
+  if (lower.includes('checkout') || lower.includes('payment') || lower.includes('purchase')) journeys.push('Checkout & Payment');
+  if (lower.includes('onboarding') || lower.includes('signup') || lower.includes('registration')) journeys.push('Onboarding & Registration');
+  if (lower.includes('claim') || lower.includes('insurance')) journeys.push('Claims & Policy Servicing');
+  if (lower.includes('support') || lower.includes('service')) journeys.push('Support & Issue Resolution');
+  if (lower.includes('booking') || lower.includes('reservation') || lower.includes('order')) journeys.push('Booking / Reservation / Order Flow');
+  if (journeys.length === 0) journeys.push(String(fallbackJourney || 'Customer Journey'));
+  return [...new Set(journeys)].slice(0, 4);
+}
+
+function suggestKpis(text) {
+  const lower = String(text || '').toLowerCase();
+  const kpis = [
+    'Journey completion rate',
+    'Median step latency',
+    'Error rate per step',
+  ];
+  if (lower.includes('revenue') || lower.includes('sales') || lower.includes('purchase') || lower.includes('payment')) {
+    kpis.push('Revenue per conversion', 'Cart / form abandonment rate');
+  }
+  if (lower.includes('sla') || lower.includes('latency') || lower.includes('operations') || lower.includes('incident')) {
+    kpis.push('SLA compliance', 'P95 response time', 'MTTR');
+  }
+  if (lower.includes('customer') || lower.includes('experience') || lower.includes('nps') || lower.includes('churn')) {
+    kpis.push('Customer satisfaction proxy', 'Retention risk', 'Repeat failure rate');
+  }
+  return [...new Set(kpis)].slice(0, 6);
+}
+
 // Import the generate function from the ai-dashboard route by re-using its logic.
 // We call the local HTTP endpoint rather than importing internals directly — keeps coupling loose.
 const SERVER_PORT = process.env.PORT || 8080;
@@ -25,6 +112,76 @@ const LOCAL_BASE = `http://127.0.0.1:${SERVER_PORT}`;
  * Create a fresh McpServer instance.
  * In stateless mode we create a new server + transport per request.
  */
+
+// POST /api/mcp/assist — local Dynatrace Assist-style executive summary.
+router.post('/assist', async (req, res) => {
+  try {
+    const { prompt, companyName, domain, requirements, journeyType } = req.body || {};
+
+    if (!prompt) {
+      return res.status(400).json({ success: false, error: 'Prompt required' });
+    }
+
+    const promptText = String(prompt);
+    const company = String(companyName || extractFieldFromPrompt(promptText, /Company\s*[:\-]\s*(.+)/i) || 'the business').trim();
+    const businessDomain = String(domain || extractFieldFromPrompt(promptText, /Domain\s*[:\-]\s*(.+)/i) || 'unknown domain').trim();
+    const reqText = String(requirements || extractFieldFromPrompt(promptText, /Requirements\s*[:\-]\s*(.+)/i) || 'business observability analysis').trim();
+    const journey = String(journeyType || extractFieldFromPrompt(promptText, /Journey\s*Type\s*[:\-]\s*(.+)/i) || 'customer journey').trim();
+
+    const lowerReq = `${promptText} ${reqText} ${businessDomain}`.toLowerCase();
+    const focus = pickFocus(lowerReq);
+    const journeys = suggestJourneys(lowerReq, journey);
+    const kpis = suggestKpis(lowerReq);
+
+    const content = [
+      '# C-Suite Analysis',
+      '',
+      '## Executive Summary',
+      `- **Company:** ${company}`,
+      `- **Domain:** ${businessDomain}`,
+      `- **Primary focus:** ${focus.summary}`,
+      `- **Risk level:** ${focus.riskLevel}`,
+      `- **Business pattern:** ${focus.businessPattern}`,
+      '',
+      '## What This Means',
+      ...focus.points.map((point) => `- ${point}`),
+      '',
+      '## Recommended Journey Candidates',
+      ...journeys.map((item) => `- ${item}`),
+      '',
+      '## KPIs To Watch',
+      ...kpis.map((item) => `- ${item}`),
+      '',
+      '## Suggested Storyline',
+      `- ${company} should track the ${journeys[0] || journey} experience from start to finish, then correlate business outcomes with operational friction.`,
+      '- The dashboard should emphasize executive visibility, conversion health, and the business impact of failures or slowdowns.',
+      '',
+      '## Next Step',
+      '- Use the selected journey to generate the JSON configuration. Keep the second call on GitHub GPT-4.1 as requested.',
+    ].join('\n');
+
+    return res.json({
+      success: true,
+      data: {
+        content,
+        model: 'dynatrace-assist-local',
+        usage: {},
+        genai: {
+          system: 'dynatrace_assist',
+          model: 'dynatrace-assist-local',
+          promptTokens: 0,
+          completionTokens: 0,
+          totalTokens: 0,
+          durationMs: 0,
+          finishReason: 'stop',
+        },
+      },
+    });
+  } catch (err) {
+    console.error('[MCP] Assist error:', err.message);
+    return res.status(500).json({ success: false, error: err.message || 'Dynatrace Assist failed' });
+  }
+});
 function createMcpServer() {
   const server = new McpServer(
     { name: 'bizobs-dashboard-mcp', version: '1.0.0' },

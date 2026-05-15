@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "company": "Smyths Toys",
+  "journeyType": "Account Management",
+  "dashboardId": "bizobs-smyths-toys-account-management",
+  "dashboardUrl": "/ui/apps/dynatrace.dashboards/?query=bizobs-smyths-toys-account-management",
+  "dashboardName": "Smyths Toys - Account Management",
+  "generationMethod": "direct-dtctl",
+  "generatedAt": "2026-05-13T14:48:31.608Z",
+  "tileCount": 32,
+  "artifactFiles": {
+    "dashboard": "dashboards/generated/smyths-toys/account-management/dashboard-v1.json",
+    "metadata": "dashboards/generated/smyths-toys/account-management/metadata-v1.json"
+  }
+}

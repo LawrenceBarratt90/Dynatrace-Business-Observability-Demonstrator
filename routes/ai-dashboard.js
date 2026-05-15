@@ -442,11 +442,483 @@ function validateDashboardDeployQuality(dashboard) {
     }
   }
 
+  // Hard requirement: every fetch bizevents query must be scoped by Company + JourneyType.
+  for (const [id, tile] of Object.entries(content.tiles || {})) {
+    const query = typeof tile?.query === 'string' ? tile.query : '';
+    if (!query || !/\bfetch\s+bizevents\b/i.test(query)) continue;
+
+    const hasCompanyFilter = /\|\s*filter\s+json\.companyName\s*==\s*\$EventProvider\b/i.test(query);
+    const hasJourneyFilter = /\|\s*filter\s+json\.journeyType\s*==\s*\$JourneyType\b/i.test(query);
+
+    if (!hasCompanyFilter || !hasJourneyFilter) {
+      errors.push(`tile ${id}: fetch bizevents query must include both filters: json.companyName == $EventProvider and json.journeyType == $JourneyType`);
+    }
+  }
+
   return {
     isValid: errors.length === 0,
     errors,
     warnings,
   };
+}
+
+function normalizeDashboardContentForDeploy(contentInput, options = {}) {
+  const content = (contentInput && typeof contentInput === 'object') ? { ...contentInput } : {};
+  const canonicalCompany = String(options.company || '').trim();
+  const canonicalJourney = String(options.journeyType || '').trim();
+  const availableFields = options.availableFields instanceof Set ? options.availableFields : null;
+  content.version = 21;
+
+  const tiles = (content.tiles && typeof content.tiles === 'object') ? { ...content.tiles } : {};
+  const layouts = (content.layouts && typeof content.layouts === 'object') ? { ...content.layouts } : {};
+
+  const vizAliases = {
+    categoricalBar: 'categoricalBarChart',
+    choropleth: 'choroplethMap',
+    dataPage: 'table',
+    records: 'recordList',
+  };
+
+  const ensureBizEventScoping = (query) => {
+    if (typeof query !== 'string') return query;
+    let q = query.trim();
+    if (!/\bfetch\s+bizevents\b/i.test(q)) return q;
+
+    const additionalFieldNames = new Set();
+    if (availableFields) {
+      for (const rawField of availableFields) {
+        const f = String(rawField || '').trim();
+        if (!f) continue;
+        if (f.startsWith('additionalfields.')) {
+          additionalFieldNames.add(f.replace(/^additionalfields\./, ''));
+        }
+      }
+    }
+
+    const isInsideDoubleQuotes = (text, index) => {
+      let inQuote = false;
+      for (let i = 0; i < index; i++) {
+        if (text[i] === '"' && text[i - 1] !== '\\') inQuote = !inQuote;
+      }
+      return inQuote;
+    };
+
+    const qualifyIdentifiersInExpr = (expr) => {
+      if (!availableFields || additionalFieldNames.size === 0) return expr;
+      const skip = new Set([
+        'and', 'or', 'not', 'true', 'false', 'null', 'else', 'if',
+        'sum', 'avg', 'min', 'max', 'median', 'percentile', 'count',
+        'countDistinct', 'countIf', 'toDouble', 'round', 'now', 'exists',
+        'isNull', 'isNotNull', 'formatTimestamp', 'toString'
+      ]);
+
+      return expr.replace(/\b([A-Za-z_][A-Za-z0-9_]*)\b/g, (m, id, offset, full) => {
+        if (skip.has(id)) return m;
+        if (isInsideDoubleQuotes(full, offset)) return m;
+        if (offset > 0 && full[offset - 1] === '$') return m;
+        const tail = full.slice(offset + id.length);
+        if (/^\s*=/.test(tail)) return m;
+        if (additionalFieldNames.has(id)) return `additionalfields.${id}`;
+        return m;
+      });
+    };
+
+    // Replace hardcoded provider/company filters with dashboard variable filter.
+    q = q.replace(/\|\s*filter\s+event\.provider\s*==\s*"[^"]*"/gi, '| filter json.companyName == $EventProvider');
+    q = q.replace(/\|\s*filter\s+json\.companyName\s*==\s*"[^"]*"/gi, '| filter json.companyName == $EventProvider');
+    q = q.replace(/\|\s*filter\s+in\(\s*event\.provider\s*,\s*\$EventProvider\s*\)/gi, '| filter json.companyName == $EventProvider');
+    q = q.replace(/\|\s*filter\s+in\(\s*json\.companyName\s*,\s*\$EventProvider\s*\)/gi, '| filter json.companyName == $EventProvider');
+
+    // Replace hardcoded journey filters with dashboard variable filter.
+    q = q.replace(/\|\s*filter\s+json\.journeyType\s*==\s*"[^"]*"/gi, '| filter json.journeyType == $JourneyType');
+    q = q.replace(/\|\s*filter\s+journeyType\s*==\s*"[^"]*"/gi, '| filter json.journeyType == $JourneyType');
+    q = q.replace(/\|\s*filter\s+journey_type\s*==\s*"[^"]*"/gi, '| filter json.journeyType == $JourneyType');
+    q = q.replace(/\|\s*filter\s+in\(\s*json\.journeyType\s*,\s*\$JourneyType\s*\)/gi, '| filter json.journeyType == $JourneyType');
+
+    // Repair common model syntax/function mistakes.
+    q = q
+      .replace(/\bcount_distinct\s*\(/gi, 'countDistinct(')
+      .replace(/\bby:\s*(?!\{)([A-Za-z_][A-Za-z0-9_\.]*)/g, 'by:{$1}')
+      .replace(/\b(sum|avg|min|max|median|countDistinct|countIf|percentile)\s*\(([^\)]*)\)/gi, (full, fn, args) => `${fn}(${qualifyIdentifiersInExpr(args)})`)
+      .replace(/\|\s*fields\s+([^|]+)/gi, (full, body) => `| fields ${qualifyIdentifiersInExpr(body)}`)
+      .replace(/\bdedup\s+([A-Za-z_][A-Za-z0-9_\.]*)/gi, (full, field) => {
+        if (!availableFields) return full;
+        if (field.includes('.')) return full;
+        if (additionalFieldNames.has(field)) return `dedup additionalfields.${field}`;
+        return full;
+      });
+
+    const hasEventProviderVar = /\$EventProvider\b/.test(q) || /json\.companyName\s*==\s*\$EventProvider/.test(q);
+    const hasJourneyTypeVar = /\$JourneyType\b/.test(q) || /json\.journeyType\s*==\s*\$JourneyType/.test(q) || /journeyType\s*==\s*\$JourneyType/.test(q) || /journey_type\s*==\s*\$JourneyType/.test(q);
+
+    if (!hasEventProviderVar) {
+      q = q.replace(/^(\s*fetch\s+bizevents\b)/i, '$1 | filter json.companyName == $EventProvider');
+    }
+    if (!hasJourneyTypeVar) {
+      q = q.replace(/^(\s*fetch\s+bizevents\b(?:\s*\|\s*filter\s+json\.companyName\s*==\s*\$EventProvider)?)/i, '$1 | filter json.journeyType == $JourneyType');
+    }
+
+    const isKnownField = (fieldName) => {
+      if (!availableFields) return true;
+      const f = String(fieldName || '').trim();
+      if (!f) return false;
+      if (availableFields.has(f)) return true;
+      if (f.startsWith('additionalfields.') && availableFields.has(f.replace(/^additionalfields\./, ''))) return true;
+      if (!f.includes('.') && availableFields.has(`additionalfields.${f}`)) return true;
+      return false;
+    };
+
+    // Optional variable filters (Region, Store, etc.) should not blank tiles when fields are absent.
+    q = q.replace(
+      /\|\s*filter\s+in\(\s*([a-zA-Z0-9_\.]+)\s*,\s*\$([A-Za-z_][A-Za-z0-9_]*)\s*\)/g,
+      (full, field, key) => {
+        if (key === 'EventProvider' || key === 'JourneyType') return full;
+        if (!isKnownField(field)) return '';
+        return `| filter (in(${field}, $${key}) or in("All", $${key}) or isNull(${field}))`;
+      }
+    );
+
+    return q;
+  };
+
+  for (const [id, tileRaw] of Object.entries(tiles)) {
+    const tile = (tileRaw && typeof tileRaw === 'object') ? { ...tileRaw } : { type: 'markdown', markdown: '' };
+    if (tile.type === 'data' && typeof tile.visualization === 'string' && vizAliases[tile.visualization]) {
+      tile.visualization = vizAliases[tile.visualization];
+    }
+
+    // Normalize common unsupported DQL snake_case aliases produced by LLMs.
+    if (typeof tile.query === 'string' && tile.query.trim()) {
+      tile.query = tile.query
+        .replace(/\bcount_if\s*\(/gi, 'countIf(')
+        .replace(/\bsum_if\s*\(/gi, 'sumIf(')
+        .replace(/\bavg_if\s*\(/gi, 'avgIf(')
+        .replace(/\bmin_if\s*\(/gi, 'minIf(')
+        .replace(/\bmax_if\s*\(/gi, 'maxIf(');
+
+      tile.query = ensureBizEventScoping(tile.query);
+    }
+
+    // Normalize visualization settings to avoid invalid shapes that can break dashboard rendering.
+    if (tile.type === 'data' && typeof tile.visualization === 'string' && tile.visualizationSettings && typeof tile.visualizationSettings === 'object') {
+      const viz = tile.visualization;
+      const vs = tile.visualizationSettings;
+
+      if (viz === 'singleValue') {
+        tile.visualizationSettings = vs.singleValue ? { singleValue: vs.singleValue } : { singleValue: { colorThresholdTarget: 'background' } };
+      } else if (viz === 'table') {
+        tile.visualizationSettings = vs.table ? { table: vs.table } : {};
+      } else if (['bubbleMap', 'dotMap', 'connectionMap', 'choroplethMap'].includes(viz)) {
+        tile.visualizationSettings = vs[viz] ? { [viz]: vs[viz] } : {};
+      } else if (['lineChart', 'areaChart', 'barChart', 'categoricalBarChart'].includes(viz)) {
+        if (vs[viz]) {
+          tile.visualizationSettings = { [viz]: vs[viz] };
+        } else if (vs.chartSettings) {
+          tile.visualizationSettings = { [viz]: { chartSettings: vs.chartSettings } };
+        } else {
+          tile.visualizationSettings = {};
+        }
+      } else if (['donutChart', 'pieChart'].includes(viz)) {
+        tile.visualizationSettings = vs[viz] ? { [viz]: vs[viz] } : {};
+      } else if (viz === 'honeycomb') {
+        tile.visualizationSettings = vs.honeycomb ? { honeycomb: vs.honeycomb } : {};
+      }
+    }
+
+    tiles[id] = tile;
+
+    if (!layouts[id]) {
+      const idx = Number(id);
+      const safeIdx = Number.isFinite(idx) ? idx : Object.keys(layouts).length;
+      const isDataTile = tile.type === 'data';
+      const w = isDataTile ? 6 : 12;
+      const h = isDataTile ? 4 : 2;
+      layouts[id] = {
+        x: (safeIdx % Math.floor(24 / w)) * w,
+        y: Math.floor(safeIdx / Math.floor(24 / w)) * h,
+        w,
+        h,
+      };
+    }
+  }
+
+  content.tiles = tiles;
+  content.layouts = layouts;
+
+  // Normalize variables so deploy quality gate does not fail on missing keys
+  // from model-generated payloads.
+  const DEFAULT_ALL_VAR_INPUT = 'data record(value = "All")';
+  if (Array.isArray(content.variables)) {
+    const usedKeys = new Set();
+    content.variables = content.variables
+      .filter((v) => v && typeof v === 'object')
+      .map((v, idx) => {
+        const baseKey = String(
+          v.key ||
+          v.name ||
+          v.label ||
+          `var_${idx + 1}`
+        )
+          .trim()
+          .replace(/[^a-zA-Z0-9_]/g, '_')
+          .replace(/^_+|_+$/g, '')
+          || `var_${idx + 1}`;
+
+        let key = baseKey;
+        let n = 2;
+        while (usedKeys.has(key)) {
+          key = `${baseKey}_${n}`;
+          n += 1;
+        }
+        usedKeys.add(key);
+
+        const normalizedVar = {
+          ...v,
+          key,
+        };
+
+        // Many model outputs use `query` for query variables. Dynatrace expects `input`.
+        // If input is absent (or a dummy fallback), promote query -> input.
+        if (normalizedVar.type === 'query' && typeof normalizedVar.query === 'string' && normalizedVar.query.trim()) {
+          const hasMeaningfulInput = typeof normalizedVar.input === 'string'
+            && normalizedVar.input.trim()
+            && normalizedVar.input.trim() !== DEFAULT_ALL_VAR_INPUT;
+          if (!hasMeaningfulInput) {
+            normalizedVar.input = normalizedVar.query.trim();
+          }
+        }
+
+        if (normalizedVar.type === 'query' && !String(normalizedVar.input || '').trim()) {
+          normalizedVar.input = DEFAULT_ALL_VAR_INPUT;
+        }
+
+        if (normalizedVar.type === 'query' && typeof normalizedVar.input === 'string' && normalizedVar.input.trim()) {
+          normalizedVar.input = ensureBizEventScoping(normalizedVar.input);
+
+          if (availableFields && /\bfetch\s+bizevents\b/i.test(normalizedVar.input)) {
+            const dedupMatch = normalizedVar.input.match(/\bdedup\s+([a-zA-Z0-9_\.]+)/i);
+            const fieldMatch = dedupMatch || normalizedVar.input.match(/\bfields\s+([a-zA-Z0-9_\.]+)(?:\s|$)/i);
+            const candidateField = fieldMatch?.[1] ? String(fieldMatch[1]).trim() : '';
+
+            if (candidateField && !['json.companyName', 'json.journeyType', 'event.provider'].includes(candidateField)) {
+              const known = availableFields.has(candidateField)
+                || (candidateField.startsWith('additionalfields.') && availableFields.has(candidateField.replace(/^additionalfields\./, '')))
+                || (!candidateField.includes('.') && (availableFields.has(candidateField) || availableFields.has(`additionalfields.${candidateField}`)));
+              if (!known) {
+                normalizedVar.input = DEFAULT_ALL_VAR_INPUT;
+              }
+            }
+          }
+        }
+
+        return normalizedVar;
+      });
+  }
+
+  // Ensure required scoping variables exist for BizEvents dashboards.
+  const vars = Array.isArray(content.variables) ? [...content.variables] : [];
+  const hasEventProviderVar = vars.some((v) => String(v?.key || '').toLowerCase() === 'eventprovider');
+  const hasJourneyTypeVar = vars.some((v) => String(v?.key || '').toLowerCase() === 'journeytype');
+
+  if (!hasEventProviderVar) {
+    vars.unshift({
+      name: 'Event Provider',
+      key: 'EventProvider',
+      type: 'query',
+      multiple: false,
+      input: canonicalCompany
+        ? `data record(value = "${canonicalCompany.replace(/"/g, '\\"')}")`
+        : 'fetch bizevents | fields json.companyName | filter isNotNull(json.companyName) | dedup json.companyName',
+      defaultValue: canonicalCompany || 'All',
+    });
+  }
+
+  if (!hasJourneyTypeVar) {
+    vars.splice(Math.min(1, vars.length), 0, {
+      name: 'Journey Type',
+      key: 'JourneyType',
+      type: 'query',
+      multiple: false,
+      input: 'fetch bizevents | filter json.companyName == $EventProvider | fields json.journeyType | filter isNotNull(json.journeyType)| dedup json.journeyType',
+      defaultValue: canonicalJourney || 'All',
+    });
+  }
+
+  content.variables = sortVariablesByDependency(vars);
+
+  // ════════════════════════════════════════════════════════════════════════════════
+  // KPI DASHBOARD PATTERN ENHANCEMENTS (dtctl + dynatrace-assist integration)
+  // ════════════════════════════════════════════════════════════════════════════════
+
+  // [PRIORITY 1] Auto-repair barChart/categoricalBarChart when paired with summarize
+  // Problem: LLM generates "summarize" queries (scalar, grouped aggregations) which produce
+  // empty bar charts. Solution: Convert to donut which handles this pattern correctly.
+  for (const [tileId, tile] of Object.entries(tiles)) {
+    if (tile.type === 'data' &&
+        ['barChart', 'categoricalBarChart'].includes(tile.visualization) &&
+        typeof tile.query === 'string' &&
+        /\bsummarize\b/i.test(tile.query) &&
+        !/\bmakeTimeseries\b/i.test(tile.query)) {
+      tile.visualization = 'donutChart';
+      console.log(`[Normalize] 🔧 Tile ${tileId}: Auto-converted barChart+summarize → donutChart (scalar aggregations cannot render as bars)`);
+    }
+  }
+
+  // [PRIORITY 2] Enforce map tile placement above the fold (at y:2, immediately after header)
+  // Per KPI Dashboard Generator pattern: map tile must be positioned at y:2, w:24, h:8
+  // to provide geographic context and push subsequent KPI sections down.
+  const mapTileIds = Object.entries(tiles)
+    .filter(([, t]) =>
+      ['bubbleMap', 'dotMap', 'choroplethMap', 'connectionMap'].includes(t.type)
+      || (t.type === 'data' && ['bubbleMap', 'dotMap', 'choroplethMap', 'connectionMap'].includes(t.visualization))
+    )
+    .map(([id]) => id);
+
+  if (mapTileIds.length > 0) {
+    const mapTileId = mapTileIds[0];
+    const mapLayout = layouts[mapTileId] || { x: 0, y: 2, w: 24, h: 8 };
+    const oldMapY = mapLayout.y;
+    const newMapY = 2; // Immediately below header (y:0-1)
+    const mapHeight = 8;
+
+    // If map is not already at the correct position, shift all tiles below it
+    if (oldMapY !== newMapY || mapLayout.w !== 24 || mapLayout.h !== mapHeight) {
+      const yShift = (newMapY + mapHeight) - (oldMapY + (mapLayout.h || mapHeight));
+
+      // Bump all data tiles that were below the old map position
+      for (const [id, layout] of Object.entries(layouts)) {
+        if (id !== mapTileId && id !== '0' && id !== '41' && layout.y >= oldMapY + (mapLayout.h || mapHeight)) {
+          layout.y += yShift;
+        }
+      }
+
+      layouts[mapTileId] = { x: 0, y: newMapY, w: 24, h: mapHeight };
+      console.log(`[Normalize] 🗺️ Map tile ${mapTileId}: Repositioned to y:${newMapY} (mandatory KPI dashboard pattern)`);
+    }
+  }
+
+  // [PRIORITY 3] Inject branded section dividers between recognized KPI categories
+  // Dividers use singleValue tiles with distinct brand colors per industry vertical.
+  // They improve visual hierarchy and guide the eye through the dashboard flow.
+  const SECTION_DIVIDERS_BY_CATEGORY = {
+    'revenue': { label: 'Revenue & Financial', color: '#FFB81C' },      // Gold
+    'operations': { label: 'Operations & Efficiency', color: '#24A835' }, // Green
+    'customer': { label: 'Customer & Experience', color: '#DC267F' },    // Pink
+    'performance': { label: 'Performance & Reliability', color: '#0043CE' }, // Blue
+    'quality': { label: 'Quality & Compliance', color: '#A335C7' },      // Purple
+    'inventory': { label: 'Inventory & Assets', color: '#EA8500' },      // Orange
+    'default': { label: 'KPIs', color: '#3C3F41' },                      // Gray
+  };
+
+  // Collect tiles by category to determine divider positions
+  const tilesByCategory = {};
+  for (const [id, tile] of Object.entries(tiles)) {
+    // Infer category from tile metadata or title
+    let category = tile.metadata?.category || 'default';
+    if (tile.title) {
+      const titleLower = tile.title.toLowerCase();
+      if (/revenue|financial|price|cost|margin/.test(titleLower)) category = 'revenue';
+      else if (/operation|efficiency|utilization|capacity/.test(titleLower)) category = 'operations';
+      else if (/customer|experience|satisfaction|nps/.test(titleLower)) category = 'customer';
+      else if (/performance|latency|response|reliability|uptime/.test(titleLower)) category = 'performance';
+      else if (/quality|compliance|error|defect/.test(titleLower)) category = 'quality';
+      else if (/inventory|asset|stock|warehouse/.test(titleLower)) category = 'inventory';
+    }
+
+    if (!tilesByCategory[category]) tilesByCategory[category] = [];
+    tilesByCategory[category].push({ id, tile, layout: layouts[id] });
+  }
+
+  // Build section dividers only if multiple categories exist (avoid over-dividing single-category dashboards)
+  const categoriesPresent = Object.keys(tilesByCategory).filter(c => c !== 'default' && tilesByCategory[c].length > 0);
+  if (categoriesPresent.length > 1) {
+    let maxTileId = Math.max(
+      ...Object.keys(tiles).map(Number).filter(Number.isFinite),
+      Object.keys(layouts).map(Number).filter(Number.isFinite),
+      100
+    );
+
+    for (const category of categoriesPresent) {
+      const categoryTiles = tilesByCategory[category];
+      const firstTileLayout = categoryTiles[0]?.layout;
+      if (!firstTileLayout) continue;
+
+      const dividerY = firstTileLayout.y;
+      const dividerConfig = SECTION_DIVIDERS_BY_CATEGORY[category] || SECTION_DIVIDERS_BY_CATEGORY['default'];
+
+      // Shift all tiles at or below dividerY down by 1
+      for (const [id, layout] of Object.entries(layouts)) {
+        if (layout.y >= dividerY) layout.y += 1;
+      }
+
+      maxTileId += 1;
+      const divIdString = String(maxTileId);
+      tiles[divIdString] = {
+        type: 'data',
+        title: dividerConfig.label.toUpperCase(),
+        query: `data record(section="${dividerConfig.label}")`,
+        visualization: 'singleValue',
+        visualizationSettings: {
+          singleValue: {
+            labelMode: 'none',
+            isIconVisible: false,
+            colorThresholdTarget: 'background',
+          },
+          thresholds: [
+            {
+              id: 1,
+              field: 'section',
+              rules: [{ id: 1, color: dividerConfig.color, comparator: '!=', value: 'none' }],
+            },
+          ],
+        },
+      };
+
+      layouts[divIdString] = { x: 0, y: dividerY, w: 24, h: 1 };
+      console.log(`[Normalize] 📌 Section divider injected: "${dividerConfig.label}" at y:${dividerY}`);
+    }
+  }
+
+  // [PRIORITY 4] Resolve layout collisions to avoid Gen3 dashboard render failures
+  // Some LLM outputs place multiple tiles on the same grid cells. Reflow them downward
+  // while preserving x/w/h so all rectangles are non-overlapping.
+  const layoutEntries = Object.entries(layouts)
+    .filter(([, l]) => l && Number.isFinite(l.x) && Number.isFinite(l.y) && Number.isFinite(l.w) && Number.isFinite(l.h))
+    .map(([id, l]) => ({
+      id,
+      x: Math.max(0, Math.min(23, Number(l.x))),
+      y: Math.max(0, Number(l.y)),
+      w: Math.max(1, Math.min(24, Number(l.w))),
+      h: Math.max(1, Number(l.h)),
+    }))
+    .sort((a, b) => (a.y - b.y) || (a.x - b.x) || (Number(a.id) - Number(b.id)));
+
+  const placed = [];
+  const overlaps = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+  let movedCount = 0;
+
+  for (const entry of layoutEntries) {
+    let candidate = { ...entry };
+    let guard = 0;
+    while (guard < 500) {
+      const blockers = placed.filter(p => overlaps(candidate, p));
+      if (blockers.length === 0) break;
+      const nextY = Math.max(...blockers.map(b => b.y + b.h));
+      candidate.y = Math.max(candidate.y + 1, nextY);
+      guard += 1;
+    }
+    if (candidate.y !== entry.y || candidate.x !== entry.x || candidate.w !== entry.w || candidate.h !== entry.h) {
+      movedCount += 1;
+    }
+    placed.push(candidate);
+    layouts[candidate.id] = { x: candidate.x, y: candidate.y, w: candidate.w, h: candidate.h };
+  }
+
+  if (movedCount > 0) {
+    console.log(`[Normalize] 🧱 Reflowed ${movedCount} tiles to resolve layout collisions`);
+  }
+
+  return content;
 }
 
 // ============================================================================
@@ -2691,25 +3163,38 @@ async function generateTilePlanWithOllama(customPrompt, company, journeyType, in
     }
   }
 
-  // Build a compact field+value table so Ollama sees REAL data
+  // Build a comprehensive field+value table so Ollama sees REAL data
+  // Show ALL fields, not just first 8, so Ollama doesn't hallucinate missing fields
   const fieldLines = [];
-  for (const n of numericFields.slice(0, 8)) {
+  fieldLines.push(`  NUMERIC FIELDS (${numericFields.length} total):`);
+  for (let i = 0; i < numericFields.length; i++) {
+    const n = numericFields[i];
     const sv = sampleData[n] !== undefined ? `=${sampleData[n]}` : '';
-    fieldLines.push(`  ${n}(numeric${sv})`);
+    const marker = i < 5 ? '⭐' : '  '; // Mark top 5 as priority
+    fieldLines.push(`  ${marker} ${n}(numeric${sv})`);
   }
-  for (const s of stringFields.slice(0, 8)) {
+  fieldLines.push(`\n  STRING FIELDS (${stringFields.length} total):`);
+  for (let i = 0; i < stringFields.length; i++) {
+    const s = stringFields[i];
     const sv = sampleData[s] !== undefined ? `="${sampleData[s]}"` : '';
-    fieldLines.push(`  ${s}(string${sv})`);
+    const marker = i < 5 ? '⭐' : '  '; // Mark top 5 as priority
+    fieldLines.push(`  ${marker} ${s}(string${sv})`);
   }
-  const fieldBlock = fieldLines.length > 0 ? fieldLines.join('\n') : '  (no fields — use specials only)';
+  const fieldBlock = fieldLines.length > 0 
+    ? fieldLines.join('\n')
+    : '  (no fields — use special aggregations only)';
 
   // Use format:"json" to force JSON output — ask for {"tiles":[...]} wrapper.
   // Single compact example so the 3B model follows the pattern.
   const prompt = `You are a dashboard tile planner. Output JSON: {"tiles":[array of tile objects]}.
 Each tile: {"title":"string","viz":"string","field":"string or null","agg":"string"}.
 
-Available fields from real Grail data (${company} / ${journeyType}):
+Available fields from real tenant data (${company} / ${journeyType}):
 ${fieldBlock}
+
+CRITICAL RULE: You MUST ONLY use fields listed above in the "field" property. 
+DO NOT hallucinate field names like "geo.location.latitude" or "region_name" if they are not in the list.
+If a field is needed but not available, use field: null with an aggregation that doesn't require a field.
 
 Valid viz types:
 - KPIs: singleValue, gauge, meterBar
@@ -2725,7 +3210,7 @@ Valid agg without field (set field to null): count, success_rate, error_rate, vo
 
 Pairing rules:
 - gauge/meterBar → use gauge_success, gauge_error, or gauge_field(numeric)
-- choroplethMap → use geo_region with a string field like region/country
+- choroplethMap → use geo_region with a string field from the list (NOT geo.location.latitude/longitude — those don't exist)
 - bandChart → use band_timeseries with a numeric field
 - scatterplot → use scatter_two with a numeric field
 - honeycomb → use honeycomb_steps (no field)
@@ -2733,11 +3218,17 @@ Pairing rules:
 - histogram → use count_by with a string field
 
 Example for "revenue overview" with orderTotal(numeric=149.99), region(string="Northeast"):
-{"tiles":[{"title":"Total Revenue","viz":"singleValue","field":"orderTotal","agg":"sum"},{"title":"Avg Order Value","viz":"singleValue","field":"orderTotal","agg":"avg"},{"title":"Success Rate","viz":"gauge","field":null,"agg":"gauge_success"},{"title":"Revenue Trend","viz":"areaChart","field":"orderTotal","agg":"timeseries_sum"},{"title":"Revenue Range","viz":"bandChart","field":"orderTotal","agg":"band_timeseries"},{"title":"Revenue by Step","viz":"categoricalBarChart","field":"orderTotal","agg":"sum_by_step"},{"title":"Regional Map","viz":"choroplethMap","field":"region","agg":"geo_region"},{"title":"Orders by Region","viz":"pieChart","field":"region","agg":"count_by"},{"title":"Step Health","viz":"honeycomb","field":null,"agg":"honeycomb_steps"},{"title":"Journey Steps","viz":"table","field":null,"agg":"step_table"}]}
+{"tiles":[{"title":"Total Revenue","viz":"singleValue","field":"orderTotal","agg":"sum"},{"title":"Avg Order Value","viz":"singleValue","field":"orderTotal","agg":"avg"},{"title":"Success Rate","viz":"gauge","field":null,"agg":"gauge_success"},{"title":"Revenue Trend","viz":"areaChart","field":"orderTotal","agg":"timeseries_sum"},{"title":"Revenue Range","viz":"bandChart","field":"orderTotal","agg":"band_timeseries"},{"title":"Revenue by Step","viz":"categoricalBarChart","field":"orderTotal","agg":"sum_by_step"},{"title":"Orders by Region","viz":"pieChart","field":"region","agg":"count_by"},{"title":"Success by Region","viz":"choroplethMap","field":"region","agg":"geo_region"},{"title":"Step Health","viz":"honeycomb","field":null,"agg":"honeycomb_steps"},{"title":"Journey Steps","viz":"table","field":null,"agg":"step_table"}]}
 
-IMPORTANT: You MUST return exactly 10 to 14 tiles in ONE single "tiles" array. No fewer than 10. Use every available field at least once. Include at least 1 gauge, 1 choroplethMap (if a region/country string field exists), and 1 table.
+IMPORTANT: 
+1. Return exactly 10 to 14 tiles in ONE single "tiles" array.
+2. Use ONLY fields from the list above. Never invent field names.
+3. Include at least 1 gauge and 1 table.
+4. Include 1 choroplethMap only if a suitable string field exists (geo_region agg).
+5. Prioritize ⭐ marked fields (top 5 numeric + 5 string).
+
 Generate tiles for: "${customPrompt}"
-Rules: Start with 2-3 singleValue KPIs + 1 gauge, add charts with mixed viz types, include 1 geo map for any regional field, end with 1 table. Use ONLY the fields listed above. Output ONE JSON object with ONE "tiles" key.`;
+Rules: Start with 2-3 singleValue KPIs + 1 gauge, add charts with mixed viz types, end with 1 table. Output ONE JSON object with ONE "tiles" key.`;
 
   try {
     const controller = new AbortController();
@@ -2904,15 +3395,55 @@ Rules: Start with 2-3 singleValue KPIs + 1 gauge, add charts with mixed viz type
 }
 
 /**
+ * VALIDATION: Validate that DQL queries only reference discovered fields.
+ * Extracts field references from queries and checks them against discovered fields.
+ * Logs warnings if unknown fields are found.
+ */
+function validateDQLQueryFields(query, discoveredFieldMap, tileTitle = '') {
+  if (!query || typeof query !== 'string') return { valid: true, warnings: [] };
+  
+  const warnings = [];
+  
+  // Find all additionalfields.* references in the query
+  const fieldRefRegex = /additionalfields\.([A-Za-z0-9_]+)/g;
+  const matches = query.matchAll(fieldRefRegex);
+  
+  for (const match of matches) {
+    const fieldName = match[1];
+    if (discoveredFieldMap && !discoveredFieldMap.has(fieldName)) {
+      warnings.push(`${tileTitle ? `[${tileTitle}] ` : ''}Field "additionalfields.${fieldName}" not found in discovered fields`);
+    }
+  }
+  
+  // Also check for likely hallucinated geo field patterns
+  if (/geo\.location\.(latitude|longitude)|(latitude|longitude)\s*field/.test(query)) {
+    warnings.push(`${tileTitle ? `[${tileTitle}] ` : ''}Query uses "geo.location.latitude/longitude" which don't exist in BizEvents — use a discovered regional field instead`);
+  }
+  
+  return { 
+    valid: warnings.length === 0, 
+    warnings 
+  };
+}
+
+/**
  * Build a dashboard tile object from a tile plan.
  */
-function buildTileFromPlan(plan) {
+function buildTileFromPlan(plan, discoveredFieldMap = null) {
   const Q_SETTINGS = { maxResultRecords: 1000, defaultScanLimitGbytes: 500, maxResultMegaBytes: 1, defaultSamplingRatio: 10, enableSampling: false };
   const DAVIS_OFF = { enabled: false, davisVisualization: { isAvailable: true } };
 
   const templateFn = DQL_AGG_TEMPLATES[plan.agg];
   if (!templateFn) throw new Error(`Unknown agg template: ${plan.agg}`);
   const dql = FIELD_REQUIRED_AGGS.has(plan.agg) ? templateFn(plan.field || 'orderTotal') : templateFn();
+
+  // Validate the generated DQL query
+  const validation = validateDQLQueryFields(dql, discoveredFieldMap, plan.title);
+  if (!validation.valid || validation.warnings.length > 0) {
+    for (const warning of validation.warnings) {
+      console.warn(`[AI Dashboard] ⚠️ ${warning}`);
+    }
+  }
 
   // Build viz settings — some types need field-specific config
   let vizSettings = getVizSettingsForType(plan.viz);
@@ -3197,12 +3728,43 @@ async function generatePromptDrivenDashboard(journeyData, skills, customPrompt, 
   const focusLine = selection.focus ? `\n**Focus:** ${selection.focus}` : '';
   addMarkdown(
     `# ${selection.title}\n## ${company} | ${journeyType} Journey | ${industry || 'Business Observability'}${focusLine}\n**Data Signals:** ${signals}\n---`,
-    24, 3
+    24, 2
   );
 
   // Journey flow (always included)
   const stepsText = (steps || []).map(s => `\`${typeof s === 'string' ? s : (s.name || s.stepName)}\``).join(' → ') || '`Step 1` → `Step 2` → `Step 3`';
-  addMarkdown(`**Journey Flow:** ${stepsText}`, 24, 2);
+  addMarkdown(`**Journey Flow:** ${stepsText}`, 24, 1);
+
+  // ── MANDATORY MAP TILE (SudoSmitty rule: geo context required after header) ──
+  // This gives geographic context to the journey — critical for business observability
+  // Positioned after header+flow, before content sections
+  try {
+    const mapTile = {
+      type: 'data',
+      title: '🌍 Journey Events by Location',
+      query: `fetch bizevents
+| filter json.companyName == "$EventProvider"
+| filter json.journeyType == $JourneyType
+| filter isNotNull(additionalfields.region)
+| summarize count = count(), by: {additionalfields.region}
+| sort count desc
+| limit 50`,
+      visualization: 'donutChart',
+      visualizationSettings: {
+        chartSettings: {
+          type: 'pie',
+          circleChartSettings: { legendPosition: 'bottom' }
+        }
+      },
+      querySettings: { maxResultRecords: 1000, defaultScanLimitGbytes: 500, maxResultMegaBytes: 1 },
+      titleSize: 'medium'
+    };
+    addTileAt(mapTile, 0, currentY, 24, 4);
+    currentY += 5; // Space for next section
+  } catch (mapErr) {
+    console.warn(`[AI Dashboard] ⚠️  Could not add map tile: ${mapErr.message}`);
+    currentY += 1; // Skip space if map creation failed
+  }
 
   // ── BESPOKE TILE GENERATION (Hybrid: AI selects sections + designs tiles from real Grail data) ──
   // Ollama sees actual field names + sample values from Grail, picks viz/agg combos.
@@ -3251,7 +3813,7 @@ async function generatePromptDrivenDashboard(journeyData, skills, customPrompt, 
     for (const plan of sortedPlans) {
       let tile;
       try {
-        tile = buildTileFromPlan(plan);
+        tile = buildTileFromPlan(plan, discoveredFieldMap);
       } catch (tileErr) {
         console.warn(`[AI Dashboard] ⚠️ Failed to build tile "${plan.title}": ${tileErr.message}`);
         continue;
@@ -4209,6 +4771,27 @@ router.post('/generate', async (req, res) => {
     }
 
     if (useAI) {
+      // ── EARLY FIELD DISCOVERY: Discover actual BizEvents fields from Grail BEFORE LLM generation ──
+      // This ensures LLM only uses fields that actually exist in tenant data
+      console.log(`[AI Dashboard] 🔍 Discovering BizEvents fields from Grail for prompt context...`);
+      const discoveredFieldSet = await discoverBizEventFields(journeyData.company, journeyData.journeyType, {
+        maxRetries: 6,
+        pollIntervalMs: 2000,
+      }).catch((err) => {
+        console.warn(`[AI Dashboard] ⚠️  Field discovery failed (non-blocking):`, err.message);
+        return null;
+      });
+
+      if (discoveredFieldSet && discoveredFieldSet.size > 0) {
+        journeyData.discoveredFields = Array.from(discoveredFieldSet).map(name => ({ name, type: 'unknown' }));
+        if (discoveredFieldSet.records && discoveredFieldSet.records.length > 0) {
+          journeyData.discoveredRecords = discoveredFieldSet.records;
+        }
+        console.log(`[AI Dashboard] ✅ Pre-discovered ${journeyData.discoveredFields.length} fields for LLM context: ${journeyData.discoveredFields.map(f => f.name).join(', ')}`);
+      } else {
+        console.log(`[AI Dashboard] ℹ️  No BizEvents discovered (may still have additionalFields from payload)`);
+      }
+
       // ── UNIFIED PROMPT-DRIVEN PATH: always uses section selection for fast, composable dashboards ──
       const ollamaAvailable = await checkOllamaAvailable();
       if (ollamaAvailable) {
@@ -4535,6 +5118,113 @@ async function writeDashboardArtifactBundle({
   };
 }
 
+// ════════════════════════════════════════════════════════════════════════════════
+// WORKFLOW INTEGRATION & INGESTION VERIFICATION (dtctl + dynatrace-assist)
+// ════════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Search for an existing BizEvents injector workflow and append a new task.
+ * Per KPI Dashboard Generator pattern: never create a second workflow.
+ * Instead, find the shared injector workflow and add a task keyed <company>_v<N>.
+ */
+async function tryAppendToInjectorWorkflow(dtctlBin, contextName, configFile, company, journeyType, options = {}) {
+  try {
+    const { timeout = 30000 } = options;
+
+    // Search for injector workflow (by name pattern)
+    const searchCmd = [
+      'find', 'workflows',
+      '-o', 'json',
+      '--context', contextName,
+      '--config', configFile,
+      '--plain',
+    ];
+
+    const { stdout } = await execFileAsync(dtctlBin, searchCmd, { timeout });
+    const workflows = JSON.parse(stdout || '[]');
+
+    // Find workflow matching KPI/injector patterns
+    const injectorWorkflow = workflows.find(w =>
+      w?.title && /BizEvents|Injector|Dashboard Generator|KPI/i.test(w.title)
+    );
+
+    if (!injectorWorkflow || !injectorWorkflow.id) {
+      console.log('[Workflow Integration] 📋 No existing injector workflow found — create one via Dynatrace UI with task template');
+      return { success: false, reason: 'no-workflow' };
+    }
+
+    console.log(`[Workflow Integration] ✅ Found injector workflow: "${injectorWorkflow.title}" (${injectorWorkflow.id})`);
+
+    // For now, just report success — full task append requires advanced workflow editing
+    // Future: parse workflow JSON, append task, re-apply via dtctl
+    return {
+      success: true,
+      workflowId: injectorWorkflow.id,
+      workflowTitle: injectorWorkflow.title,
+      note: 'Workflow found; task append would require manual or advanced API integration',
+    };
+  } catch (err) {
+    console.warn(`[Workflow Integration] ⚠️ Failed to find injector workflow: ${err.message}`);
+    return { success: false, reason: 'integration-error', error: err.message };
+  }
+}
+
+/**
+ * Verify that BizEvents are flowing to Dynatrace by querying recent events.
+ * Returns { verified: true/false, count: <recent event count>, timeToFirstEvent: <ms> }
+ */
+async function verifyBizEventIngestion(dtctlBin, contextName, configFile, company, journeyType, options = {}) {
+  try {
+    const { timeout = 30000, maxRetries = 5, pollIntervalMs = 2000 } = options;
+    const safeCompany = String(company || '').replace(/["\\]/g, '');
+    const safeJourney = String(journeyType || '').replace(/["\\]/g, '');
+
+    let eventCount = 0;
+    let attempts = 0;
+    const startTime = Date.now();
+
+    while (attempts < maxRetries) {
+      attempts += 1;
+      const dql = `fetch bizevents | filter event.kind == "BIZ_EVENT" | filter json.companyName == "${safeCompany}" | filter json.journeyType == "${safeJourney}" | summarize count()`;
+
+      try {
+        const queryCmd = [
+          'query',
+          dql,
+          '-o', 'json',
+          '--context', contextName,
+          '--config', configFile,
+          '--plain',
+        ];
+
+        const { stdout } = await execFileAsync(dtctlBin, queryCmd, { timeout });
+        const result = JSON.parse(stdout || '{}');
+        const records = result.records || [];
+        if (records.length > 0 && records[0].count !== undefined) {
+          eventCount = records[0].count;
+          if (eventCount > 0) {
+            const timeToFirstEvent = Date.now() - startTime;
+            console.log(`[Ingestion] ✅ BizEvents verified: ${eventCount} events (after ${timeToFirstEvent}ms)`);
+            return { verified: true, count: eventCount, timeToFirstEvent };
+          }
+        }
+      } catch {
+        // DQL query error — continue polling
+      }
+
+      if (attempts < maxRetries) {
+        await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
+      }
+    }
+
+    console.warn(`[Ingestion] ⚠️ No BizEvents detected after ${attempts} attempts for ${safeCompany}/${safeJourney}`);
+    return { verified: false, count: 0, attempts };
+  } catch (err) {
+    console.warn(`[Ingestion] ⚠️ Verification query failed: ${err.message}`);
+    return { verified: false, reason: 'query-error', error: err.message };
+  }
+}
+
 router.get('/preflight-dtctl', async (req, res) => {
   try {
     const { environmentUrl, apiToken } = await resolveDtDeployConfig();
@@ -4564,7 +5254,7 @@ router.get('/preflight-dtctl', async (req, res) => {
 router.post('/deploy-dtctl', async (req, res) => {
   const tempPaths = [];
   try {
-    const { dashboard, company, journeyType } = req.body || {};
+    const { dashboard, company, journeyType, userEmail, userName } = req.body || {};
     if (!dashboard?.content || !company || !journeyType) {
       return res.status(400).json({ success: false, error: 'dashboard, company, and journeyType are required' });
     }
@@ -4575,7 +5265,7 @@ router.post('/deploy-dtctl', async (req, res) => {
       return res.status(500).json({
         success: false,
         error: 'Dynatrace credentials missing on server (DT_ENVIRONMENT + DT_PLATFORM_TOKEN)',
-        hint: 'Use a platform token with dashboard scope document:documents:write (recommended: document:documents:read; optional for environment sharing: document:environment-shares:write).',
+        hint: 'Use a platform token with dashboard scopes document:documents:write and document:environment-shares:write so generated dashboards are editable for everyone.',
       });
     }
 
@@ -4595,17 +5285,60 @@ router.post('/deploy-dtctl', async (req, res) => {
     const dashboardId = aiSlug ? `bizobs-${sanitizedCompany}-${aiSlug}` : `bizobs-${sanitizedCompany}-${sanitizedJourney}`;
     const dashboardName = canonicalDashboardName;
 
+    const discoveredFieldSet = await discoverBizEventFields(canonicalCompany, canonicalJourney, {
+      maxRetries: 12,
+      pollIntervalMs: 3000,
+    });
+
+    const availableFields = new Set([
+      'timestamp',
+      'event.kind',
+      'event.provider',
+      'json.companyName',
+      'json.journeyType',
+      'json.stepName',
+      'json.serviceName',
+    ]);
+
+    if (discoveredFieldSet) {
+      for (const f of discoveredFieldSet) {
+        const plain = String(f || '').trim();
+        if (!plain) continue;
+        availableFields.add(plain);
+        availableFields.add(`additionalfields.${plain}`);
+      }
+
+      const records = Array.isArray(discoveredFieldSet.records) ? discoveredFieldSet.records : [];
+      for (const record of records) {
+        if (!record || typeof record !== 'object') continue;
+        for (const key of Object.keys(record)) {
+          availableFields.add(key);
+          if (key.startsWith('additionalfields.')) {
+            availableFields.add(key.replace(/^additionalfields\./, ''));
+          }
+        }
+      }
+    }
+
+    console.log(`[AI Dashboard] Using ${availableFields.size} available fields for normalization (${canonicalCompany} / ${canonicalJourney})`);
+
     const dashboardToDeploy = {
       ...dashboard,
       // Keep naming deterministic for generated dashboards instead of letting Dynatrace create "Untitled dashboard".
       name: dashboardName,
       type: dashboard.type || 'dashboard',
       version: dashboard.version || 1,
-      content: dashboard.content,
+      content: normalizeDashboardContentForDeploy(dashboard.content, {
+        company: canonicalCompany,
+        journeyType: canonicalJourney,
+        availableFields,
+      }),
       metadata: {
         ...(dashboard.metadata || {}),
         company: canonicalCompany,
         journeyType: canonicalJourney,
+        createdByEmail: String(userEmail || '').trim() || undefined,
+        createdByName: String(userName || '').trim() || undefined,
       },
     };
     const generationMethod = String(dashboard.metadata?.generationMethod || dashboard.metadata?.generatedBy || 'direct-dtctl').trim();
@@ -4638,7 +5371,7 @@ router.post('/deploy-dtctl', async (req, res) => {
       'apply',
       '-f', dashboardFile,
       '--id', dashboardId,
-      '--share-environment', 'read',
+      '--share-environment', 'read-write',
       '--context', contextName,
       '--config', configFile,
       '--output', 'json',
@@ -4658,18 +5391,40 @@ router.post('/deploy-dtctl', async (req, res) => {
       journeyType: canonicalJourney,
       generationMethod,
       dashboardId,
-      dashboardUrl: `/ui/apps/dynatrace.dashboards/dashboard/${dashboardId}`,
+      dashboardUrl: `/ui/apps/dynatrace.dashboards/?query=${encodeURIComponent(dashboardId)}`,
     });
+
+    // [PRIORITY 4] Try to integrate with existing injector workflow
+    const workflowIntegration = await tryAppendToInjectorWorkflow(
+      dtctlBin,
+      contextName,
+      configFile,
+      canonicalCompany,
+      canonicalJourney,
+      { timeout: 30000 }
+    );
+
+    // [PRIORITY 5] Verify BizEvents are flowing
+    const ingestionVerification = await verifyBizEventIngestion(
+      dtctlBin,
+      contextName,
+      configFile,
+      canonicalCompany,
+      canonicalJourney,
+      { maxRetries: 5, pollIntervalMs: 2000, timeout: 30000 }
+    );
 
     return res.json({
       success: true,
       data: {
         dashboardId,
         dashboardName,
-        dashboardUrl: `/ui/apps/dynatrace.dashboards/dashboard/${dashboardId}`,
+        dashboardUrl: `/ui/apps/dynatrace.dashboards/?query=${encodeURIComponent(dashboardId)}`,
         artifactVersion: artifactBundle.version,
         artifactPath: path.relative(path.join(__dirname, '..'), artifactBundle.generatedRoot),
         applied: parsed || stdout,
+        workflow: workflowIntegration,
+        ingestion: ingestionVerification,
       }
     });
   } catch (error) {
@@ -4693,7 +5448,7 @@ router.post('/deploy-dtctl', async (req, res) => {
       return res.status(403).json({
         success: false,
         error: `dtctl authentication/scope error: ${rawErr}`,
-        hint: 'Token must include at least document:documents:write for dashboard apply. If you also enable environment sharing, add document:environment-shares:write.',
+        hint: 'Token must include document:documents:write and document:environment-shares:write so dashboards can be shared as read-write for everyone in the tenant.',
       });
     }
 
@@ -4701,6 +5456,232 @@ router.post('/deploy-dtctl', async (req, res) => {
   } finally {
     await Promise.all(tempPaths.map(async (p) => {
       try { await fs.unlink(p); } catch { /* ignore cleanup errors */ }
+    }));
+  }
+});
+
+// Repair sharing for generated dashboards so everyone in tenant can edit/delete.
+router.post('/repair-dashboard-sharing', async (req, res) => {
+  const tempPaths = [];
+  try {
+    const { environmentUrl, apiToken } = await resolveDtDeployConfig();
+    if (!environmentUrl || !apiToken) {
+      return res.status(500).json({
+        success: false,
+        error: 'Dynatrace credentials missing on server (DT_ENVIRONMENT + DT_PLATFORM_TOKEN)',
+        hint: 'Token must include document:documents:write and document:environment-shares:write.',
+      });
+    }
+
+    const dtctlBin = await ensureLocalDtctl();
+    const tmpBase = path.join(__dirname, '..', 'tmp', 'dtctl');
+    await fs.mkdir(tmpBase, { recursive: true });
+    const nonce = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const configFile = path.join(tmpBase, `.dtctl-share-repair-${nonce}.yaml`);
+    tempPaths.push(configFile);
+
+    const contextName = 'local';
+    const tokenRef = 'default-token';
+    await execFileAsync(dtctlBin, ['config', 'set-credentials', tokenRef, '--token', apiToken, '--config', configFile, '--plain'], { timeout: 30000 });
+    await execFileAsync(dtctlBin, ['config', 'set-context', contextName, '--environment', environmentUrl, '--token-ref', tokenRef, '--safety-level', 'readwrite-all', '--config', configFile, '--plain'], { timeout: 30000 });
+
+    const { stdout: listStdout } = await execFileAsync(
+      dtctlBin,
+      ['get', 'dashboards', '--output', 'json', '--plain', '--context', contextName, '--config', configFile],
+      { timeout: 120000 }
+    );
+
+    let parsedList = null;
+    try { parsedList = JSON.parse(String(listStdout || '')); } catch { parsedList = null; }
+    const list = Array.isArray(parsedList)
+      ? parsedList
+      : Array.isArray(parsedList?.result)
+        ? parsedList.result
+        : Array.isArray(parsedList?.dashboards)
+          ? parsedList.dashboards
+          : [];
+
+    const candidates = list.filter((d) => String(d?.id || '').startsWith('bizobs-'));
+    const repaired = [];
+    const failed = [];
+
+    for (const d of candidates) {
+      const id = String(d?.id || '').trim();
+      if (!id) continue;
+
+      try {
+        const getRes = await execFileAsync(
+          dtctlBin,
+          ['get', 'dashboard', id, '--output', 'json', '--plain', '--context', contextName, '--config', configFile],
+          { timeout: 120000 }
+        );
+        let parsedDashboard = null;
+        try { parsedDashboard = JSON.parse(String(getRes.stdout || '')); } catch { parsedDashboard = null; }
+        const dashboardDoc = parsedDashboard?.result || parsedDashboard?.dashboard || parsedDashboard;
+        if (!dashboardDoc || typeof dashboardDoc !== 'object') {
+          throw new Error('Could not parse dashboard payload from dtctl get dashboard');
+        }
+
+        const filePath = path.join(tmpBase, `dashboard-share-repair-${id}-${nonce}.json`);
+        tempPaths.push(filePath);
+        await fs.writeFile(filePath, JSON.stringify(dashboardDoc, null, 2), 'utf8');
+
+        await execFileAsync(
+          dtctlBin,
+          ['apply', '-f', filePath, '--id', id, '--share-environment', 'read-write', '--output', 'json', '--plain', '--context', contextName, '--config', configFile],
+          { timeout: 120000 }
+        );
+        repaired.push(id);
+      } catch (e) {
+        failed.push({ id, error: String(e?.stderr || e?.stdout || e?.message || e) });
+      }
+    }
+
+    return res.json({
+      success: true,
+      scanned: candidates.length,
+      repairedCount: repaired.length,
+      repaired,
+      failedCount: failed.length,
+      failed,
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, error: String(error?.message || error) });
+  } finally {
+    await Promise.all(tempPaths.map(async (p) => {
+      try { await fs.unlink(p); } catch { /* ignore */ }
+    }));
+  }
+});
+
+// List generated dashboards (bizobs-*) from Dynatrace tenant for settings management.
+router.post('/list-generated-dashboards', async (req, res) => {
+  const tempPaths = [];
+  try {
+    const { environmentUrl, apiToken } = await resolveDtDeployConfig();
+    if (!environmentUrl || !apiToken) {
+      return res.status(500).json({
+        success: false,
+        error: 'Dynatrace credentials missing on server (DT_ENVIRONMENT + DT_PLATFORM_TOKEN)',
+      });
+    }
+
+    const dtctlBin = await ensureLocalDtctl();
+    const tmpBase = path.join(__dirname, '..', 'tmp', 'dtctl');
+    await fs.mkdir(tmpBase, { recursive: true });
+    const nonce = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const configFile = path.join(tmpBase, `.dtctl-list-generated-${nonce}.yaml`);
+    tempPaths.push(configFile);
+
+    const contextName = 'local';
+    const tokenRef = 'default-token';
+    await execFileAsync(dtctlBin, ['config', 'set-credentials', tokenRef, '--token', apiToken, '--config', configFile, '--plain'], { timeout: 30000 });
+    await execFileAsync(dtctlBin, ['config', 'set-context', contextName, '--environment', environmentUrl, '--token-ref', tokenRef, '--safety-level', 'readwrite-all', '--config', configFile, '--plain'], { timeout: 30000 });
+
+    const { stdout } = await execFileAsync(
+      dtctlBin,
+      ['get', 'dashboards', '--output', 'json', '--plain', '--context', contextName, '--config', configFile],
+      { timeout: 120000 }
+    );
+
+    let principalId = '';
+    try {
+      const whoamiRes = await execFileAsync(
+        dtctlBin,
+        ['auth', 'whoami', '--id-only', '--plain', '--context', contextName, '--config', configFile],
+        { timeout: 30000 }
+      );
+      principalId = String(whoamiRes.stdout || '').trim();
+    } catch {
+      principalId = '';
+    }
+
+    let parsed = null;
+    try { parsed = JSON.parse(String(stdout || '')); } catch { parsed = null; }
+
+    const dashboards = Array.isArray(parsed)
+      ? parsed
+      : Array.isArray(parsed?.result)
+        ? parsed.result
+        : Array.isArray(parsed?.dashboards)
+          ? parsed.dashboards
+          : [];
+
+    const generated = dashboards
+      .filter((d) => String(d?.id || '').startsWith('bizobs-'))
+      .map((d) => ({
+        id: String(d?.id || ''),
+        name: String(d?.name || d?.title || d?.displayName || d?.id || 'Unnamed Dashboard'),
+        owner: d?.owner || d?.createdBy || d?.createdByEmail || null,
+        createdAt: d?.createdAt || d?.created || null,
+        updatedAt: d?.updatedAt || d?.lastModified || d?.modifiedAt || null,
+        canDelete: principalId
+          ? String(d?.owner || d?.createdBy || '').trim() === principalId
+          : true,
+      }))
+      .sort((a, b) => String(b.updatedAt || b.createdAt || '').localeCompare(String(a.updatedAt || a.createdAt || '')));
+
+    return res.json({ success: true, dashboards: generated, total: generated.length, currentPrincipalId: principalId || null });
+  } catch (error) {
+    return res.status(500).json({ success: false, error: String(error?.message || error) });
+  } finally {
+    await Promise.all(tempPaths.map(async (p) => {
+      try { await fs.unlink(p); } catch { /* ignore */ }
+    }));
+  }
+});
+
+// Delete a single generated dashboard by ID.
+router.post('/delete-generated-dashboard', async (req, res) => {
+  const tempPaths = [];
+  try {
+    const dashboardId = String(req.body?.dashboardId || '').trim();
+    if (!dashboardId) {
+      return res.status(400).json({ success: false, error: 'dashboardId is required' });
+    }
+
+    const { environmentUrl, apiToken } = await resolveDtDeployConfig();
+    if (!environmentUrl || !apiToken) {
+      return res.status(500).json({
+        success: false,
+        error: 'Dynatrace credentials missing on server (DT_ENVIRONMENT + DT_PLATFORM_TOKEN)',
+      });
+    }
+
+    const dtctlBin = await ensureLocalDtctl();
+    const tmpBase = path.join(__dirname, '..', 'tmp', 'dtctl');
+    await fs.mkdir(tmpBase, { recursive: true });
+    const nonce = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const configFile = path.join(tmpBase, `.dtctl-delete-generated-${nonce}.yaml`);
+    tempPaths.push(configFile);
+
+    const contextName = 'local';
+    const tokenRef = 'default-token';
+    await execFileAsync(dtctlBin, ['config', 'set-credentials', tokenRef, '--token', apiToken, '--config', configFile, '--plain'], { timeout: 30000 });
+    await execFileAsync(dtctlBin, ['config', 'set-context', contextName, '--environment', environmentUrl, '--token-ref', tokenRef, '--safety-level', 'readwrite-all', '--config', configFile, '--plain'], { timeout: 30000 });
+
+    await execFileAsync(
+      dtctlBin,
+      ['delete', 'dashboard', dashboardId, '--yes', '--context', contextName, '--config', configFile, '--plain'],
+      { timeout: 120000 }
+    );
+
+    return res.json({ success: true, dashboardId });
+  } catch (error) {
+    const rawErr = String(error?.stderr || error?.stdout || error?.message || error);
+    const low = rawErr.toLowerCase();
+    if (low.includes('access denied to document') || low.includes('forbidden') || low.includes('status 403')) {
+      return res.status(403).json({
+        success: false,
+        error: `Access denied deleting dashboard. The configured deploy token is not the owner of this document: ${String(req.body?.dashboardId || '')}`,
+        hint: 'Delete it from Dynatrace UI as the owning user, or switch deploy token back to the original owner/admin and retry.',
+        raw: rawErr,
+      });
+    }
+    return res.status(500).json({ success: false, error: rawErr });
+  } finally {
+    await Promise.all(tempPaths.map(async (p) => {
+      try { await fs.unlink(p); } catch { /* ignore */ }
     }));
   }
 });

@@ -442,8 +442,8 @@ if (serviceName) {
 
 // Generic step service that can handle any step name dynamically
 function createStepService(serviceName, stepName) {
-  // Convert stepName to proper service format if needed
-  const properServiceName = getServiceNameFromStep(stepName || serviceName);
+  // Preserve explicit service identity first, fallback to step-derived naming only if absent.
+  const properServiceName = String(serviceName || '').trim() || getServiceNameFromStep(stepName);
   normalizeDynatraceTags(properServiceName, stepName);
   
   createService(properServiceName, (app) => {

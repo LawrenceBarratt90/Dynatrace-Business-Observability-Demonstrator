@@ -1,0 +1,957 @@
+{
+  "name": "International Personnal Finance - Repayment Journey",
+  "content": {
+    "tiles": {
+      "0": {
+        "type": "markdown",
+        "content": "![](https://logo.clearbit.com/internationalpersonnalfinance.com)"
+      },
+      "1": {
+        "type": "markdown",
+        "content": "# International Personnal Finance | Repayment Journey Dashboard\n\nReal-time KPI monitoring, revenue insights, and operational excellence for digital credit repayment flows."
+      },
+      "2": {
+        "type": "bubbleMap",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | filter geo.location.latitude != null and geo.location.longitude != null | summarize count = count() by geo.location.latitude, geo.location.longitude, region",
+        "visualizationSettings": {
+          "bubbleMap": {
+            "bubbleSizeField": "count",
+            "locationFields": [
+              "geo.location.latitude",
+              "geo.location.longitude"
+            ],
+            "geoOverlay": "world"
+          }
+        }
+      },
+      "3": {
+        "type": "data",
+        "query": "data record(section=\"Executive Summary\")",
+        "visualization": "singleValue",
+        "visualizationSettings": {
+          "singleValue": {
+            "colorThresholdTarget": "background",
+            "colorRules": [
+              {
+                "value": 0,
+                "color": "#1a5276"
+              },
+              {
+                "value": 1,
+                "color": "#2471a3"
+              },
+              {
+                "value": 2,
+                "color": "#2980b9"
+              }
+            ]
+          }
+        }
+      },
+      "4": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | filter (in(region, $Region) or in(\"All\", $Region) or isNull(region)) | filter (in(product, $Product) or in(\"All\", $Product) or isNull(product)) | filter (in(channel, $Channel) or in(\"All\", $Channel) or isNull(channel)) | filter (in(customer_segment, $Segment) or in(\"All\", $Segment) or isNull(customer_segment)) | summarize total_revenue = sum(loan_amount) + sum(fee_amount)",
+        "title": "Total Repayment Revenue",
+        "visualization": "singleValue",
+        "visualizationSettings": {
+          "singleValue": {
+            "colorThresholdTarget": "background",
+            "colorRules": [
+              {
+                "value": 50000,
+                "color": "#27ae60"
+              },
+              {
+                "value": 20000,
+                "color": "#f1c40f"
+              },
+              {
+                "value": 10000,
+                "color": "#e74c3c"
+              }
+            ]
+          }
+        }
+      },
+      "5": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | filter (in(region, $Region) or in(\"All\", $Region) or isNull(region)) | filter (in(product, $Product) or in(\"All\", $Product) or isNull(product)) | filter (in(channel, $Channel) or in(\"All\", $Channel) or isNull(channel)) | filter (in(customer_segment, $Segment) or in(\"All\", $Segment) or isNull(customer_segment)) | summarize successful_repayments = countIf(repayment_status == \"SUCCESS\"), total_repayments = count() | fields repayment_rate = successful_repayments / total_repayments * 100",
+        "title": "Repayment Success Rate (%)",
+        "visualization": "singleValue",
+        "visualizationSettings": {
+          "singleValue": {
+            "colorThresholdTarget": "background",
+            "colorRules": [
+              {
+                "value": 95,
+                "color": "#27ae60"
+              },
+              {
+                "value": 85,
+                "color": "#f1c40f"
+              },
+              {
+                "value": 70,
+                "color": "#e74c3c"
+              }
+            ]
+          }
+        }
+      },
+      "6": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | filter (in(region, $Region) or in(\"All\", $Region) or isNull(region)) | filter (in(product, $Product) or in(\"All\", $Product) or isNull(product)) | filter (in(channel, $Channel) or in(\"All\", $Channel) or isNull(channel)) | filter (in(customer_segment, $Segment) or in(\"All\", $Segment) or isNull(customer_segment)) | summarize avg_repayment_time = avg(repayment_duration)",
+        "title": "Average Repayment Journey Time (min)",
+        "visualization": "singleValue",
+        "visualizationSettings": {
+          "singleValue": {
+            "colorThresholdTarget": "background",
+            "colorRules": [
+              {
+                "value": 5,
+                "color": "#27ae60"
+              },
+              {
+                "value": 10,
+                "color": "#f1c40f"
+              },
+              {
+                "value": 20,
+                "color": "#e74c3c"
+              }
+            ]
+          }
+        }
+      },
+      "7": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | filter (in(region, $Region) or in(\"All\", $Region) or isNull(region)) | filter (in(product, $Product) or in(\"All\", $Product) or isNull(product)) | filter (in(channel, $Channel) or in(\"All\", $Channel) or isNull(channel)) | filter (in(customer_segment, $Segment) or in(\"All\", $Segment) or isNull(customer_segment)) | summarize overdue_count = countIf(repayment_status == \"OVERDUE\")",
+        "title": "Overdue Repayments",
+        "visualization": "singleValue",
+        "visualizationSettings": {
+          "singleValue": {
+            "colorThresholdTarget": "background",
+            "colorRules": [
+              {
+                "value": 100,
+                "color": "#27ae60"
+              },
+              {
+                "value": 500,
+                "color": "#f1c40f"
+              },
+              {
+                "value": 1000,
+                "color": "#e74c3c"
+              }
+            ]
+          }
+        }
+      },
+      "8": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | filter (in(channel, $Channel) or in(\"All\", $Channel) or isNull(channel)) | summarize count = count() by channel",
+        "title": "Channel Distribution",
+        "visualization": "donutChart",
+        "visualizationSettings": {
+          "donutChart": {
+            "categoryField": "channel",
+            "valueField": "count"
+          }
+        }
+      },
+      "9": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | filter (in(region, $Region) or in(\"All\", $Region) or isNull(region)) | makeTimeseries count = count(), bins: 20",
+        "title": "Repayment Volume Trend",
+        "visualization": "areaChart",
+        "visualizationSettings": {
+          "areaChart": {
+            "series": [
+              {
+                "field": "count",
+                "label": "Repayments"
+              }
+            ]
+          }
+        }
+      },
+      "10": {
+        "type": "data",
+        "query": "data record(section=\"Revenue & Sales\")",
+        "visualization": "singleValue",
+        "visualizationSettings": {
+          "singleValue": {
+            "colorThresholdTarget": "background",
+            "colorRules": [
+              {
+                "value": 0,
+                "color": "#935116"
+              },
+              {
+                "value": 1,
+                "color": "#b9770e"
+              },
+              {
+                "value": 2,
+                "color": "#d35400"
+              }
+            ]
+          }
+        }
+      },
+      "11": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | filter (in(region, $Region) or in(\"All\", $Region) or isNull(region)) | filter (in(product, $Product) or in(\"All\", $Product) or isNull(product)) | filter (in(channel, $Channel) or in(\"All\", $Channel) or isNull(channel)) | filter (in(customer_segment, $Segment) or in(\"All\", $Segment) or isNull(customer_segment)) | summarize avg_loan_amount = avg(loan_amount)",
+        "title": "Average Loan Amount",
+        "visualization": "singleValue",
+        "visualizationSettings": {
+          "singleValue": {
+            "colorThresholdTarget": "background",
+            "colorRules": [
+              {
+                "value": 800,
+                "color": "#27ae60"
+              },
+              {
+                "value": 400,
+                "color": "#f1c40f"
+              },
+              {
+                "value": 200,
+                "color": "#e74c3c"
+              }
+            ]
+          }
+        }
+      },
+      "12": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | filter (in(region, $Region) or in(\"All\", $Region) or isNull(region)) | summarize total_fees = sum(fee_amount)",
+        "title": "Total Fees Collected",
+        "visualization": "singleValue",
+        "visualizationSettings": {
+          "singleValue": {
+            "colorThresholdTarget": "background",
+            "colorRules": [
+              {
+                "value": 4000,
+                "color": "#27ae60"
+              },
+              {
+                "value": 2000,
+                "color": "#f1c40f"
+              },
+              {
+                "value": 1000,
+                "color": "#e74c3c"
+              }
+            ]
+          }
+        }
+      },
+      "13": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | filter (in(product, $Product) or in(\"All\", $Product) or isNull(product)) | summarize count = count() by product",
+        "title": "Product Share",
+        "visualization": "honeycomb",
+        "visualizationSettings": {
+          "honeycomb": {
+            "categoryField": "product",
+            "dataMappings": {
+              "value": "count"
+            }
+          }
+        }
+      },
+      "14": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | filter (in(region, $Region) or in(\"All\", $Region) or isNull(region)) | makeTimeseries total_revenue = sum(loan_amount) + sum(fee_amount), bins: 20",
+        "title": "Revenue Trend",
+        "visualization": "lineChart",
+        "visualizationSettings": {
+          "lineChart": {
+            "series": [
+              {
+                "field": "total_revenue",
+                "label": "Revenue"
+              }
+            ]
+          }
+        }
+      },
+      "15": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | summarize count = count() by region | sort count desc | limit 10",
+        "title": "Top Regions by Repayment Volume",
+        "visualization": "barChart",
+        "visualizationSettings": {
+          "barChart": {
+            "categoryField": "region",
+            "valueField": "count"
+          }
+        }
+      },
+      "16": {
+        "type": "data",
+        "query": "data record(section=\"Operations\")",
+        "visualization": "singleValue",
+        "visualizationSettings": {
+          "singleValue": {
+            "colorThresholdTarget": "background",
+            "colorRules": [
+              {
+                "value": 0,
+                "color": "#1e8449"
+              },
+              {
+                "value": 1,
+                "color": "#229954"
+              },
+              {
+                "value": 2,
+                "color": "#28b463"
+              }
+            ]
+          }
+        }
+      },
+      "17": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | summarize avg_processing_time = avg(processing_duration)",
+        "title": "Avg Processing Duration (min)",
+        "visualization": "singleValue",
+        "visualizationSettings": {
+          "singleValue": {
+            "colorThresholdTarget": "background",
+            "colorRules": [
+              {
+                "value": 3,
+                "color": "#27ae60"
+              },
+              {
+                "value": 7,
+                "color": "#f1c40f"
+              },
+              {
+                "value": 15,
+                "color": "#e74c3c"
+              }
+            ]
+          }
+        }
+      },
+      "18": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | summarize failed_repayments = countIf(repayment_status == \"FAILED\")",
+        "title": "Failed Repayments",
+        "visualization": "singleValue",
+        "visualizationSettings": {
+          "singleValue": {
+            "colorThresholdTarget": "background",
+            "colorRules": [
+              {
+                "value": 50,
+                "color": "#27ae60"
+              },
+              {
+                "value": 200,
+                "color": "#f1c40f"
+              },
+              {
+                "value": 400,
+                "color": "#e74c3c"
+              }
+            ]
+          }
+        }
+      },
+      "19": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | makeTimeseries avg_processing_time = avg(processing_duration), bins: 20",
+        "title": "Processing Duration Trend",
+        "visualization": "areaChart",
+        "visualizationSettings": {
+          "areaChart": {
+            "series": [
+              {
+                "field": "avg_processing_time",
+                "label": "Processing Time"
+              }
+            ]
+          }
+        }
+      },
+      "20": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | summarize count = count() by repayment_method",
+        "title": "Repayment Method Distribution",
+        "visualization": "donutChart",
+        "visualizationSettings": {
+          "donutChart": {
+            "categoryField": "repayment_method",
+            "valueField": "count"
+          }
+        }
+      },
+      "21": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | makeTimeseries failed_repayments = countIf(repayment_status == \"FAILED\"), bins: 20",
+        "title": "Failed Repayments Trend",
+        "visualization": "lineChart",
+        "visualizationSettings": {
+          "lineChart": {
+            "series": [
+              {
+                "field": "failed_repayments",
+                "label": "Failed Repayments"
+              }
+            ]
+          }
+        }
+      },
+      "22": {
+        "type": "data",
+        "query": "data record(section=\"Customer Journey\")",
+        "visualization": "singleValue",
+        "visualizationSettings": {
+          "singleValue": {
+            "colorThresholdTarget": "background",
+            "colorRules": [
+              {
+                "value": 0,
+                "color": "#6c3483"
+              },
+              {
+                "value": 1,
+                "color": "#884ea0"
+              },
+              {
+                "value": 2,
+                "color": "#a569bd"
+              }
+            ]
+          }
+        }
+      },
+      "23": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | summarize avg_app_to_repay_time = avg(application_to_repayment_duration)",
+        "title": "Avg Time: Application to Repayment (min)",
+        "visualization": "singleValue",
+        "visualizationSettings": {
+          "singleValue": {
+            "colorThresholdTarget": "background",
+            "colorRules": [
+              {
+                "value": 12,
+                "color": "#27ae60"
+              },
+              {
+                "value": 24,
+                "color": "#f1c40f"
+              },
+              {
+                "value": 48,
+                "color": "#e74c3c"
+              }
+            ]
+          }
+        }
+      },
+      "24": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | summarize count = count() by customer_segment",
+        "title": "Customer Segment Distribution",
+        "visualization": "honeycomb",
+        "visualizationSettings": {
+          "honeycomb": {
+            "categoryField": "customer_segment",
+            "dataMappings": {
+              "value": "count"
+            }
+          }
+        }
+      },
+      "25": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | makeTimeseries avg_app_to_repay_time = avg(application_to_repayment_duration), bins: 20",
+        "title": "Journey Duration Trend",
+        "visualization": "areaChart",
+        "visualizationSettings": {
+          "areaChart": {
+            "series": [
+              {
+                "field": "avg_app_to_repay_time",
+                "label": "App to Repay"
+              }
+            ]
+          }
+        }
+      },
+      "26": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | summarize count = count() by touchpoint",
+        "title": "Touchpoint Distribution",
+        "visualization": "barChart",
+        "visualizationSettings": {
+          "barChart": {
+            "categoryField": "touchpoint",
+            "valueField": "count"
+          }
+        }
+      },
+      "27": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | summarize count = count() by customer_segment | sort count desc | limit 10",
+        "title": "Top Customer Segments",
+        "visualization": "barChart",
+        "visualizationSettings": {
+          "barChart": {
+            "categoryField": "customer_segment",
+            "valueField": "count"
+          }
+        }
+      },
+      "28": {
+        "type": "data",
+        "query": "data record(section=\"Commercial & Quality\")",
+        "visualization": "singleValue",
+        "visualizationSettings": {
+          "singleValue": {
+            "colorThresholdTarget": "background",
+            "colorRules": [
+              {
+                "value": 0,
+                "color": "#1a252f"
+              },
+              {
+                "value": 1,
+                "color": "#566573"
+              },
+              {
+                "value": 2,
+                "color": "#808b96"
+              }
+            ]
+          }
+        }
+      },
+      "29": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | summarize count = countIf(quality_flag == \"PASS\")",
+        "title": "Quality Pass Count",
+        "visualization": "singleValue",
+        "visualizationSettings": {
+          "singleValue": {
+            "colorThresholdTarget": "background",
+            "colorRules": [
+              {
+                "value": 900,
+                "color": "#27ae60"
+              },
+              {
+                "value": 600,
+                "color": "#f1c40f"
+              },
+              {
+                "value": 300,
+                "color": "#e74c3c"
+              }
+            ]
+          }
+        }
+      },
+      "30": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | summarize count = countIf(quality_flag == \"FAIL\")",
+        "title": "Quality Fail Count",
+        "visualization": "singleValue",
+        "visualizationSettings": {
+          "singleValue": {
+            "colorThresholdTarget": "background",
+            "colorRules": [
+              {
+                "value": 10,
+                "color": "#27ae60"
+              },
+              {
+                "value": 50,
+                "color": "#f1c40f"
+              },
+              {
+                "value": 100,
+                "color": "#e74c3c"
+              }
+            ]
+          }
+        }
+      },
+      "31": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | makeTimeseries quality_pass = countIf(quality_flag == \"PASS\"), quality_fail = countIf(quality_flag == \"FAIL\"), bins: 20",
+        "title": "Quality Trend",
+        "visualization": "lineChart",
+        "visualizationSettings": {
+          "lineChart": {
+            "series": [
+              {
+                "field": "quality_pass",
+                "label": "Quality Pass"
+              },
+              {
+                "field": "quality_fail",
+                "label": "Quality Fail"
+              }
+            ]
+          }
+        }
+      },
+      "32": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | summarize count = count() by compliance_status",
+        "title": "Compliance Status Distribution",
+        "visualization": "donutChart",
+        "visualizationSettings": {
+          "donutChart": {
+            "categoryField": "compliance_status",
+            "valueField": "count"
+          }
+        }
+      },
+      "33": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | makeTimeseries compliance_fail = countIf(compliance_status == \"FAIL\"), bins: 20",
+        "title": "Compliance Failures Trend",
+        "visualization": "areaChart",
+        "visualizationSettings": {
+          "areaChart": {
+            "series": [
+              {
+                "field": "compliance_fail",
+                "label": "Compliance Failures"
+              }
+            ]
+          }
+        }
+      },
+      "34": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | summarize count = count() by ancillary_product",
+        "title": "Ancillary Product Share",
+        "visualization": "honeycomb",
+        "visualizationSettings": {
+          "honeycomb": {
+            "categoryField": "ancillary_product",
+            "dataMappings": {
+              "value": "count"
+            }
+          }
+        }
+      },
+      "35": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | filter compliance_status == \"FAIL\" | fields loan_id, customer_id, compliance_issue, region, product | limit 20",
+        "title": "Compliance Failures (Detail)",
+        "visualization": "table",
+        "visualizationSettings": {
+          "table": {
+            "columns": [
+              "loan_id",
+              "customer_id",
+              "compliance_issue",
+              "region",
+              "product"
+            ],
+            "limit": 20
+          }
+        }
+      }
+    },
+    "layouts": {
+      "0": {
+        "x": 0,
+        "y": 0,
+        "w": 6,
+        "h": 2
+      },
+      "1": {
+        "x": 6,
+        "y": 0,
+        "w": 18,
+        "h": 2
+      },
+      "2": {
+        "x": 0,
+        "y": 2,
+        "w": 24,
+        "h": 8
+      },
+      "3": {
+        "x": 0,
+        "y": 10,
+        "w": 24,
+        "h": 1
+      },
+      "4": {
+        "x": 0,
+        "y": 11,
+        "w": 6,
+        "h": 2
+      },
+      "5": {
+        "x": 6,
+        "y": 11,
+        "w": 6,
+        "h": 2
+      },
+      "6": {
+        "x": 12,
+        "y": 11,
+        "w": 6,
+        "h": 2
+      },
+      "7": {
+        "x": 18,
+        "y": 11,
+        "w": 6,
+        "h": 2
+      },
+      "8": {
+        "x": 0,
+        "y": 13,
+        "w": 8,
+        "h": 4
+      },
+      "9": {
+        "x": 8,
+        "y": 13,
+        "w": 8,
+        "h": 4
+      },
+      "10": {
+        "x": 0,
+        "y": 17,
+        "w": 24,
+        "h": 1
+      },
+      "11": {
+        "x": 0,
+        "y": 18,
+        "w": 6,
+        "h": 2
+      },
+      "12": {
+        "x": 6,
+        "y": 18,
+        "w": 6,
+        "h": 2
+      },
+      "13": {
+        "x": 12,
+        "y": 18,
+        "w": 6,
+        "h": 2
+      },
+      "14": {
+        "x": 18,
+        "y": 18,
+        "w": 6,
+        "h": 2
+      },
+      "15": {
+        "x": 0,
+        "y": 20,
+        "w": 8,
+        "h": 4
+      },
+      "16": {
+        "x": 8,
+        "y": 20,
+        "w": 8,
+        "h": 4
+      },
+      "17": {
+        "x": 0,
+        "y": 24,
+        "w": 24,
+        "h": 1
+      },
+      "18": {
+        "x": 0,
+        "y": 25,
+        "w": 6,
+        "h": 2
+      },
+      "19": {
+        "x": 6,
+        "y": 25,
+        "w": 6,
+        "h": 2
+      },
+      "20": {
+        "x": 12,
+        "y": 25,
+        "w": 6,
+        "h": 2
+      },
+      "21": {
+        "x": 18,
+        "y": 25,
+        "w": 6,
+        "h": 2
+      },
+      "22": {
+        "x": 0,
+        "y": 27,
+        "w": 8,
+        "h": 4
+      },
+      "23": {
+        "x": 8,
+        "y": 27,
+        "w": 8,
+        "h": 4
+      },
+      "24": {
+        "x": 16,
+        "y": 27,
+        "w": 8,
+        "h": 4
+      },
+      "25": {
+        "x": 0,
+        "y": 31,
+        "w": 24,
+        "h": 1
+      },
+      "26": {
+        "x": 0,
+        "y": 32,
+        "w": 6,
+        "h": 2
+      },
+      "27": {
+        "x": 6,
+        "y": 32,
+        "w": 6,
+        "h": 2
+      },
+      "28": {
+        "x": 12,
+        "y": 32,
+        "w": 6,
+        "h": 2
+      },
+      "29": {
+        "x": 18,
+        "y": 32,
+        "w": 6,
+        "h": 2
+      },
+      "30": {
+        "x": 0,
+        "y": 34,
+        "w": 8,
+        "h": 4
+      },
+      "31": {
+        "x": 8,
+        "y": 34,
+        "w": 8,
+        "h": 4
+      },
+      "32": {
+        "x": 16,
+        "y": 34,
+        "w": 8,
+        "h": 4
+      },
+      "33": {
+        "x": 0,
+        "y": 38,
+        "w": 8,
+        "h": 4
+      },
+      "34": {
+        "x": 8,
+        "y": 38,
+        "w": 8,
+        "h": 4
+      },
+      "35": {
+        "x": 16,
+        "y": 38,
+        "w": 8,
+        "h": 5
+      }
+    },
+    "variables": [
+      {
+        "name": "Event Provider",
+        "key": "EventProvider",
+        "type": "query",
+        "multiple": false,
+        "input": "data record(value = \"International Personnal Finance\")",
+        "defaultValue": "International Personnal Finance"
+      },
+      {
+        "name": "Journey Type",
+        "key": "JourneyType",
+        "type": "query",
+        "multiple": false,
+        "input": "fetch bizevents | filter json.companyName == $EventProvider | fields json.journeyType | filter isNotNull(json.journeyType)| dedup json.journeyType",
+        "defaultValue": "Repayment Journey"
+      },
+      {
+        "name": "Region",
+        "type": "query",
+        "multiple": true,
+        "query": "fetch bizevents | filter event.provider == \"internationalpersonnalfinance.event.provider\" | dedup region | fields region",
+        "key": "Region",
+        "input": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | dedup region | fields region"
+      },
+      {
+        "name": "Product",
+        "type": "query",
+        "multiple": true,
+        "query": "fetch bizevents | filter event.provider == \"internationalpersonnalfinance.event.provider\" | dedup product | fields product",
+        "key": "Product",
+        "input": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | dedup product | fields product"
+      },
+      {
+        "name": "Channel",
+        "type": "query",
+        "multiple": true,
+        "query": "fetch bizevents | filter event.provider == \"internationalpersonnalfinance.event.provider\" | dedup channel | fields channel",
+        "key": "Channel",
+        "input": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | dedup channel | fields channel"
+      },
+      {
+        "name": "Segment",
+        "type": "query",
+        "multiple": true,
+        "query": "fetch bizevents | filter event.provider == \"internationalpersonnalfinance.event.provider\" | dedup customer_segment | fields customer_segment",
+        "key": "Segment",
+        "input": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | dedup customer_segment | fields customer_segment"
+      }
+    ],
+    "settings": {
+      "defaultTimeframe": {
+        "value": {
+          "from": "now()-2h",
+          "to": "now()"
+        },
+        "enabled": true
+      }
+    },
+    "annotations": [],
+    "version": 21
+  },
+  "type": "dashboard",
+  "version": 1,
+  "metadata": {
+    "company": "International Personnal Finance",
+    "journeyType": "Repayment Journey"
+  }
+}

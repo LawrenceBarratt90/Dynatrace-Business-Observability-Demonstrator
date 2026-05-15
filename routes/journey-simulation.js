@@ -1085,10 +1085,11 @@ router.post('/simulate-journey', async (req, res) => {
     console.log(`[journey-sim] Simplified additionalFields:`, currentPayload.additionalFields);
     console.log(`[journey-sim] Company: ${currentPayload.companyName}, Domain: ${currentPayload.domain}`);
 
-    // ── Duplicate journey detection ──────────────────────────────────────────
-    // Prevent creating a journey that is identical (same company + same step set)
-    // to one that is already running.  Works for both manual and git/repo launches.
-    {
+    // ── Duplicate journey detection (opt-in) ────────────────────────────────
+    // Default behavior allows relaunching the same journey configuration.
+    // Set ENABLE_STRICT_DUPLICATE_BLOCK=true to re-enable strict blocking.
+    const strictDuplicateBlockEnabled = String(process.env.ENABLE_STRICT_DUPLICATE_BLOCK || '').toLowerCase() === 'true';
+    if (strictDuplicateBlockEnabled) {
       const incomingCompany = String(currentPayload.companyName || '').trim().toLowerCase();
       const incomingSteps = stepData
         .map(s => String(s.stepName || '').trim().toLowerCase())

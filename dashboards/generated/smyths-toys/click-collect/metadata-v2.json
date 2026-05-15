@@ -1,0 +1,15 @@
+{
+  "version": 2,
+  "company": "Smyths Toys",
+  "journeyType": "Click & Collect",
+  "dashboardId": "bizobs-smyths-toys-click---collect",
+  "dashboardUrl": "/ui/apps/dynatrace.dashboards/dashboard/bizobs-smyths-toys-click---collect",
+  "dashboardName": "Smyths Toys - Click & Collect",
+  "generationMethod": "direct-dtctl",
+  "generatedAt": "2026-05-12T14:41:05.716Z",
+  "tileCount": 36,
+  "artifactFiles": {
+    "dashboard": "dashboards/generated/smyths-toys/click-collect/dashboard-v2.json",
+    "metadata": "dashboards/generated/smyths-toys/click-collect/metadata-v2.json"
+  }
+}

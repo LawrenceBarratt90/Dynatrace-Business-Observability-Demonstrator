@@ -6,13 +6,11 @@
 
 import fs from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
 import { config } from '../../utils/config.js';
 import { createLogger } from '../../utils/logger.js';
 import { withGenAISpan } from '../../utils/otelTracing.js';
 
 const log = createLogger('librarian');
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // ─── Types ────────────────────────────────────────────────────
 
@@ -96,11 +94,13 @@ function cosine(a: number[], b: number[]): number {
 export class VectorStore {
   private entries: VectorEntry[] = [];
   private filePath: string;
+  private dirPath: string;
 
   constructor(storeName = 'default') {
-    const dir = path.resolve(__dirname, 'data');
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    this.filePath = path.join(dir, `${storeName}.json`);
+    // Use configured memory location so runtime never writes into dist/.
+    this.dirPath = path.resolve(process.cwd(), config.memory.vectorDir);
+    if (!fs.existsSync(this.dirPath)) fs.mkdirSync(this.dirPath, { recursive: true });
+    this.filePath = path.join(this.dirPath, `${storeName}.json`);
     this.load();
   }
 

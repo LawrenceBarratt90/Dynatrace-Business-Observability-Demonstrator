@@ -8,9 +8,14 @@ import { workflowsClient } from '@dynatrace-sdk/client-automation';
 import { settingsObjectsClient, credentialVaultClient } from '@dynatrace-sdk/client-classic-environment-v2';
 import { documentsClient, environmentSharesClient } from '@dynatrace-sdk/client-document';
 import { queryExecutionClient } from '@dynatrace-sdk/client-query';
+import {
+  buildDashboardGenerationPrompt,
+  extractDashboardJson,
+  validateDashboardJson,
+} from './dashboard-generator';
 
 interface ProxyPayload {
-  action: 'simulate-journey' | 'simulate-vcarb-race' | 'vcarb-race-status' | 'stop-vcarb-race' | 'get-saved-config' | 'test-connection' | 'get-services' | 'stop-all-services' | 'stop-company-services' | 'get-dormant-services' | 'clear-dormant-services' | 'clear-company-dormant' | 'chaos-get-active' | 'chaos-get-recipes' | 'chaos-inject' | 'chaos-revert' | 'chaos-revert-all' | 'chaos-get-targeted' | 'chaos-remove-target' | 'chaos-smart' | 'ec-create' | 'ec-update-patterns' | 'detect-builtin-settings' | 'deploy-builtin-settings' | 'deploy-workflow' | 'debug-builtin-schema' | 'generate-dashboard' | 'generate-dashboard-async' | 'get-dashboard-status' | 'deploy-dashboard' | 'mcp-generate-deploy-dashboard' | 'generate-deploy-dashboard' | 'preflight-dtctl' | 'list-saved-dashboards' | 'load-saved-dashboard' | 'delete-saved-dashboard' | 'deploy-business-flow' | 'list-business-flows' | 'delete-business-flows' | 'generate-pdf' | 'generate-doc' | 'load-app-settings' | 'save-app-settings' | 'check-journey-assets' | 'create-notebook' | 'execute-dql' | 'demonstrator-ai-tiles' | 'demonstrator-tiles-status' | 'field-repo-get' | 'librarian-history' | 'librarian-stats' | 'librarian-analyze' | 'system-health' | 'system-cleanup' | 'github-copilot-generate' | 'github-copilot-check-credential' | 'github-copilot-save-credential' | 'github-copilot-list-models' | 'github-journey-commit' | 'github-create-issue' | 'ui-audit';
+  action: 'simulate-journey' | 'simulate-vcarb-race' | 'vcarb-race-status' | 'stop-vcarb-race' | 'get-saved-config' | 'test-connection' | 'get-services' | 'stop-all-services' | 'stop-company-services' | 'get-dormant-services' | 'clear-dormant-services' | 'clear-company-dormant' | 'chaos-get-active' | 'chaos-get-recipes' | 'chaos-inject' | 'chaos-revert' | 'chaos-revert-all' | 'chaos-get-targeted' | 'chaos-remove-target' | 'chaos-smart' | 'ec-create' | 'ec-update-patterns' | 'detect-builtin-settings' | 'deploy-builtin-settings' | 'deploy-workflow' | 'debug-builtin-schema' | 'generate-dashboard' | 'generate-dashboard-async' | 'get-dashboard-status' | 'deploy-dashboard' | 'mcp-generate-deploy-dashboard' | 'generate-deploy-dashboard' | 'preflight-dtctl' | 'list-saved-dashboards' | 'load-saved-dashboard' | 'delete-saved-dashboard' | 'deploy-business-flow' | 'list-business-flows' | 'delete-business-flows' | 'generate-pdf' | 'generate-doc' | 'load-app-settings' | 'save-app-settings' | 'check-journey-assets' | 'create-notebook' | 'execute-dql' | 'demonstrator-ai-tiles' | 'demonstrator-tiles-status' | 'field-repo-get' | 'librarian-history' | 'librarian-stats' | 'librarian-analyze' | 'system-health' | 'system-cleanup' | 'dynatrace-assist-generate' | 'github-copilot-generate' | 'github-copilot-check-credential' | 'github-copilot-save-credential' | 'github-copilot-list-models' | 'github-journey-commit' | 'github-create-issue' | 'ui-audit' | 'repair-dashboard-sharing' | 'list-generated-dashboards' | 'delete-generated-dashboard' | 'transfer-dashboard-ownership';
   apiHost: string;
   apiPort: string;
   apiProtocol: string;
@@ -25,15 +30,15 @@ async function discoverBizEventFieldsViaSDK(company: string, journeyType: string
   try {
     const safeCompany = company.replace(/["\\]/g, '');
     const safeJourney = journeyType.replace(/["\\]/g, '');
-    // Fetch 1 recent bizevent WITHOUT a | fields clause — this returns ALL columns
+    // Fetch recent bizevents WITHOUT a | fields clause — this returns ALL columns
     // including every additionalfields.* the customer has, no matter what they named them.
-    // We only need 1 record since all records share the same schema/fields.
+    // Use multiple records so sparse fields still get discovered.
     const dql = `fetch bizevents
 | filter event.kind == "BIZ_EVENT"
 | filter json.companyName == "${safeCompany}"
 | filter json.journeyType == "${safeJourney}"
 | sort timestamp desc
-| limit 1`;
+  | limit 5`;
 
     console.log(`[proxy-api] Discovering bizevent fields for ${company} / ${journeyType}...`);
 
@@ -41,7 +46,7 @@ async function discoverBizEventFieldsViaSDK(company: string, journeyType: string
       body: {
         query: dql,
         requestTimeoutMilliseconds: 15000,
-        maxResultRecords: 1,
+        maxResultRecords: 5,
       },
     });
 
@@ -51,23 +56,28 @@ async function discoverBizEventFieldsViaSDK(company: string, journeyType: string
       return [];
     }
 
-    // Extract field names, types, and sample values from the single record
-    const record = records[0];
-    const result: {name: string, type: 'string'|'numeric', sampleValue?: string|number}[] = [];
-    if (record && typeof record === 'object') {
+    // Extract field names, types, and sample values across sampled records.
+    const discovered = new Map<string, {name: string, type: 'string'|'numeric', sampleValue?: string|number}>();
+    for (const record of records) {
+      if (!record || typeof record !== 'object') continue;
       for (const [key, value] of Object.entries(record)) {
-        if (value !== null && value !== undefined && value !== '' && key.startsWith('additionalfields.')) {
-          const fieldName = key.replace('additionalfields.', '');
-          const strVal = String(value);
-          const isNumeric = !isNaN(Number(strVal)) && strVal.trim() !== '';
-          result.push({
+        if (value === null || value === undefined || value === '' || !key.startsWith('additionalfields.')) continue;
+        const fieldName = key.replace('additionalfields.', '');
+        const strVal = String(value);
+        const isNumeric = !isNaN(Number(strVal)) && strVal.trim() !== '';
+        const existing = discovered.get(fieldName);
+        if (!existing) {
+          discovered.set(fieldName, {
             name: fieldName,
             type: isNumeric ? 'numeric' : 'string',
             sampleValue: isNumeric ? Number(strVal) : strVal,
           });
+        } else if (existing.sampleValue === undefined) {
+          existing.sampleValue = isNumeric ? Number(strVal) : strVal;
         }
       }
     }
+    const result = Array.from(discovered.values());
 
     console.log(`[proxy-api] Discovered ${result.length} fields: ${result.map(f => `${f.name}(${f.type}=${f.sampleValue})`).join(', ')}`);
     return result;
@@ -249,6 +259,177 @@ export default async function (payload: ProxyPayload) {
     throw lastErr;
   };
 
+  // Deploy dashboard via Documents SDK so ownership is the active AppEngine principal.
+  const deployDashboardWithDocumentsSdk = async (input: {
+    dashboard: any;
+    company?: string;
+    journeyType?: string;
+    userEmail?: string;
+    userName?: string;
+    generationMethod?: string;
+  }): Promise<{
+    success: boolean;
+    data?: {
+      dashboardId: string;
+      dashboardName: string;
+      dashboardUrl: string;
+      alreadyExisted: boolean;
+      method: string;
+      tileCount: number;
+    };
+    error?: string;
+    code?: number | string;
+  }> => {
+    const toSlug = (value?: string) =>
+      String(value || '')
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9-]+/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/^-|-$/g, '');
+    const getErrorCode = (error: any): number | string | undefined =>
+      error?.body?.error?.code || error?.statusCode || error?.code;
+    const isNotFoundError = (error: any): boolean => {
+      const code = getErrorCode(error);
+      const msg = String(error?.message || '').toLowerCase();
+      return code === 404 || error?.name === 'DocumentOrSnapshotNotFound' || msg.includes('not found');
+    };
+
+    try {
+      const company = String(input.company || '').trim();
+      const journeyType = String(input.journeyType || '').trim();
+      const companySlug = toSlug(company);
+      const journeySlug = toSlug(journeyType);
+
+      const dashInput = input.dashboard || {};
+      const dashboardName = String(
+        dashInput?.name ||
+        dashInput?.content?.name ||
+        (company && journeyType ? `${company} - ${journeyType}` : 'Generated Dashboard')
+      ).trim();
+
+      const dashboardId = String(
+        dashInput?.id ||
+        dashInput?.content?.id ||
+        (companySlug && journeySlug ? `bizobs-${companySlug}-${journeySlug}` : `bizobs-${toSlug(dashboardName)}`)
+      ).trim();
+
+      const rawContent = dashInput?.content?.tiles
+        ? dashInput.content
+        : (dashInput?.tiles ? dashInput : (dashInput?.content || dashInput));
+      const contentWithMetadata = {
+        ...rawContent,
+        metadata: {
+          ...(rawContent?.metadata || {}),
+          companyName: company || undefined,
+          journeyType: journeyType || undefined,
+          generatedBy: 'appengine-documents-sdk',
+          generationMethod: String(input.generationMethod || rawContent?.metadata?.generationMethod || 'copilot-appengine').trim(),
+          createdByEmail: String(input.userEmail || '').trim() || undefined,
+          createdByName: String(input.userName || '').trim() || undefined,
+          generatedAt: new Date().toISOString(),
+        },
+      };
+
+      const tileCount = Object.keys(contentWithMetadata?.tiles || {}).length;
+      const blob = new Blob([JSON.stringify(contentWithMetadata)], { type: 'application/json' });
+      let alreadyExisted = false;
+      let dashboardIdFinal = dashboardId;
+
+      try {
+        const existing = await documentsClient.getDocument({ id: dashboardId });
+        await documentsClient.updateDocument({
+          id: dashboardId,
+          optimisticLockingVersion: existing?.metadata?.version,
+          body: {
+            name: dashboardName,
+            type: 'dashboard',
+            content: blob,
+            isPrivate: false,
+          },
+        });
+        alreadyExisted = true;
+      } catch (err: any) {
+        if (!isNotFoundError(err)) {
+          const code = getErrorCode(err);
+          return {
+            success: false,
+            error: err?.message || 'Failed to update dashboard document',
+            code,
+          };
+        }
+
+        try {
+          await documentsClient.createDocument({
+            body: {
+              id: dashboardId,
+              name: dashboardName,
+              type: 'dashboard',
+              content: blob,
+            },
+          });
+        } catch (createErr: any) {
+          const createCode = getErrorCode(createErr);
+          const createMsg = String(createErr?.message || '').toLowerCase();
+          const idConflict = createCode === 409 || createMsg.includes('already exists') || createMsg.includes('document with id');
+          if (!idConflict) {
+            return {
+              success: false,
+              error: createErr?.message || 'Failed to create dashboard document',
+              code: createCode,
+            };
+          }
+
+          // Fallback for hidden/tombstoned/conflicting IDs that are not resolvable from this principal.
+          const suffix = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+          dashboardIdFinal = `${dashboardId}-${suffix}`;
+          await documentsClient.createDocument({
+            body: {
+              id: dashboardIdFinal,
+              name: dashboardName,
+              type: 'dashboard',
+              content: blob,
+            },
+          });
+        }
+      }
+
+      try {
+        await environmentSharesClient.createEnvironmentShare({
+          body: { documentId: dashboardIdFinal, access: 'read-write' },
+        });
+      } catch {
+        // Share may already exist; ignore.
+      }
+
+      try {
+        const created = await documentsClient.getDocument({ id: dashboardIdFinal });
+        await documentsClient.updateDocument({
+          id: dashboardIdFinal,
+          optimisticLockingVersion: created?.metadata?.version,
+          body: { isPrivate: false },
+        });
+      } catch {
+        // Best-effort visibility update.
+      }
+
+      return {
+        success: true,
+        data: {
+          dashboardId: dashboardIdFinal,
+          dashboardName,
+          dashboardUrl: `/ui/apps/dynatrace.dashboards/?query=${encodeURIComponent(dashboardIdFinal)}`,
+          alreadyExisted,
+          method: 'documents-sdk-user',
+          tileCount,
+        },
+      };
+    } catch (error: any) {
+      const code = error?.body?.error?.code || error?.statusCode || error?.code;
+      return { success: false, error: error?.message || 'Failed to deploy dashboard via Documents SDK', code };
+    }
+  };
+
   if (shouldEmitUsageAudit) {
     await emitProxyUsageAudit('requested', 'started', 202);
   }
@@ -347,12 +528,75 @@ export default async function (payload: ProxyPayload) {
     }
 
     if (action === 'get-services') {
-      const healthRes = await fetchWithRetry(`${baseUrl}/api/health`, {
+      const mapLegacyServicesToChildServices = (services: any[]): any[] =>
+        (services || []).map((svc: any) => ({
+          service: svc.service || svc.serviceName || 'unknown',
+          pid: svc.pid ?? null,
+          port: svc.port ?? null,
+          companyName: svc.companyName || svc.companyContext?.companyName || 'unknown',
+          domain: svc.domain || svc.companyContext?.domain || null,
+          industryType: svc.industryType || svc.companyContext?.industryType || null,
+          journeyType: svc.journeyType || null,
+          journeyDetail: svc.journeyDetail || null,
+          stepName: svc.stepName || svc.baseServiceName || svc.service || svc.serviceName || 'unknown',
+          baseServiceName: svc.baseServiceName || svc.stepName || svc.service || svc.serviceName || 'unknown',
+          createdByUserEmail: svc.createdByUserEmail || null,
+          createdByUserName: svc.createdByUserName || null,
+          startTime: svc.startTime || null,
+        }));
+
+      try {
+        const healthRes = await fetchWithRetry(`${baseUrl}/api/health`, {
+          method: 'GET',
+          signal: AbortSignal.timeout(30000),
+        });
+        const data = await healthRes.json();
+
+        if (Array.isArray(data?.childServices)) {
+          return { success: healthRes.ok, status: healthRes.status, data };
+        }
+
+        if (Array.isArray(data?.services)) {
+          return {
+            success: healthRes.ok,
+            status: healthRes.status,
+            data: { ...data, childServices: mapLegacyServicesToChildServices(data.services) },
+          };
+        }
+      } catch {
+        // Fall through to admin endpoint compatibility checks.
+      }
+
+      try {
+        const statusRes = await fetchWithRetry(`${baseUrl}/api/admin/services/status`, {
+          method: 'GET',
+          signal: AbortSignal.timeout(30000),
+        });
+        const statusData = await statusRes.json();
+        if (Array.isArray(statusData?.services)) {
+          return {
+            success: statusRes.ok,
+            status: statusRes.status,
+            data: { childServices: mapLegacyServicesToChildServices(statusData.services), source: 'admin-services-status' },
+          };
+        }
+      } catch {
+        // Fall through to simplest endpoint.
+      }
+
+      const legacyRes = await fetchWithRetry(`${baseUrl}/api/admin/services`, {
         method: 'GET',
         signal: AbortSignal.timeout(30000),
       });
-      const data = await healthRes.json();
-      return { success: true, status: healthRes.status, data };
+      const legacyData = await legacyRes.json();
+      return {
+        success: legacyRes.ok,
+        status: legacyRes.status,
+        data: {
+          childServices: Array.isArray(legacyData?.services) ? mapLegacyServicesToChildServices(legacyData.services) : [],
+          source: 'admin-services',
+        },
+      };
     }
 
     if (action === 'stop-all-services') {
@@ -377,12 +621,20 @@ export default async function (payload: ProxyPayload) {
     }
 
     if (action === 'get-dormant-services') {
-      const res = await fetchWithRetry(`${baseUrl}/api/admin/services/dormant`, {
-        method: 'GET',
-        signal: AbortSignal.timeout(8000),
-      });
-      const data = await res.json();
-      return { success: true, status: res.status, data };
+      try {
+        const res = await fetchWithRetry(`${baseUrl}/api/admin/services/dormant`, {
+          method: 'GET',
+          signal: AbortSignal.timeout(8000),
+        });
+        const data = await res.json();
+        if (res.status === 404) {
+          return { success: true, status: res.status, data: { dormantServices: [], count: 0, source: 'not-supported' } };
+        }
+        return { success: res.ok, status: res.status, data };
+      } catch {
+        // Older backend variants may not expose dormant endpoint.
+        return { success: true, status: 200, data: { dormantServices: [], count: 0, source: 'fallback-empty' } };
+      }
     }
 
     if (action === 'clear-dormant-services') {
@@ -412,13 +664,13 @@ export default async function (payload: ProxyPayload) {
     if (action === 'chaos-get-active') {
       const res = await fetchWithRetry(`${baseUrl}/api/gremlin/active`, { method: 'GET', signal: AbortSignal.timeout(8000) });
       const data = await res.json();
-      return { success: true, status: res.status, data };
+      return { success: res.ok, status: res.status, data };
     }
 
     if (action === 'chaos-get-recipes') {
       const res = await fetchWithRetry(`${baseUrl}/api/gremlin/recipes`, { method: 'GET', signal: AbortSignal.timeout(8000) });
       const data = await res.json();
-      return { success: true, status: res.status, data };
+      return { success: res.ok, status: res.status, data };
     }
 
     if (action === 'chaos-inject') {
@@ -429,18 +681,29 @@ export default async function (payload: ProxyPayload) {
         signal: AbortSignal.timeout(15000),
       });
       const data = await res.json();
-      return { success: true, status: res.status, data };
+      const opSuccess = res.ok && !data?.error;
+      return { success: opSuccess, status: res.status, data, error: opSuccess ? undefined : (data?.error || `Chaos inject failed (${res.status})`) };
     }
 
     if (action === 'chaos-revert') {
       const { faultId } = body as { faultId: string };
-      const res = await fetchWithRetry(`${baseUrl}/api/gremlin/revert/${encodeURIComponent(faultId)}`, {
+      const resolvedFaultId = String(faultId || '').trim();
+      if (!resolvedFaultId) {
+        return {
+          success: false,
+          status: 400,
+          data: { success: false, error: 'Missing faultId' },
+          error: 'Missing faultId for chaos-revert',
+        };
+      }
+      const res = await fetchWithRetry(`${baseUrl}/api/gremlin/revert/${encodeURIComponent(resolvedFaultId)}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         signal: AbortSignal.timeout(8000),
       });
       const data = await res.json();
-      return { success: true, status: res.status, data };
+      const opSuccess = res.ok && data?.success !== false;
+      return { success: opSuccess, status: res.status, data, error: opSuccess ? undefined : (data?.error || `Chaos revert failed (${res.status})`) };
     }
 
     if (action === 'chaos-revert-all') {
@@ -450,13 +713,15 @@ export default async function (payload: ProxyPayload) {
         signal: AbortSignal.timeout(15000),
       });
       const data = await res.json();
-      return { success: true, status: res.status, data };
+      const failedCount = Number(data?.failed || 0);
+      const opSuccess = res.ok && failedCount === 0;
+      return { success: opSuccess, status: res.status, data, error: opSuccess ? undefined : (data?.error || `Chaos revert-all completed with ${failedCount} failures`) };
     }
 
     if (action === 'chaos-get-targeted') {
       const res = await fetchWithRetry(`${baseUrl}/api/feature_flag/services`, { method: 'GET', signal: AbortSignal.timeout(8000) });
       const data = await res.json();
-      return { success: true, status: res.status, data };
+      return { success: res.ok, status: res.status, data };
     }
 
     if (action === 'chaos-remove-target') {
@@ -466,7 +731,8 @@ export default async function (payload: ProxyPayload) {
         signal: AbortSignal.timeout(8000),
       });
       const data = await res.json();
-      return { success: true, status: res.status, data };
+      const opSuccess = res.ok && data?.success !== false;
+      return { success: opSuccess, status: res.status, data, error: opSuccess ? undefined : (data?.error || `Remove targeted override failed (${res.status})`) };
     }
 
     if (action === 'chaos-smart') {
@@ -1430,14 +1696,37 @@ export default async function (payload: ProxyPayload) {
 
     if (action === 'deploy-dashboard') {
       try {
-        const res = await fetchWithRetry(`${baseUrl}/api/ai-dashboard/deploy-dtctl`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body || {}),
-          signal: AbortSignal.timeout(180000),
+        const b = (body || {}) as any;
+        if (!b?.dashboard) {
+          return { success: false, status: 400, error: 'dashboard payload is required' };
+        }
+
+        const sdkDeploy = await deployDashboardWithDocumentsSdk({
+          dashboard: b.dashboard,
+          company: b.company,
+          journeyType: b.journeyType,
+          userEmail,
+          userName,
+          generationMethod: b.dashboard?.metadata?.generationMethod || b.generationMethod || 'manual-deploy',
         });
-        const data = await res.json();
-        return { success: res.ok, status: res.status, data };
+
+        if (!sdkDeploy.success) {
+          return {
+            success: false,
+            status: 403,
+            error: sdkDeploy.error || 'Dashboard deploy failed (Documents SDK)',
+            code: sdkDeploy.code || 'DOCS_DEPLOY_FAILED',
+          };
+        }
+
+        return {
+          success: true,
+          status: 200,
+          data: {
+            success: true,
+            data: sdkDeploy.data,
+          },
+        };
       } catch (error: any) {
         console.error('[proxy-api] direct dashboard deploy error:', error.message);
         return { success: false, status: 0, error: error.message };
@@ -1522,91 +1811,19 @@ export default async function (payload: ProxyPayload) {
 
         const hasCustomPrompt = !!customPrompt;
         const sanitizedCustomPrompt = hasCustomPrompt ? String(customPrompt).slice(0, 1200) : '';
-        console.log(`[proxy-api] Generate+deploy (Copilot): ${company} / ${journeyType}${hasCustomPrompt ? ` (custom prompt: "${sanitizedCustomPrompt.substring(0, 60)}...")` : ''}`);
+        console.log(`[proxy-api] Generate+deploy (Opus via external generator): ${company} / ${journeyType}${hasCustomPrompt ? ` (custom focus: "${sanitizedCustomPrompt.substring(0, 60)}...")` : ''}`);
 
         // Step 1: Discover existing BizEvent fields for this journey
         const discoveredFields = await discoverBizEventFieldsViaSDK(company, journeyType);
-        const numericFields = (discoveredFields || []).filter(f => f.type === 'numeric').map(f => `${f.name} (e.g. ${f.sampleValue})`);
-        const stringFields = (discoveredFields || []).filter(f => f.type === 'string').map(f => `${f.name} (e.g. "${f.sampleValue}")`);
-        const hasGeo = (discoveredFields || []).some(f => f.name.includes('lat') || f.name.includes('lon') || f.name.includes('geo') || f.name.includes('location'));
-        const eventProvider = `${company.toLowerCase().replace(/[^a-z0-9]/g, '')}.event.provider`;
 
-        // Step 2: Build the AGENTS.md-quality prompt for a Gen 3 KPI dashboard
-        const fieldContext = discoveredFields && discoveredFields.length > 0
-          ? `\n\nDISCOVERED BIZEVENT FIELDS (use these in DQL queries):\n- Numeric fields: ${numericFields.length > 0 ? numericFields.join(', ') : 'none found'}\n- String/categorical fields: ${stringFields.length > 0 ? stringFields.join(', ') : 'none found'}\n- Has geo coordinates: ${hasGeo}\n\nFilter all tiles with: | filter event.provider == "${eventProvider}"` 
-          : `\n\nNo historical BizEvents found yet — generate the dashboard using business-appropriate field names for ${company}'s ${journeyType} journey. Filter all tiles with: | filter event.provider == "${eventProvider}"`;
+        // Step 2: Build prompt using the improved template from _external/dynatrace-kpi-dashboard-generator
+        const generationPrompt = buildDashboardGenerationPrompt(
+          company,
+          journeyType,
+          discoveredFields,
+          sanitizedCustomPrompt || undefined
+        );
 
-        const customDirective = hasCustomPrompt 
-          ? `\n\nUSER FOCUS REQUEST (highest priority — shape all sections and tiles around this): "${sanitizedCustomPrompt}"\n` 
-          : '';
-
-        const generationPrompt = `You are a Dynatrace Solutions Engineer building a Gen 3 KPI dashboard for ${company} - ${journeyType}.${customDirective}
-
-Research 15-20 industry-specific KPIs relevant to ${company}'s ${journeyType} business domain. Then produce a complete Dynatrace Gen 3 dashboard JSON.${fieldContext}
-
-MANDATORY STRUCTURAL RULES (follow exactly):
-
-1. HEADER — two side-by-side markdown tiles (NOT one combined):
-   Tile "0": type "markdown", content "![](https://logo.clearbit.com/${company.toLowerCase().replace(/\s+/g, '')}.com)", layout {x:0, y:0, w:6, h:2}
-   Tile "1": type "markdown", content "# ${company} | ${journeyType} Dashboard\n\nReal-time KPI monitoring...", layout {x:6, y:0, w:18, h:2}
-
-2. MAP TILE (REQUIRED, immediately after header):
-   A "bubbleMap" or "dotMap" tile, full width w:24, h:8, at y:2. Feed it from an event type with geo.location.latitude and geo.location.longitude. Place this ABOVE THE FOLD before any section.
-
-3. SECTION DIVIDERS between every section:
-   Use type "data", query: "data record(section=\\"SectionName\\")", visualization "singleValue", h:1, w:24.
-   Set a distinct background color per section using thresholds with colorThresholdTarget: "background".
-   Suggested colors: Executive #1a5276, Operations #1e8449, Customer #6c3483, Revenue #935116, Quality #1a252f
-
-4. TILE HEIGHTS:
-   - h:1 = section dividers only
-   - h:2 = single-value KPI tiles (singleValue visualization)
-   - h:4 = ALL chart tiles (minimum — never h:2 or h:3 for charts)
-   - h:5+ = tables, treemaps, complex multi-series
-
-5. SECTIONS — include ALL of these, tailored to ${company}'s ${journeyType} domain:
-   - Executive Summary (4-6 top-line KPIs as singleValue with gauge thresholds)
-   - [Industry-specific section 1] — e.g. Revenue & Sales, Manufacturing & Quality, Patient Outcomes
-   - [Industry-specific section 2] — e.g. Operations, Supply Chain, Customer Journey
-   - [Industry-specific section 3] — e.g. Customer Experience, Clinical Performance, Field Service
-   - [Industry-specific section 4] — e.g. Commercial, R&D, Compliance
-
-6. VISUALIZATION VARIETY (required mix, do NOT use only donut + area):
-   - singleValue: KPI totals with 3 threshold colorRules (success green, warning yellow, critical red), colorThresholdTarget: "background"
-   - lineChart or areaChart: time trends using makeTimeseries
-   - barChart or categoricalBar: categorical over time — MUST use makeTimeseries (NOT summarize), fieldMapping must have "timestamp":"timeframe"
-   - donutChart or pieChart: category share using summarize by:{field} (no time axis)
-   - honeycomb: many small categories (6+), needs visualizationSettings.honeycomb.dataMappings.value
-   - bubbleMap / dotMap: geo data (required for map tile)
-   - table: raw detail rows with limit
-   When changing from donut/pie to bar/honeycomb: REMOVE visualizationSettings.chartSettings.circleChartSettings entirely.
-
-7. DQL RULES:
-   - Always start with: fetch bizevents | filter event.provider == "${eventProvider}"
-   - singleValue tiles: use summarize (e.g. summarize count = count(), revenue = sum(total_amount))
-   - lineChart / areaChart: use makeTimeseries (e.g. makeTimeseries val = avg(response_time), bins:20)
-   - barChart / categoricalBar: use makeTimeseries with by:{groupField}, bins:20 — NEVER summarize for bar charts
-   - donutChart / pieChart: use summarize by:{field} with no time component
-   - ratio metrics: sum(numerator)/sum(denominator)*100, NEVER avg(percent_field)
-   - Insert variable filters BEFORE aggregation pipes (before makeTimeseries or summarize)
-
-8. VARIABLES — define 3-5 multi-select variables (type "query", multiple: true):
-   Source each from: fetch bizevents | filter event.provider == "${eventProvider}" | dedup <fieldName> | fields <fieldName>
-   Choose dimensions relevant to ${company}: e.g. region, product, channel, department, segment.
-   Apply as: | filter in(<field>, $VariableName) — place BEFORE makeTimeseries/summarize.
-
-9. LAYOUT — use 24-column grid:
-   - X positions: 0, 6, 12, 18 (width 6 each) or 0/8/16 (width 8 each) or 0/12 (width 12 each)
-   - Minimize vertical gaps. Y increments of +1 (divider h:1), +2 (KPI row h:2), +4 (chart row h:4)
-   - No tile collisions — track Y carefully as you add tiles
-
-OUTPUT REQUIREMENTS:
-- Return ONLY valid JSON, no markdown fences, no explanation, no comments
-- Gen 3 dashboard schema: {"tiles": {"0":{...},...}, "layouts": {"0":{x,y,w,h},...}, "variables": [...], "settings": {"defaultTimeframe": {"value": {"from": "now()-2h", "to": "now()"}, "enabled": true}}, "annotations": []}
-- Tiles object keys are stringified integers starting from "0"
-- Layouts object keys match tile keys exactly
-- Target 40-60 tiles total (hard maximum 80)
-- The map tile must be tile index "2" at y:2`;
 
         const boundedGenerationPrompt = generationPrompt.length > 28000
           ? `${generationPrompt.slice(0, 28000)}\n\n[Prompt truncated for safety. Keep output valid and complete.]`
@@ -1617,36 +1834,68 @@ OUTPUT REQUIREMENTS:
         let generationMethod = 'copilot-agents-md';
 
         try {
-          // Get GitHub PAT from credential vault
-          const creds = await credentialVaultClient.listCredentials({ type: 'TOKEN' });
-          const ghCred = (creds.credentials || []).find((c: any) => c.name === 'GITHUB_COPILOT_PAT' || c.name === 'BIZOBS_GITHUB_PAT' || (c.name || '').toLowerCase().includes('github'));
-          if (!ghCred) throw new Error('GitHub PAT not configured in credential vault');
-          const ghDetails = await credentialVaultClient.getCredentialsDetails({ id: ghCred.id });
-          const ghToken = (ghDetails as any).token;
-          if (!ghToken) throw new Error('GitHub PAT token empty in credential vault');
-
-          const dashboardModel = requestedModel || 'gpt-4.1';
-          const generationMaxTokens = 7000;
-          console.log(`[proxy-api] Calling GitHub Models (${dashboardModel}) for dashboard generation...`);
-
-          // Route through EC2 for OTel tracing first, fall back to direct if needed
-          let rawContent = '';
+          // Get GitHub PAT via vault ID (same ID used by all AI actions; resolveGitHubPatCredential
+          // is declared later in the file so we inline the lookup here)
+          const _DASH_CRED_ID = 'CREDENTIALS_VAULT-5715470804C48467';
+          const _DASH_CRED_NAME = 'bizobs-github-pat';
+          let ghToken = '';
           try {
-            const tracedRes = await fetchWithRetry(`${baseUrl}/api/ai-generate/github`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', 'x-github-token': ghToken },
-              body: JSON.stringify({ prompt: boundedGenerationPrompt, model: dashboardModel, maxTokens: generationMaxTokens, systemPrompt: 'You are a Dynatrace Gen 3 dashboard expert. Output raw JSON only — no markdown fences, no explanation, no comments. The JSON must be a complete valid Dynatrace Gen 3 dashboard object.' }),
-              signal: AbortSignal.timeout(240000),
-            }, 1);
-            if (tracedRes.ok) {
-              const tracedData = await tracedRes.json();
-              if (tracedData.success && tracedData.data?.content) rawContent = tracedData.data.content;
+            const byId = await credentialVaultClient.getCredentialsDetails({ id: _DASH_CRED_ID });
+            ghToken = String((byId as any).token || '');
+          } catch {
+            const creds = await credentialVaultClient.listCredentials({ type: 'TOKEN' });
+            const match = (creds.credentials || []).find((c: any) => c.name === _DASH_CRED_NAME || (c.name || '').toLowerCase().includes('github'));
+            if (match) {
+              const detail = await credentialVaultClient.getCredentialsDetails({ id: match.id });
+              ghToken = String((detail as any).token || '');
             }
-          } catch (e: any) {
-            console.warn('[proxy-api] EC2 traced path failed, calling GitHub Models directly:', e.message);
           }
+          if (!ghToken) throw new Error('GitHub PAT not configured. Go to Settings → GitHub Copilot to set it up.');
 
-          if (!rawContent) {
+          // Dashboard generation is pinned to GPT-4.1 in this environment.
+          const requestedDashboardModel = String(requestedModel || '').trim();
+          const enforcedDashboardModel = 'gpt-4.1';
+          if (requestedDashboardModel && requestedDashboardModel !== enforcedDashboardModel) {
+            console.log(`[proxy-api] Dashboard model override: requested=${requestedDashboardModel}, enforced=${enforcedDashboardModel}`);
+          }
+          const modelCandidates = [enforcedDashboardModel];
+
+          let rawContent = '';
+          let dashboardModel = modelCandidates[0] || 'gpt-4.1';
+          let lastModelError = '';
+
+          for (const candidateModel of modelCandidates) {
+            dashboardModel = candidateModel;
+            const generationMaxTokens = dashboardModel.startsWith('claude-') ? 3500 : 7000;
+            console.log(`[proxy-api] Calling GitHub Models (${dashboardModel}) for dashboard generation...`);
+
+            // 1) Try traced path first
+            try {
+              const tracedRes = await fetchWithRetry(`${baseUrl}/api/ai-generate/github`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'x-github-token': ghToken },
+                body: JSON.stringify({ prompt: boundedGenerationPrompt, model: dashboardModel, maxTokens: generationMaxTokens, systemPrompt: 'You are a Dynatrace Gen 3 dashboard expert. Output raw JSON only — no markdown fences, no explanation, no comments. The JSON must be a complete valid Dynatrace Gen 3 dashboard object.' }),
+                signal: AbortSignal.timeout(240000),
+              }, 1);
+              if (tracedRes.ok) {
+                const tracedData = await tracedRes.json();
+                if (tracedData.success && tracedData.data?.content) {
+                  rawContent = tracedData.data.content;
+                  break;
+                }
+              } else {
+                const tracedErr = await tracedRes.text();
+                lastModelError = `GitHub Models API ${tracedRes.status}: ${tracedErr.slice(0, 300)}`;
+                console.warn(`[proxy-api] Dashboard traced model ${dashboardModel} failed: ${lastModelError}`);
+              }
+            } catch (e: any) {
+              lastModelError = e?.message || lastModelError;
+              console.warn('[proxy-api] EC2 traced path failed, calling GitHub Models directly:', e.message);
+            }
+
+            if (rawContent) break;
+
+            // 2) Direct call fallback for same candidate model
             const directRes = await fetch('https://models.inference.ai.azure.com/chat/completions', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ghToken}` },
@@ -1661,51 +1910,48 @@ OUTPUT REQUIREMENTS:
               }),
               signal: AbortSignal.timeout(240000),
             });
+
             if (!directRes.ok) {
               const errText = await directRes.text();
-              throw new Error(`GitHub Models API ${directRes.status}: ${errText.slice(0, 200)}`);
+              lastModelError = `GitHub Models API ${directRes.status}: ${errText.slice(0, 300)}`;
+              console.warn(`[proxy-api] Dashboard generation failed for model ${dashboardModel}: ${lastModelError}`);
+              continue;
             }
+
             const directData = await directRes.json();
             rawContent = directData.choices?.[0]?.message?.content || '';
+            if (rawContent) break;
           }
 
-          if (!rawContent) throw new Error('GitHub Copilot returned empty content');
+          if (!rawContent) {
+            const attempted = modelCandidates.join(', ');
+            throw new Error(`${lastModelError || 'GitHub Copilot returned empty content'} (attempted models: ${attempted})`);
+          }
+
           if (rawContent.length > 2_000_000) {
             throw new Error(`Copilot response too large (${rawContent.length} chars)`);
           }
 
-          // Extract JSON from the response (strip any accidental markdown fences)
-          const jsonMatch = rawContent.match(/\{[\s\S]*\}/);
-          if (!jsonMatch) throw new Error('No JSON object found in Copilot response');
-          generatedJson = JSON.parse(jsonMatch[0]);
+          // Extract and validate JSON from the response using the external repo's patterns
+          generatedJson = extractDashboardJson(rawContent);
 
-          if (!generatedJson.tiles || !generatedJson.layouts) {
-            throw new Error('Generated JSON missing required tiles or layouts fields');
+          // Validate structure
+          const validationResult = validateDashboardJson(generatedJson);
+          if (!validationResult.valid) {
+            throw new Error(`Dashboard validation failed: ${validationResult.errors.join('; ')}`);
           }
 
           const tileCount = Object.keys(generatedJson.tiles).length;
-          if (tileCount > 80) {
-            throw new Error(`Generated dashboard has ${tileCount} tiles which exceeds safety cap (80)`);
-          }
-          console.log(`[proxy-api] ✅ Copilot generated ${tileCount} tiles for ${company} - ${journeyType}`);
+          console.log(`[proxy-api] ✅ Copilot (${dashboardModel}) generated ${tileCount} tiles for ${company} - ${journeyType}`);
           generationMethod = `copilot-${dashboardModel}`;
 
         } catch (genErr: any) {
-          console.warn(`[proxy-api] Copilot generation failed (${genErr.message}), falling back to EC2 backend`);
-          // Fallback: call the EC2 backend generate route (Ollama/template)
-          const fallbackRes = await fetchWithRetry(`${baseUrl}/api/ai-dashboard/generate`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ journeyData: { company, journeyType, discoveredFields }, useAI }),
-            signal: AbortSignal.timeout(180000),
-          });
-          const fallbackData = await fallbackRes.json();
-          if (!fallbackData.success || !fallbackData.dashboard?.content) {
-            return { success: false, error: `Dashboard generation failed: ${genErr.message}. Fallback also failed: ${fallbackData.error || 'unknown'}` };
-          }
-          // Fallback returns wrapped {name, content} format — unwrap for deploy
-          generatedJson = fallbackData.dashboard.content;
-          generationMethod = fallbackData.generationMethod || 'ec2-fallback';
+          console.warn(`[proxy-api] Copilot dashboard generation failed (no template fallback): ${genErr.message}`);
+          return {
+            success: false,
+            error: `Dashboard generation failed via GitHub Models: ${genErr.message}`,
+            code: 'DASHBOARD_GENAI_FAILED',
+          };
         }
 
         // Normalise: the top-level object IS the dashboard content (tiles/layouts/variables/settings)
@@ -1713,53 +1959,32 @@ OUTPUT REQUIREMENTS:
         const tileCount = Object.keys(dashboardContent.tiles || {}).length;
         console.log(`[proxy-api] Deploying ${tileCount} tiles via ${generationMethod}`);
 
-        // Step 4: Deploy the generated dashboard via dtctl on the EC2 backend
-        // Wrap in the format the deploy-dtctl route expects: { dashboard: { name, content } }
+        // Step 4: Deploy via Documents SDK so owner = active AppEngine principal
         const dashboardForDeploy = {
           name: `${company} - ${journeyType}`,
           content: dashboardContent,
         };
 
-        let deployData: any = null;
-        for (let deployAttempt = 1; deployAttempt <= 3; deployAttempt++) {
-          const deployRes = await fetchWithRetry(`${baseUrl}/api/ai-dashboard/deploy-dtctl`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ dashboard: dashboardForDeploy, company, journeyType }),
-            signal: AbortSignal.timeout(180000),
-          }, 8, 4000);
-
-          deployData = await deployRes.json();
-          const transientDeployError = String(deployData?.error || '').toLowerCase();
-          const shouldRetryDeploy =
-            (!deployData?.success && (
-              transientDeployError.includes('edgeconnect') ||
-              transientDeployError.includes('connection error') ||
-              transientDeployError.includes('timed out') ||
-              transientDeployError.includes('timeout') ||
-              transientDeployError.includes('signal') ||
-              transientDeployError.includes('abort')
-            ));
-
-          if (deployData?.success || !shouldRetryDeploy || deployAttempt === 3) {
-            break;
-          }
-
-          console.warn(`[proxy-api] deploy-dtctl retry ${deployAttempt}/3 after transient error: ${deployData.error}`);
-          await new Promise(r => setTimeout(r, 2500 * deployAttempt));
-        }
+        const deployData = await deployDashboardWithDocumentsSdk({
+          dashboard: dashboardForDeploy,
+          company,
+          journeyType,
+          userEmail,
+          userName,
+          generationMethod,
+        });
 
         if (!deployData?.success || !deployData.data?.dashboardId) {
           return {
             success: false,
-            error: String(deployData?.error || 'dtctl dashboard deployment failed'),
-            code: 'DTCTL_DEPLOY_FAILED',
+            error: String(deployData?.error || 'documents-sdk dashboard deployment failed'),
+            code: deployData?.code || 'DOCS_DEPLOY_FAILED',
           };
         }
 
         const dashboardId = deployData.data.dashboardId;
         const dashboardName = deployData.data.dashboardName || `${company} - ${journeyType}`;
-        const dashboardUrl = deployData.data.dashboardUrl || `/ui/apps/dynatrace.dashboards/dashboard/${dashboardId}`;
+        const dashboardUrl = deployData.data.dashboardUrl || `/ui/apps/dynatrace.dashboards/?query=${encodeURIComponent(dashboardId)}`;
 
         return {
           success: true,
@@ -1769,13 +1994,171 @@ OUTPUT REQUIREMENTS:
             dashboardName,
             tileCount,
             generationMethod,
-            alreadyExisted: false,
-            message: `Dashboard "${dashboardName}" generated by Copilot and deployed with dtctl (${tileCount} tiles)`,
+            alreadyExisted: !!deployData.data.alreadyExisted,
+            message: `Dashboard "${dashboardName}" generated by Copilot and deployed with user ownership (${tileCount} tiles)`,
           },
         };
       } catch (error: any) {
         console.error('[proxy-api] MCP generate+deploy error:', error.message);
         return { success: false, error: error.message || 'MCP dashboard generation failed' };
+      }
+    }
+
+    if (action === 'repair-dashboard-sharing') {
+      try {
+        const r = await fetchWithRetry(`${baseUrl}/api/ai-dashboard/repair-dashboard-sharing`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body || {}),
+          signal: AbortSignal.timeout(240000),
+        }, 2, 2000);
+        const data = await r.json();
+        return data;
+      } catch (error: any) {
+        return { success: false, error: error.message || 'Failed to repair dashboard sharing' };
+      }
+    }
+
+    if (action === 'list-generated-dashboards') {
+      try {
+        const r = await fetchWithRetry(`${baseUrl}/api/ai-dashboard/list-generated-dashboards`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body || {}),
+          signal: AbortSignal.timeout(120000),
+        }, 2, 1000);
+        const data = await r.json();
+        return data;
+      } catch (error: any) {
+        return { success: false, error: error.message || 'Failed to list generated dashboards' };
+      }
+    }
+
+    if (action === 'delete-generated-dashboard') {
+      try {
+        const dashboardId = String((body as any)?.dashboardId || '').trim();
+        if (!dashboardId) return { success: false, error: 'dashboardId is required' };
+
+        // Primary path: AppEngine Documents SDK using app/user context.
+        try {
+          const existing = await documentsClient.getDocument({ id: dashboardId });
+          await documentsClient.deleteDocument({
+            id: dashboardId,
+            optimisticLockingVersion: String(existing?.metadata?.version || ''),
+          });
+          return { success: true, dashboardId, method: 'documents-sdk' };
+        } catch (sdkErr: any) {
+          const sdkMsg = String(sdkErr?.message || sdkErr || 'deleteDocument failed');
+          const fallbackAllowed = /forbidden|access denied|403|unauthorized|401|not allowed/i.test(sdkMsg);
+          if (!fallbackAllowed) {
+            return { success: false, error: sdkMsg };
+          }
+        }
+
+        // Fallback path: server dtctl token flow.
+        const r = await fetchWithRetry(`${baseUrl}/api/ai-dashboard/delete-generated-dashboard`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ dashboardId }),
+          signal: AbortSignal.timeout(120000),
+        }, 2, 1000);
+        const data = await r.json();
+        return data;
+      } catch (error: any) {
+        return { success: false, error: error.message || 'Failed to delete dashboard' };
+      }
+    }
+
+    // Transfer ownership by delete+recreate under AppEngine principal.
+    // Requires the active principal to have read+delete+write on target docs.
+    if (action === 'transfer-dashboard-ownership') {
+      const transferred: string[] = [];
+      const failed: Array<{ id: string; error: string }> = [];
+
+      try {
+        const filter = String((body as any)?.filter || "id starts-with 'bizobs-' and type = 'dashboard'");
+        const limitRaw = Number((body as any)?.limit ?? 0);
+        const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.floor(limitRaw) : 0;
+
+        let allDocs: any[] = [];
+        let nextPageKey: string | undefined;
+        do {
+          const page: any = await documentsClient.listDocuments({
+            filter,
+            pageSize: 100,
+            ...(nextPageKey ? { nextPageKey } : {}),
+          });
+
+          const pageDocs = Array.isArray(page?.documents) ? page.documents : [];
+          allDocs = allDocs.concat(pageDocs);
+          nextPageKey = page?.nextPageKey;
+
+          if (limit > 0 && allDocs.length >= limit) {
+            allDocs = allDocs.slice(0, limit);
+            break;
+          }
+        } while (nextPageKey);
+
+        console.log(`[proxy-api] transfer-dashboard-ownership: found ${allDocs.length} documents with filter: ${filter}`);
+
+        for (const docMeta of allDocs) {
+          const docId = String(docMeta?.id || '').trim();
+          if (!docId) continue;
+
+          try {
+            const full: any = await documentsClient.getDocument({ id: docId });
+            const contentBlob = full?.content ? await (full.content as any).get('blob') : null;
+            if (!contentBlob) {
+              failed.push({ id: docId, error: 'Could not retrieve document content blob' });
+              continue;
+            }
+
+            const version = String(full?.metadata?.version ?? '');
+            const name = String(full?.metadata?.displayName || docMeta?.name || docId);
+            const type = String(full?.metadata?.type || docMeta?.type || 'dashboard');
+
+            await documentsClient.deleteDocument({
+              id: docId,
+              optimisticLockingVersion: version,
+            });
+
+            await documentsClient.createDocument({
+              body: {
+                id: docId,
+                name,
+                type,
+                content: contentBlob,
+              },
+            });
+
+            try {
+              await environmentSharesClient.createEnvironmentShare({
+                body: { documentId: docId, access: 'read-write' },
+              });
+            } catch {
+              // Ignore if share already exists or is already inherited.
+            }
+
+            transferred.push(docId);
+          } catch (docErr: any) {
+            failed.push({ id: docId, error: String(docErr?.message || docErr || 'unknown error') });
+          }
+        }
+
+        return {
+          success: failed.length === 0,
+          total: allDocs.length,
+          transferred,
+          failed,
+          message: `Transferred ${transferred.length}/${allDocs.length} documents. ${failed.length} failed.`,
+        };
+      } catch (err: any) {
+        return {
+          success: false,
+          error: String(err?.message || err || 'Transfer failed'),
+          transferred,
+          failed,
+        };
       }
     }
 
@@ -2055,8 +2438,8 @@ OUTPUT REQUIREMENTS:
             : undefined;
           const matchedDash = exactMatch || fuzzyMatch;
           const dashboardUrl = matchedDash
-            ? `/ui/apps/dynatrace.dashboards/dashboard/${matchedDash.id}`
-            : `/ui/apps/dynatrace.dashboards/dashboard/bizobs-${sanitizedCompany}-${sanitizedJourney}`;
+            ? `/ui/apps/dynatrace.dashboards/?query=${encodeURIComponent(matchedDash.id)}`
+            : `/ui/apps/dynatrace.dashboards/?query=${encodeURIComponent(`bizobs-${sanitizedCompany}-${sanitizedJourney}`)}`;
 
           // Match BizFlow by company or journey name
           const companyLower = company.toLowerCase();
@@ -2439,8 +2822,34 @@ OUTPUT REQUIREMENTS:
     // ── GitHub Copilot / AI Generation ──────────────────────────────────────
 
     const GITHUB_CREDENTIAL_NAME = 'bizobs-github-pat';
+    const GITHUB_CREDENTIAL_ID = 'CREDENTIALS_VAULT-5715470804C48467';
     const GITHUB_JOURNEY_REPO_CREDENTIAL_NAME = 'github-journey-repo';
     const GITHUB_ISSUES_CREDENTIAL_NAME = 'bizobsdemo-gitissues';
+
+    const resolveGitHubPatCredential = async (): Promise<{ credentialId: string; token: string; name?: string } | null> => {
+      // Prefer the explicit credential id supplied by user, then fall back to name-based lookup.
+      try {
+        const detailsById = await credentialVaultClient.getCredentialsDetails({ id: GITHUB_CREDENTIAL_ID });
+        const tokenById = (detailsById as any)?.token;
+        if (tokenById) {
+          return { credentialId: GITHUB_CREDENTIAL_ID, token: tokenById, name: GITHUB_CREDENTIAL_NAME };
+        }
+      } catch {
+        // Ignore and continue with fallback lookup.
+      }
+
+      const creds = await credentialVaultClient.listCredentials({ type: 'TOKEN' });
+      const existing = (creds.credentials || []).find(
+        (c: any) => c.name === GITHUB_CREDENTIAL_NAME
+      );
+      if (!existing) return null;
+
+      const details = await credentialVaultClient.getCredentialsDetails({ id: existing.id });
+      const token = (details as any).token;
+      if (!token) return null;
+
+      return { credentialId: existing.id, token, name: existing.name };
+    };
 
     if (action === 'github-journey-commit') {
       try {
@@ -2737,12 +3146,9 @@ OUTPUT REQUIREMENTS:
 
     if (action === 'github-copilot-check-credential') {
       try {
-        const creds = await credentialVaultClient.listCredentials({ type: 'TOKEN' });
-        const existing = (creds.credentials || []).find(
-          (c: any) => c.name === GITHUB_CREDENTIAL_NAME
-        );
-        if (existing) {
-          return { success: true, data: { configured: true, credentialId: existing.id, name: existing.name } };
+        const resolved = await resolveGitHubPatCredential();
+        if (resolved) {
+          return { success: true, data: { configured: true, credentialId: resolved.credentialId, name: resolved.name || GITHUB_CREDENTIAL_NAME } };
         }
         return { success: true, data: { configured: false } };
       } catch (err: any) {
@@ -2796,27 +3202,14 @@ OUTPUT REQUIREMENTS:
 
     if (action === 'github-copilot-list-models') {
       try {
-        // Check if credential is configured
-        const creds = await credentialVaultClient.listCredentials({ type: 'TOKEN' });
-        const existing = (creds.credentials || []).find(
-          (c: any) => c.name === GITHUB_CREDENTIAL_NAME
-        );
-        if (!existing) {
+        const resolved = await resolveGitHubPatCredential();
+        if (!resolved) {
           return { success: true, data: { models: [], configured: false } };
         }
 
-        // Return hardcoded GitHub Copilot models (Copilot API doesn't have a public models listing endpoint)
+        // Generic generation is pinned to GPT-4.1.
         const copilotModels = [
           { id: 'gpt-4.1', name: 'GPT-4.1', owned_by: 'OpenAI' },
-          { id: 'gpt-4.1-mini', name: 'GPT-4.1 Mini', owned_by: 'OpenAI' },
-          { id: 'gpt-4.1-nano', name: 'GPT-4.1 Nano', owned_by: 'OpenAI' },
-          { id: 'gpt-4o', name: 'GPT-4o', owned_by: 'OpenAI' },
-          { id: 'gpt-4o-mini', name: 'GPT-4o Mini', owned_by: 'OpenAI' },
-          { id: 'o4-mini', name: 'o4-mini', owned_by: 'OpenAI' },
-          { id: 'o3-mini', name: 'o3-mini', owned_by: 'OpenAI' },
-          { id: 'claude-opus-4-5', name: 'Claude Opus 4.5', owned_by: 'Anthropic' },
-          { id: 'claude-sonnet-4', name: 'Claude Sonnet 4', owned_by: 'Anthropic' },
-          { id: 'claude-3.5-sonnet', name: 'Claude 3.5 Sonnet', owned_by: 'Anthropic' },
         ];
 
         return { success: true, data: { models: copilotModels, configured: true } };
@@ -2826,34 +3219,194 @@ OUTPUT REQUIREMENTS:
       }
     }
 
+    if (action === 'dynatrace-assist-generate') {
+      try {
+        const { prompt } = body as { prompt: string };
+        if (!prompt) {
+          return { success: false, error: 'Prompt is required' };
+        }
+
+        const resolved = await resolveGitHubPatCredential();
+        if (!resolved) {
+          return { success: false, error: 'GitHub PAT not configured. Go to Settings → GitHub Copilot to set it up.', code: 'NO_CREDENTIAL' };
+        }
+        const ghToken = resolved.token;
+        if (!ghToken) {
+          return { success: false, error: 'Could not retrieve token from credential vault.', code: 'TOKEN_EMPTY' };
+        }
+
+        const promptText = typeof prompt === 'string' ? prompt : JSON.stringify(prompt);
+        const boundedPrompt = promptText.length > 12000
+          ? `${promptText.slice(0, 12000)}\n\n[Prompt truncated for reliability. Preserve requested output format.]`
+          : promptText;
+
+        const selectedModel = 'gpt-4.1';
+        const systemPrompt = 'You are Dynatrace Assist for executive journey analysis. Be specific, concise, and output practical C-Suite recommendations with named journey candidates.';
+        const assistProfiles = [
+          { label: 'primary', maxTokens: 2200, timeoutMs: 70000 },
+          { label: 'compact', maxTokens: 1400, timeoutMs: 90000 },
+        ];
+
+        let lastError = 'Dynatrace Assist generation failed';
+
+        // Prefer the traced EC2 path first for reliability + observability, then fallback to direct.
+        for (const profile of assistProfiles) {
+          try {
+            const tracedResp = await fetchWithRetry(`${baseUrl}/api/ai-generate/github`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'x-github-token': ghToken,
+              },
+              body: JSON.stringify({
+                prompt: boundedPrompt,
+                model: selectedModel,
+                systemPrompt,
+                temperature: 0.2,
+                maxTokens: profile.maxTokens,
+              }),
+              signal: AbortSignal.timeout(profile.timeoutMs),
+            }, 2, 1500);
+
+            const tracedJson = await tracedResp.json().catch(() => null);
+            if (tracedResp.ok && tracedJson?.success && tracedJson?.data?.content) {
+              tracedJson.data.genai = {
+                ...(tracedJson.data.genai || {}),
+                system: 'dynatrace_assist',
+              };
+              return { ...tracedJson, routedVia: 'github-models-traced' };
+            }
+
+            const status = tracedResp.status;
+            const errMsg = String(tracedJson?.error || `GitHub traced assist failed (${status})`);
+            lastError = errMsg;
+            if (status === 401 || status === 403) {
+              return {
+                success: false,
+                error: errMsg,
+                code: tracedJson?.code || 'DYNATRACE_ASSIST_FAILED',
+                routedVia: 'github-models-traced',
+              };
+            }
+          } catch (err: any) {
+            lastError = err?.message || lastError;
+          }
+        }
+
+        // Direct GitHub Models fallback (still GitHub/Copilot path, no templates).
+        for (const profile of assistProfiles) {
+          const started = Date.now();
+          try {
+            const directResp = await fetch('https://models.inference.ai.azure.com/chat/completions', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${ghToken}`,
+              },
+              body: JSON.stringify({
+                model: selectedModel,
+                messages: [
+                  { role: 'system', content: systemPrompt },
+                  { role: 'user', content: boundedPrompt },
+                ],
+                temperature: 0.2,
+                max_tokens: profile.maxTokens,
+              }),
+              signal: AbortSignal.timeout(profile.timeoutMs),
+            });
+
+            const directJson = await directResp.json().catch(() => null);
+            if (!directResp.ok) {
+              const errorBody = typeof directJson === 'object' && directJson ? JSON.stringify(directJson).slice(0, 500) : '';
+              lastError = `Dynatrace Assist generation failed (${directResp.status})${errorBody ? `: ${errorBody}` : ''}`;
+              if (directResp.status === 401 || directResp.status === 403) {
+                return {
+                  success: false,
+                  error: lastError,
+                  code: 'DYNATRACE_ASSIST_FAILED',
+                  routedVia: 'github-models-direct',
+                };
+              }
+              continue;
+            }
+
+            const content = directJson?.choices?.[0]?.message?.content;
+            if (!content) {
+              lastError = 'Dynatrace Assist generation returned no content.';
+              continue;
+            }
+
+            const usage = directJson?.usage || {};
+            return {
+              success: true,
+              data: {
+                content,
+                model: selectedModel,
+                usage,
+                genai: {
+                  system: 'dynatrace_assist',
+                  model: selectedModel,
+                  promptTokens: usage?.prompt_tokens || 0,
+                  completionTokens: usage?.completion_tokens || 0,
+                  totalTokens: usage?.total_tokens || 0,
+                  durationMs: Date.now() - started,
+                  finishReason: directJson?.choices?.[0]?.finish_reason || 'stop',
+                },
+              },
+              routedVia: 'github-models-direct',
+            };
+          } catch (err: any) {
+            lastError = err?.message || lastError;
+          }
+        }
+
+        return {
+          success: false,
+          error: `${lastError}. GitHub/Copilot route exhausted after retries; please retry.`,
+          code: 'DYNATRACE_ASSIST_FAILED',
+          routedVia: 'github-models-direct',
+        };
+      } catch (err: any) {
+        console.error('[proxy-api] dynatrace-assist-generate error:', err.message);
+        return { success: false, error: err.message || 'Dynatrace Assist generation failed' };
+      }
+    }
+
     if (action === 'github-copilot-generate') {
       try {
         const { prompt, model } = body as { prompt: string; model?: string };
         if (!prompt) {
           return { success: false, error: 'Prompt is required' };
         }
-        // 1. Retrieve the GitHub PAT from credential vault
-        const creds = await credentialVaultClient.listCredentials({ type: 'TOKEN' });
-        const existing = (creds.credentials || []).find(
-          (c: any) => c.name === GITHUB_CREDENTIAL_NAME
-        );
-        if (!existing) {
+        const promptText = typeof prompt === 'string' ? prompt : JSON.stringify(prompt);
+        const resolved = await resolveGitHubPatCredential();
+        if (!resolved) {
           return { success: false, error: 'GitHub PAT not configured. Go to Settings → GitHub Copilot to set it up.', code: 'NO_CREDENTIAL' };
         }
-        const details = await credentialVaultClient.getCredentialsDetails({ id: existing.id });
-        const ghToken = (details as any).token;
+        const ghToken = resolved.token;
         if (!ghToken) {
           return { success: false, error: 'Could not retrieve token from credential vault.', code: 'TOKEN_EMPTY' };
         }
 
-        const selectedModel = model || 'gpt-4.1';
+        const requestedModelRaw = String(model || '').trim();
+        const selectedModel = 'gpt-4.1';
+        const boundedPrompt = promptText.length > 14000
+          ? `${promptText.slice(0, 14000)}\n\n[Prompt truncated for reliability. Preserve requested output format.]`
+          : promptText;
+        if (requestedModelRaw && requestedModelRaw !== selectedModel) {
+          console.log(`[proxy-api] github-copilot-generate model override: requested=${requestedModelRaw}, enforced=${selectedModel}`);
+        }
         const ecAutoRegistered = await ensureEdgeConnectHostPattern(apiHost);
+        const generationStartedAt = Date.now();
+        const maxGenerationRuntimeMs = 90000;
+        const outOfTime = () => (Date.now() - generationStartedAt) >= maxGenerationRuntimeMs;
         // Keep calls inside typical AppEngine function execution limits.
         // The traced EC2 integration path waits for the upstream GitHub Models response,
         // which commonly takes 20-40s for larger prompts. Keep this comfortably above
         // observed model latency so healthy requests are not misreported as unreachable.
-        const proxyAttemptTimeoutMs = 30000;
-        const directCallTimeoutMs = 60000;
+        const proxyAttemptTimeoutMs = 22000;
+        const directCallTimeoutMs = 40000;
+        const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
         const timeoutLike = (message?: string) => {
           const m = (message || '').toLowerCase();
           return m.includes('timed out') || m.includes('timeout') || m.includes('signal') || m.includes('abort');
@@ -2868,21 +3421,44 @@ OUTPUT REQUIREMENTS:
               'Content-Type': 'application/json',
               'x-github-token': ghToken,
             },
-            body: JSON.stringify({ prompt, model: selectedModel }),
+            body: JSON.stringify({ prompt: boundedPrompt, model: selectedModel }),
             signal: AbortSignal.timeout(proxyAttemptTimeoutMs),
-          }, 3, 3000);
+          }, 1, 0);
           if (proxyResp.ok) {
             const proxyResult = await proxyResp.json();
             if (proxyResult.success) {
               console.log('[proxy-api] GitHub Models call routed via EC2 server (OTel traced)');
               return proxyResult;
             }
-            return {
-              success: false,
-              error: proxyResult?.error || 'GitHub integration returned an unexpected response.',
-              code: proxyResult?.code || 'GITHUB_PROXY_FAILED',
-              routedVia: 'ec2-traced',
-            };
+            const tracedError = String(proxyResult?.error || '').toLowerCase();
+            const tracedCode = String(proxyResult?.code || '').toUpperCase();
+            const tracedStatusMatch = tracedError.match(/\((\d{3})\)/);
+            const tracedHttpStatus = tracedStatusMatch ? Number(tracedStatusMatch[1]) : 0;
+            const isServerSideFailure =
+              tracedHttpStatus >= 500 ||
+              tracedError.includes('bad gateway') ||
+              tracedError.includes('gateway') ||
+              tracedError.includes('nginx') ||
+              tracedError.includes('service unavailable') ||
+              tracedError.includes('upstream');
+            // RATE_LIMITED is transient; do not hard-fail before trying direct fallback.
+            const isHardFailure = tracedCode === 'AUTH_FAILED' || tracedCode === 'NO_CREDENTIAL' || tracedCode === 'TOKEN_EMPTY';
+            const isTimeoutOrTransient =
+              timeoutLike(tracedError) ||
+              tracedError.includes('unreachable') ||
+              tracedError.includes('unavailable') ||
+              tracedError.includes('connection') ||
+              tracedCode === 'RATE_LIMITED' ||
+              isServerSideFailure;
+            if (isHardFailure || !isTimeoutOrTransient) {
+              return {
+                success: false,
+                error: proxyResult?.error || 'GitHub integration returned an unexpected response.',
+                code: proxyResult?.code || 'GITHUB_PROXY_FAILED',
+                routedVia: 'ec2-traced',
+              };
+            }
+            console.warn('[proxy-api] EC2 traced path returned transient failure, falling back to direct GitHub Models call:', proxyResult?.error || proxyResult?.code || 'unknown');
           }
           const proxyErrorBody = await proxyResp.text().catch(() => '');
           let upstreamError = '';
@@ -2895,8 +3471,9 @@ OUTPUT REQUIREMENTS:
             // Non-JSON response body (HTML/text); keep using status-based handling below.
           }
 
-          // Preserve actionable upstream auth/quota errors from traced route — these will fail direct too.
-          if (proxyResp.status === 401 || proxyResp.status === 403 || proxyResp.status === 429) {
+          // Preserve actionable upstream auth errors from traced route.
+          // For 429, fall through to direct path with retries/backoff.
+          if (proxyResp.status === 401 || proxyResp.status === 403) {
             return {
               success: false,
               error: upstreamError || `GitHub integration rejected the request (HTTP ${proxyResp.status}).`,
@@ -2908,6 +3485,10 @@ OUTPUT REQUIREMENTS:
             };
           }
 
+          if (proxyResp.status === 429) {
+            console.warn('[proxy-api] EC2 traced path rate-limited (429), falling back to direct GitHub Models call with backoff');
+          }
+
           // Non-auth failures: fall through to direct call
           console.warn(`[proxy-api] EC2 proxy returned ${proxyResp.status}, falling back to direct GitHub Models call`);
         } catch (proxyErr: any) {
@@ -2915,92 +3496,125 @@ OUTPUT REQUIREMENTS:
           console.warn('[proxy-api] EC2 proxy unreachable, falling back to direct GitHub Models call:', proxyErr.message);
         }
 
-        // 3. Optional fallback: Call GitHub Models API directly (untraced)
-        const fallbackCandidates = [selectedModel, 'gpt-4o-mini', 'gpt-4.1-mini']
-          .filter((m, idx, arr) => !!m && arr.indexOf(m) === idx);
+        // 3. Call GitHub Models API directly (untraced) using enforced GPT-4.1.
+        const fallbackCandidates = Array.from(new Set([
+          selectedModel,
+          'gpt-4o',
+          'gpt-4.1-mini',
+        ]));
+        const directRetryProfiles = [
+          { timeoutMs: directCallTimeoutMs, maxTokens: 1000, label: 'primary' },
+          { timeoutMs: 18000, maxTokens: 850, label: 'retry-compact' },
+        ];
         let lastFallbackError = 'AI generation failed';
 
         for (let i = 0; i < fallbackCandidates.length; i++) {
           const candidateModel = fallbackCandidates[i]!;
-          const isPrimary = i === 0;
-          const candidateTimeoutMs = isPrimary ? directCallTimeoutMs : 20000;
-          const candidateMaxTokens = isPrimary ? 2048 : 1200;
-          try {
-            const startTime = Date.now();
-            const resp = await fetch('https://models.inference.ai.azure.com/chat/completions', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${ghToken}`,
-              },
-              body: JSON.stringify({
-                model: candidateModel,
-                messages: [
-                  { role: 'system', content: 'You are a business analyst AI assistant. Follow the output format instructions in the user prompt exactly. When asked for JSON, return raw JSON only (no markdown fences). When asked for natural language, respond with clear professional prose using headings and bullet points.' },
-                  { role: 'user', content: prompt },
-                ],
-                temperature: 0.7,
-                max_tokens: candidateMaxTokens,
-              }),
-              signal: AbortSignal.timeout(candidateTimeoutMs),
-            });
-            const durationMs = Date.now() - startTime;
+          for (let p = 0; p < directRetryProfiles.length; p++) {
+            if (outOfTime()) {
+              return {
+                success: false,
+                error: 'Generation timed out before completion. Retrying with lighter request settings usually resolves this.',
+                code: 'GEN_TIMEOUT',
+              };
+            }
+            const profile = directRetryProfiles[p]!;
+            try {
+              const startTime = Date.now();
+              const resp = await fetch('https://models.inference.ai.azure.com/chat/completions', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${ghToken}`,
+                },
+                body: JSON.stringify({
+                  model: candidateModel,
+                  messages: [
+                    { role: 'system', content: 'You are a business analyst AI assistant. Follow the output format instructions in the user prompt exactly. When asked for JSON, return raw JSON only (no markdown fences). When asked for natural language, respond with clear professional prose using headings and bullet points.' },
+                    { role: 'user', content: boundedPrompt },
+                  ],
+                  temperature: 0.5,
+                  max_tokens: profile.maxTokens,
+                }),
+                signal: AbortSignal.timeout(profile.timeoutMs),
+              });
+              const durationMs = Date.now() - startTime;
 
-            if (!resp.ok) {
-              const errText = await resp.text();
-              if (resp.status === 401) {
-                return { success: false, error: 'GitHub token is invalid or expired. Update it in Settings → GitHub Copilot.', code: 'AUTH_FAILED' };
+              if (!resp.ok) {
+                const errText = await resp.text();
+                if (resp.status === 401) {
+                  return { success: false, error: 'GitHub token is invalid or expired. Update it in Settings → GitHub Copilot.', code: 'AUTH_FAILED' };
+                }
+                if (resp.status === 429) {
+                  const hasAnotherProfile = p < directRetryProfiles.length - 1;
+                  if (hasAnotherProfile) {
+                    const waitMs = 1200 * (p + 1);
+                    console.warn(`[proxy-api] github-copilot-generate: ${candidateModel} ${profile.label} rate-limited (429), retrying with compact profile in ${waitMs}ms`);
+                    await sleep(waitMs);
+                    continue;
+                  }
+                  const hasAnotherModel = i < fallbackCandidates.length - 1;
+                  if (hasAnotherModel) {
+                    console.warn(`[proxy-api] github-copilot-generate: ${candidateModel} exhausted by rate limit, trying next model candidate`);
+                    break;
+                  }
+                  console.warn(`[proxy-api] github-copilot-generate: ${candidateModel} ${profile.label} rate-limited (429), returning RATE_LIMITED for UI retry handling`);
+                  return { success: false, error: 'Rate limit reached across available models. Try again shortly.', code: 'RATE_LIMITED' };
+                }
+                lastFallbackError = `GitHub Models API error (${resp.status}): ${errText.slice(0, 200)}`;
+                const shouldTryNextModel = (resp.status === 400 || resp.status === 404 || resp.status === 422) && i < fallbackCandidates.length - 1;
+                if (shouldTryNextModel) {
+                  console.warn(`[proxy-api] github-copilot-generate: ${candidateModel} rejected (${resp.status}), trying next model candidate`);
+                  break;
+                }
+                const shouldRetrySameModel = resp.status >= 500 && p < directRetryProfiles.length - 1;
+                if (shouldRetrySameModel) {
+                  console.warn(`[proxy-api] github-copilot-generate: ${candidateModel} ${profile.label} failed (${resp.status}), retrying same model with compact profile`);
+                  continue;
+                }
+                return { success: false, error: lastFallbackError };
               }
-              if (resp.status === 429) {
-                return { success: false, error: 'Rate limit reached. Try again in a few minutes.', code: 'RATE_LIMITED' };
-              }
-              lastFallbackError = `GitHub Models API error (${resp.status}): ${errText.slice(0, 200)}`;
-              if (resp.status >= 500 && i < fallbackCandidates.length - 1) {
-                console.warn(`[proxy-api] github-copilot-generate: ${candidateModel} failed (${resp.status}), trying next fallback model`);
+
+              const result = await resp.json();
+              const content = result.choices?.[0]?.message?.content || '';
+              const usage = result.usage || {};
+
+              return {
+                success: true,
+                data: {
+                  content,
+                  model: candidateModel,
+                  usage,
+                  genai: {
+                    system: 'github_models',
+                    model: result.model || candidateModel,
+                    promptTokens: usage.prompt_tokens || 0,
+                    completionTokens: usage.completion_tokens || 0,
+                    totalTokens: (usage.prompt_tokens || 0) + (usage.completion_tokens || 0),
+                    durationMs,
+                    finishReason: result.choices?.[0]?.finish_reason || 'unknown',
+                  },
+                },
+              };
+            } catch (directErr: any) {
+              lastFallbackError = directErr?.message || 'AI generation failed';
+              const shouldRetrySameModel = timeoutLike(lastFallbackError) && p < directRetryProfiles.length - 1;
+              if (shouldRetrySameModel) {
+                console.warn(`[proxy-api] github-copilot-generate: ${candidateModel} ${profile.label} timed out, retrying same model with compact profile`);
                 continue;
               }
-              if (i < fallbackCandidates.length - 1) continue;
-              return { success: false, error: lastFallbackError };
             }
-
-            const result = await resp.json();
-            const content = result.choices?.[0]?.message?.content || '';
-            const usage = result.usage || {};
-
-            return {
-              success: true,
-              data: {
-                content,
-                model: candidateModel,
-                usage,
-                genai: {
-                  system: 'github_models',
-                  model: result.model || candidateModel,
-                  promptTokens: usage.prompt_tokens || 0,
-                  completionTokens: usage.completion_tokens || 0,
-                  totalTokens: (usage.prompt_tokens || 0) + (usage.completion_tokens || 0),
-                  durationMs,
-                  finishReason: result.choices?.[0]?.finish_reason || 'unknown',
-                },
-              },
-            };
-          } catch (directErr: any) {
-            lastFallbackError = directErr?.message || 'AI generation failed';
-            if (timeoutLike(lastFallbackError) && i < fallbackCandidates.length - 1) {
-              console.warn(`[proxy-api] github-copilot-generate: ${candidateModel} timed out, trying next fallback model`);
-              continue;
-            }
-            if (i < fallbackCandidates.length - 1) continue;
           }
         }
 
         if (timeoutLike(lastFallbackError)) {
           return {
             success: false,
-            error: 'Signal timed out across available models. Try again or choose a faster model like gpt-4o-mini.',
+            error: 'Signal timed out while generating with GPT-4.1. Please retry; if it repeats, shorten requirements/context.',
             code: 'GEN_TIMEOUT',
           };
         }
+
         return { success: false, error: lastFallbackError || 'AI generation failed' };
       } catch (err: any) {
         console.error('[proxy-api] github-copilot-generate error:', err.message);

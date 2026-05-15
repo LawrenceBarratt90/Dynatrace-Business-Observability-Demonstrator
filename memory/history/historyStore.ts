@@ -5,12 +5,10 @@
 
 import fs from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
 import { config } from '../../utils/config.js';
 import { createLogger, AgentName } from '../../utils/logger.js';
 
 const log = createLogger('librarian');
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // ─── Types ────────────────────────────────────────────────────
 
@@ -40,19 +38,27 @@ export interface HistoryEvent {
 
 export class HistoryStore {
   private filePath: string;
+  private dirPath: string;
 
   constructor(storeName = 'events') {
-    const dir = path.resolve(__dirname, 'data');
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    this.filePath = path.join(dir, `${storeName}.jsonl`);
+    // Use configured memory location so runtime never writes into dist/.
+    this.dirPath = path.resolve(process.cwd(), config.memory.historyDir, 'data');
+    if (!fs.existsSync(this.dirPath)) fs.mkdirSync(this.dirPath, { recursive: true });
+    this.filePath = path.join(this.dirPath, `${storeName}.jsonl`);
+  }
+
+  private ensureStoreDir(): void {
+    if (!fs.existsSync(this.dirPath)) fs.mkdirSync(this.dirPath, { recursive: true });
   }
 
   append(event: HistoryEvent): void {
+    this.ensureStoreDir();
     fs.appendFileSync(this.filePath, JSON.stringify(event) + '\n');
     log.debug('History event appended', { id: event.id, kind: event.kind });
   }
 
   readAll(): HistoryEvent[] {
+    this.ensureStoreDir();
     if (!fs.existsSync(this.filePath)) return [];
     const lines = fs.readFileSync(this.filePath, 'utf-8').trim().split('\n');
     return lines

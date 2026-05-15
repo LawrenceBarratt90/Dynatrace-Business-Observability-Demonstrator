@@ -380,8 +380,9 @@ function waitForServiceReady(port, timeout = 5000) {
 
 // Get service name from command line arguments or environment
 const serviceNameArg = process.argv.find((arg, index) => process.argv[index - 1] === '--service-name');
-const serviceName = serviceNameArg || process.env.SERVICE_NAME;
 const stepName = process.env.STEP_NAME;
+const rawServiceName = serviceNameArg || process.env.SERVICE_NAME || stepName;
+const serviceName = rawServiceName || getServiceNameFromStep(stepName);
 
 function normalizeDynatraceTags(activeServiceName, activeStepName) {
   const currentTags = String(process.env.DT_TAGS || '').trim();
@@ -443,8 +444,8 @@ if (serviceName) {
 
 // Generic step service that can handle any step name dynamically
 function createStepService(serviceName, stepName) {
-  // Convert stepName to proper service format if needed
-  const properServiceName = getServiceNameFromStep(stepName || serviceName);
+  // Preserve explicit service identity first, fallback to step-derived naming only if absent.
+  const properServiceName = String(serviceName || '').trim() || getServiceNameFromStep(stepName);
   normalizeDynatraceTags(properServiceName, stepName);
   
   createService(properServiceName, (app) => {

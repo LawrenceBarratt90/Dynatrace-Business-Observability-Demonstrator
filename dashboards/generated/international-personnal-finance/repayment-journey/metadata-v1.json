@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "company": "International Personnal Finance",
+  "journeyType": "Repayment Journey",
+  "dashboardId": "bizobs-international-personnal-finance-repayment-journey",
+  "dashboardUrl": "/ui/apps/dynatrace.dashboards/dashboard/bizobs-international-personnal-finance-repayment-journey",
+  "dashboardName": "International Personnal Finance - Repayment Journey",
+  "generationMethod": "direct-dtctl",
+  "generatedAt": "2026-05-12T12:29:19.406Z",
+  "tileCount": 36,
+  "artifactFiles": {
+    "dashboard": "dashboards/generated/international-personnal-finance/repayment-journey/dashboard-v1.json",
+    "metadata": "dashboards/generated/international-personnal-finance/repayment-journey/metadata-v1.json"
+  }
+}

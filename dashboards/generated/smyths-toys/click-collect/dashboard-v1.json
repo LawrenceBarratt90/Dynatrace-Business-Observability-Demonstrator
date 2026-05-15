@@ -1,0 +1,924 @@
+{
+  "name": "Smyths Toys - Click & Collect",
+  "content": {
+    "tiles": {
+      "0": {
+        "type": "markdown",
+        "content": "![](https://logo.clearbit.com/smythstoys.com)"
+      },
+      "1": {
+        "type": "markdown",
+        "content": "# Smyths Toys | Click & Collect Dashboard\n\nReal-time KPI monitoring..."
+      },
+      "2": {
+        "type": "bubbleMap",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | fields geo.location.latitude, geo.location.longitude, store_name, total_amount",
+        "visualizationSettings": {
+          "bubbleMap": {
+            "bubbleSizeField": "total_amount",
+            "bubbleLabelField": "store_name"
+          }
+        }
+      },
+      "3": {
+        "type": "data",
+        "query": "data record(section=\"Executive Summary\")",
+        "visualization": "singleValue",
+        "visualizationSettings": {
+          "singleValue": {
+            "colorThresholdTarget": "background",
+            "colorRules": [
+              {
+                "color": "#1a5276",
+                "condition": "true"
+              }
+            ]
+          }
+        }
+      },
+      "4": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | summarize revenue=sum(total_amount)",
+        "visualization": "singleValue",
+        "visualizationSettings": {
+          "singleValue": {
+            "colorThresholdTarget": "background",
+            "colorRules": [
+              {
+                "color": "#1e8449",
+                "condition": "revenue >= 100000"
+              },
+              {
+                "color": "#f7b731",
+                "condition": "revenue < 100000 && revenue >= 50000"
+              },
+              {
+                "color": "#c0392b",
+                "condition": "revenue < 50000"
+              }
+            ]
+          }
+        }
+      },
+      "5": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | summarize click_collect_orders=countIf(order_type==\"Click & Collect\")",
+        "visualization": "singleValue",
+        "visualizationSettings": {
+          "singleValue": {
+            "colorThresholdTarget": "background",
+            "colorRules": [
+              {
+                "color": "#1e8449",
+                "condition": "click_collect_orders >= 2000"
+              },
+              {
+                "color": "#f7b731",
+                "condition": "click_collect_orders < 2000 && click_collect_orders >= 1000"
+              },
+              {
+                "color": "#c0392b",
+                "condition": "click_collect_orders < 1000"
+              }
+            ]
+          }
+        }
+      },
+      "6": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | summarize avg_order_value=avg(total_amount)",
+        "visualization": "singleValue",
+        "visualizationSettings": {
+          "singleValue": {
+            "colorThresholdTarget": "background",
+            "colorRules": [
+              {
+                "color": "#1e8449",
+                "condition": "avg_order_value >= 60"
+              },
+              {
+                "color": "#f7b731",
+                "condition": "avg_order_value < 60 && avg_order_value >= 40"
+              },
+              {
+                "color": "#c0392b",
+                "condition": "avg_order_value < 40"
+              }
+            ]
+          }
+        }
+      },
+      "7": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | summarize conversion_rate=sum(completed_orders)/sum(total_sessions)*100",
+        "visualization": "singleValue",
+        "visualizationSettings": {
+          "singleValue": {
+            "colorThresholdTarget": "background",
+            "colorRules": [
+              {
+                "color": "#1e8449",
+                "condition": "conversion_rate >= 30"
+              },
+              {
+                "color": "#f7b731",
+                "condition": "conversion_rate < 30 && conversion_rate >= 20"
+              },
+              {
+                "color": "#c0392b",
+                "condition": "conversion_rate < 20"
+              }
+            ]
+          }
+        }
+      },
+      "8": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | summarize avg_journey_time=avg(journey_duration)",
+        "visualization": "singleValue",
+        "visualizationSettings": {
+          "singleValue": {
+            "colorThresholdTarget": "background",
+            "colorRules": [
+              {
+                "color": "#1e8449",
+                "condition": "avg_journey_time <= 180"
+              },
+              {
+                "color": "#f7b731",
+                "condition": "avg_journey_time > 180 && avg_journey_time <= 300"
+              },
+              {
+                "color": "#c0392b",
+                "condition": "avg_journey_time > 300"
+              }
+            ]
+          }
+        }
+      },
+      "9": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | summarize gift_card_revenue=sum(gift_card_amount)",
+        "visualization": "singleValue",
+        "visualizationSettings": {
+          "singleValue": {
+            "colorThresholdTarget": "background",
+            "colorRules": [
+              {
+                "color": "#1e8449",
+                "condition": "gift_card_revenue >= 25000"
+              },
+              {
+                "color": "#f7b731",
+                "condition": "gift_card_revenue < 25000 && gift_card_revenue >= 10000"
+              },
+              {
+                "color": "#c0392b",
+                "condition": "gift_card_revenue < 10000"
+              }
+            ]
+          }
+        }
+      },
+      "10": {
+        "type": "data",
+        "query": "data record(section=\"Revenue & Sales\")",
+        "visualization": "singleValue",
+        "visualizationSettings": {
+          "singleValue": {
+            "colorThresholdTarget": "background",
+            "colorRules": [
+              {
+                "color": "#935116",
+                "condition": "true"
+              }
+            ]
+          }
+        }
+      },
+      "11": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | makeTimeseries revenue=sum(total_amount), bins:20",
+        "visualization": "lineChart",
+        "visualizationSettings": {
+          "chartSettings": {
+            "lineChartSettings": {
+              "seriesSettings": {
+                "revenue": {
+                  "color": "#935116"
+                }
+              }
+            }
+          }
+        }
+      },
+      "12": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | makeTimeseries click_collect_orders=countIf(order_type==\"Click & Collect\"), bins:20",
+        "visualization": "areaChart",
+        "visualizationSettings": {
+          "chartSettings": {
+            "areaChartSettings": {
+              "seriesSettings": {
+                "click_collect_orders": {
+                  "color": "#f7b731"
+                }
+              }
+            }
+          }
+        }
+      },
+      "13": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | summarize by:product_category, revenue=sum(total_amount)",
+        "visualization": "barChart",
+        "visualizationSettings": {
+          "chartSettings": {
+            "barChartSettings": {
+              "seriesSettings": {
+                "revenue": {
+                  "color": "#935116"
+                }
+              },
+              "categoryField": "product_category"
+            }
+          }
+        }
+      },
+      "14": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | summarize by:order_type, count=count()",
+        "visualization": "donutChart",
+        "visualizationSettings": {
+          "chartSettings": {
+            "donutChartSettings": {
+              "seriesSettings": {
+                "count": {
+                  "color": "#f7b731"
+                }
+              },
+              "categoryField": "order_type"
+            }
+          }
+        }
+      },
+      "15": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | summarize by:region, revenue=sum(total_amount)",
+        "visualization": "honeycomb",
+        "visualizationSettings": {
+          "honeycomb": {
+            "dataMappings": {
+              "value": "revenue",
+              "category": "region"
+            }
+          }
+        }
+      },
+      "16": {
+        "type": "data",
+        "query": "data record(section=\"Operations & Supply Chain\")",
+        "visualization": "singleValue",
+        "visualizationSettings": {
+          "singleValue": {
+            "colorThresholdTarget": "background",
+            "colorRules": [
+              {
+                "color": "#1e8449",
+                "condition": "true"
+              }
+            ]
+          }
+        }
+      },
+      "17": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | makeTimeseries avg_pickup_time=avg(pickup_duration), bins:20",
+        "visualization": "lineChart",
+        "visualizationSettings": {
+          "chartSettings": {
+            "lineChartSettings": {
+              "seriesSettings": {
+                "avg_pickup_time": {
+                  "color": "#1e8449"
+                }
+              }
+            }
+          }
+        }
+      },
+      "18": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | summarize by:store_name, click_collect_orders=countIf(order_type==\"Click & Collect\")",
+        "visualization": "barChart",
+        "visualizationSettings": {
+          "chartSettings": {
+            "barChartSettings": {
+              "seriesSettings": {
+                "click_collect_orders": {
+                  "color": "#1e8449"
+                }
+              },
+              "categoryField": "store_name"
+            }
+          }
+        }
+      },
+      "19": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | summarize by:fulfillment_status, count=count()",
+        "visualization": "donutChart",
+        "visualizationSettings": {
+          "chartSettings": {
+            "donutChartSettings": {
+              "seriesSettings": {
+                "count": {
+                  "color": "#1e8449"
+                }
+              },
+              "categoryField": "fulfillment_status"
+            }
+          }
+        }
+      },
+      "20": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | summarize by:pickup_hour, pickups=countIf(order_type==\"Click & Collect\")",
+        "visualization": "honeycomb",
+        "visualizationSettings": {
+          "honeycomb": {
+            "dataMappings": {
+              "value": "pickups",
+              "category": "pickup_hour"
+            }
+          }
+        }
+      },
+      "21": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | limit 20 | fields store_name, order_id, fulfillment_status, pickup_time, total_amount",
+        "visualization": "table"
+      },
+      "22": {
+        "type": "data",
+        "query": "data record(section=\"Customer Journey & Experience\")",
+        "visualization": "singleValue",
+        "visualizationSettings": {
+          "singleValue": {
+            "colorThresholdTarget": "background",
+            "colorRules": [
+              {
+                "color": "#6c3483",
+                "condition": "true"
+              }
+            ]
+          }
+        }
+      },
+      "23": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | makeTimeseries avg_journey_time=avg(journey_duration), bins:20",
+        "visualization": "areaChart",
+        "visualizationSettings": {
+          "chartSettings": {
+            "areaChartSettings": {
+              "seriesSettings": {
+                "avg_journey_time": {
+                  "color": "#6c3483"
+                }
+              }
+            }
+          }
+        }
+      },
+      "24": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | summarize by:journey_stage, count=count()",
+        "visualization": "barChart",
+        "visualizationSettings": {
+          "chartSettings": {
+            "barChartSettings": {
+              "seriesSettings": {
+                "count": {
+                  "color": "#6c3483"
+                }
+              },
+              "categoryField": "journey_stage"
+            }
+          }
+        }
+      },
+      "25": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | summarize by:customer_segment, conversion_rate=sum(completed_orders)/sum(total_sessions)*100",
+        "visualization": "honeycomb",
+        "visualizationSettings": {
+          "honeycomb": {
+            "dataMappings": {
+              "value": "conversion_rate",
+              "category": "customer_segment"
+            }
+          }
+        }
+      },
+      "26": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | summarize by:customer_segment, avg_order_value=avg(total_amount)",
+        "visualization": "donutChart",
+        "visualizationSettings": {
+          "chartSettings": {
+            "donutChartSettings": {
+              "seriesSettings": {
+                "avg_order_value": {
+                  "color": "#6c3483"
+                }
+              },
+              "categoryField": "customer_segment"
+            }
+          }
+        }
+      },
+      "27": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | limit 20 | fields customer_id, journey_stage, journey_duration, order_id, total_amount",
+        "visualization": "table"
+      },
+      "28": {
+        "type": "data",
+        "query": "data record(section=\"Gift Card Performance\")",
+        "visualization": "singleValue",
+        "visualizationSettings": {
+          "singleValue": {
+            "colorThresholdTarget": "background",
+            "colorRules": [
+              {
+                "color": "#935116",
+                "condition": "true"
+              }
+            ]
+          }
+        }
+      },
+      "29": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | makeTimeseries gift_card_revenue=sum(gift_card_amount), bins:20",
+        "visualization": "lineChart",
+        "visualizationSettings": {
+          "chartSettings": {
+            "lineChartSettings": {
+              "seriesSettings": {
+                "gift_card_revenue": {
+                  "color": "#935116"
+                }
+              }
+            }
+          }
+        }
+      },
+      "30": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | summarize by:gift_card_type, gift_card_revenue=sum(gift_card_amount)",
+        "visualization": "barChart",
+        "visualizationSettings": {
+          "chartSettings": {
+            "barChartSettings": {
+              "seriesSettings": {
+                "gift_card_revenue": {
+                  "color": "#935116"
+                }
+              },
+              "categoryField": "gift_card_type"
+            }
+          }
+        }
+      },
+      "31": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | summarize by:gift_card_status, count=count()",
+        "visualization": "donutChart",
+        "visualizationSettings": {
+          "chartSettings": {
+            "donutChartSettings": {
+              "seriesSettings": {
+                "count": {
+                  "color": "#935116"
+                }
+              },
+              "categoryField": "gift_card_status"
+            }
+          }
+        }
+      },
+      "32": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | summarize by:store_name, gift_card_revenue=sum(gift_card_amount)",
+        "visualization": "honeycomb",
+        "visualizationSettings": {
+          "honeycomb": {
+            "dataMappings": {
+              "value": "gift_card_revenue",
+              "category": "store_name"
+            }
+          }
+        }
+      },
+      "33": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | limit 20 | fields gift_card_id, customer_id, gift_card_amount, gift_card_status, store_name",
+        "visualization": "table"
+      },
+      "34": {
+        "type": "data",
+        "query": "data record(section=\"Quality & Reliability\")",
+        "visualization": "singleValue",
+        "visualizationSettings": {
+          "singleValue": {
+            "colorThresholdTarget": "background",
+            "colorRules": [
+              {
+                "color": "#1a252f",
+                "condition": "true"
+              }
+            ]
+          }
+        }
+      },
+      "35": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | makeTimeseries avg_response_time=avg(response_time), bins:20",
+        "visualization": "lineChart",
+        "visualizationSettings": {
+          "chartSettings": {
+            "lineChartSettings": {
+              "seriesSettings": {
+                "avg_response_time": {
+                  "color": "#1a252f"
+                }
+              }
+            }
+          }
+        }
+      },
+      "36": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | makeTimeseries error_rate=sum(error_count)/sum(total_sessions)*100, bins:20",
+        "visualization": "areaChart",
+        "visualizationSettings": {
+          "chartSettings": {
+            "areaChartSettings": {
+              "seriesSettings": {
+                "error_rate": {
+                  "color": "#c0392b"
+                }
+              }
+            }
+          }
+        }
+      },
+      "37": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | summarize by:error_type, error_count=sum(error_count)",
+        "visualization": "barChart",
+        "visualizationSettings": {
+          "chartSettings": {
+            "barChartSettings": {
+              "seriesSettings": {
+                "error_count": {
+                  "color": "#c0392b"
+                }
+              },
+              "categoryField": "error_type"
+            }
+          }
+        }
+      },
+      "38": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | summarize by:store_name, error_count=sum(error_count)",
+        "visualization": "honeycomb",
+        "visualizationSettings": {
+          "honeycomb": {
+            "dataMappings": {
+              "value": "error_count",
+              "category": "store_name"
+            }
+          }
+        }
+      },
+      "39": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | limit 20 | fields order_id, error_type, error_message, store_name, customer_id",
+        "visualization": "table"
+      }
+    },
+    "layouts": {
+      "0": {
+        "x": 0,
+        "y": 0,
+        "w": 6,
+        "h": 2
+      },
+      "1": {
+        "x": 6,
+        "y": 0,
+        "w": 18,
+        "h": 2
+      },
+      "2": {
+        "x": 0,
+        "y": 2,
+        "w": 24,
+        "h": 8
+      },
+      "3": {
+        "x": 0,
+        "y": 10,
+        "w": 24,
+        "h": 1
+      },
+      "4": {
+        "x": 0,
+        "y": 11,
+        "w": 6,
+        "h": 2
+      },
+      "5": {
+        "x": 6,
+        "y": 11,
+        "w": 6,
+        "h": 2
+      },
+      "6": {
+        "x": 12,
+        "y": 11,
+        "w": 6,
+        "h": 2
+      },
+      "7": {
+        "x": 18,
+        "y": 11,
+        "w": 6,
+        "h": 2
+      },
+      "8": {
+        "x": 0,
+        "y": 13,
+        "w": 6,
+        "h": 2
+      },
+      "9": {
+        "x": 6,
+        "y": 13,
+        "w": 6,
+        "h": 2
+      },
+      "10": {
+        "x": 0,
+        "y": 15,
+        "w": 24,
+        "h": 1
+      },
+      "11": {
+        "x": 0,
+        "y": 16,
+        "w": 8,
+        "h": 4
+      },
+      "12": {
+        "x": 8,
+        "y": 16,
+        "w": 8,
+        "h": 4
+      },
+      "13": {
+        "x": 16,
+        "y": 16,
+        "w": 8,
+        "h": 4
+      },
+      "14": {
+        "x": 0,
+        "y": 20,
+        "w": 8,
+        "h": 4
+      },
+      "15": {
+        "x": 8,
+        "y": 20,
+        "w": 8,
+        "h": 4
+      },
+      "16": {
+        "x": 0,
+        "y": 24,
+        "w": 24,
+        "h": 1
+      },
+      "17": {
+        "x": 0,
+        "y": 25,
+        "w": 8,
+        "h": 4
+      },
+      "18": {
+        "x": 8,
+        "y": 25,
+        "w": 8,
+        "h": 4
+      },
+      "19": {
+        "x": 16,
+        "y": 25,
+        "w": 8,
+        "h": 4
+      },
+      "20": {
+        "x": 0,
+        "y": 29,
+        "w": 8,
+        "h": 4
+      },
+      "21": {
+        "x": 8,
+        "y": 29,
+        "w": 16,
+        "h": 5
+      },
+      "22": {
+        "x": 0,
+        "y": 34,
+        "w": 24,
+        "h": 1
+      },
+      "23": {
+        "x": 0,
+        "y": 35,
+        "w": 8,
+        "h": 4
+      },
+      "24": {
+        "x": 8,
+        "y": 35,
+        "w": 8,
+        "h": 4
+      },
+      "25": {
+        "x": 16,
+        "y": 35,
+        "w": 8,
+        "h": 4
+      },
+      "26": {
+        "x": 0,
+        "y": 39,
+        "w": 8,
+        "h": 4
+      },
+      "27": {
+        "x": 8,
+        "y": 39,
+        "w": 16,
+        "h": 5
+      },
+      "28": {
+        "x": 0,
+        "y": 44,
+        "w": 24,
+        "h": 1
+      },
+      "29": {
+        "x": 0,
+        "y": 45,
+        "w": 8,
+        "h": 4
+      },
+      "30": {
+        "x": 8,
+        "y": 45,
+        "w": 8,
+        "h": 4
+      },
+      "31": {
+        "x": 16,
+        "y": 45,
+        "w": 8,
+        "h": 4
+      },
+      "32": {
+        "x": 0,
+        "y": 49,
+        "w": 8,
+        "h": 4
+      },
+      "33": {
+        "x": 8,
+        "y": 49,
+        "w": 16,
+        "h": 5
+      },
+      "34": {
+        "x": 0,
+        "y": 54,
+        "w": 24,
+        "h": 1
+      },
+      "35": {
+        "x": 0,
+        "y": 55,
+        "w": 8,
+        "h": 4
+      },
+      "36": {
+        "x": 8,
+        "y": 55,
+        "w": 8,
+        "h": 4
+      },
+      "37": {
+        "x": 16,
+        "y": 55,
+        "w": 8,
+        "h": 4
+      },
+      "38": {
+        "x": 0,
+        "y": 59,
+        "w": 8,
+        "h": 4
+      },
+      "39": {
+        "x": 8,
+        "y": 59,
+        "w": 16,
+        "h": 5
+      }
+    },
+    "variables": [
+      {
+        "name": "Event Provider",
+        "key": "EventProvider",
+        "type": "query",
+        "multiple": false,
+        "input": "data record(value = \"Smyths Toys\")",
+        "defaultValue": "Smyths Toys"
+      },
+      {
+        "name": "Journey Type",
+        "key": "JourneyType",
+        "type": "query",
+        "multiple": false,
+        "input": "fetch bizevents | filter json.companyName == $EventProvider | fields json.journeyType | filter isNotNull(json.journeyType)| dedup json.journeyType",
+        "defaultValue": "Click & Collect"
+      },
+      {
+        "name": "Region",
+        "type": "query",
+        "multiple": true,
+        "query": "fetch bizevents | filter event.provider == \"smythstoys.event.provider\" | dedup region | fields region",
+        "key": "Region",
+        "input": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | dedup region | fields region"
+      },
+      {
+        "name": "ProductCategory",
+        "type": "query",
+        "multiple": true,
+        "query": "fetch bizevents | filter event.provider == \"smythstoys.event.provider\" | dedup product_category | fields product_category",
+        "key": "ProductCategory",
+        "input": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | dedup product_category | fields product_category"
+      },
+      {
+        "name": "Store",
+        "type": "query",
+        "multiple": true,
+        "query": "fetch bizevents | filter event.provider == \"smythstoys.event.provider\" | dedup store_name | fields store_name",
+        "key": "Store",
+        "input": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | dedup store_name | fields store_name"
+      },
+      {
+        "name": "CustomerSegment",
+        "type": "query",
+        "multiple": true,
+        "query": "fetch bizevents | filter event.provider == \"smythstoys.event.provider\" | dedup customer_segment | fields customer_segment",
+        "key": "CustomerSegment",
+        "input": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | dedup customer_segment | fields customer_segment"
+      }
+    ],
+    "settings": {
+      "defaultTimeframe": {
+        "value": {
+          "from": "now()-2h",
+          "to": "now()"
+        },
+        "enabled": true
+      }
+    },
+    "annotations": [],
+    "version": 21
+  },
+  "type": "dashboard",
+  "version": 1,
+  "metadata": {
+    "company": "Smyths Toys",
+    "journeyType": "Click & Collect"
+  }
+}

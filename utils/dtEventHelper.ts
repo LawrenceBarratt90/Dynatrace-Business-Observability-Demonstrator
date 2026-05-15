@@ -74,6 +74,21 @@ function buildChaosEntitySelectors(target: string): string[] {
   ];
 }
 
+function normalizeDtEnvironmentUrl(raw: string): string {
+  const input = String(raw || '').trim();
+  if (!input) return '';
+  try {
+    const parsed = new URL(/^https?:\/\//i.test(input) ? input : `https://${input}`);
+    parsed.hostname = parsed.hostname.replace('.apps.', '.');
+    parsed.pathname = '';
+    parsed.search = '';
+    parsed.hash = '';
+    return `${parsed.protocol}//${parsed.host}`.replace(/\/+$/, '');
+  } catch {
+    return input.replace(/\/+$/, '').replace('.apps.', '.').replace(/\/ui\/apps(?:\/.*)?$/i, '');
+  }
+}
+
 // ─── Core Function ────────────────────────────────────────────
 
 /**
@@ -90,7 +105,7 @@ export async function sendDynatraceEvent(
 ): Promise<DynatraceEventResult> {
   const creds = loadCredentialsFile();
   const DT_ENVIRONMENT = process.env.DT_ENVIRONMENT || process.env.DYNATRACE_URL || creds.environmentUrl;
-  const DT_TOKEN = process.env.DT_PLATFORM_TOKEN || process.env.DYNATRACE_TOKEN || process.env.DT_API_TOKEN || creds.apiToken;
+  const DT_TOKEN = process.env.DT_API_TOKEN || creds.apiToken || process.env.DYNATRACE_TOKEN || process.env.DT_PLATFORM_TOKEN;
 
   if (!DT_ENVIRONMENT || !DT_TOKEN) {
     log.warn('Dynatrace credentials not configured (no env vars, no .dt-credentials.json apiToken), skipping event');
@@ -133,34 +148,63 @@ export async function sendDynatraceEvent(
       entitySelector: options.entitySelector,
     });
 
-    const baseUrl = DT_ENVIRONMENT.replace(/\/+$/, '').replace('.apps.dynatrace', '.dynatrace');
-    const response = await fetch(`${baseUrl}/api/v2/events/ingest`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Api-Token ${DT_TOKEN}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(eventPayload),
-    });
+    const baseUrl = normalizeDtEnvironmentUrl(DT_ENVIRONMENT);
+    const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+    let response: Response | undefined;
+    let body = '';
+    let lastError = '';
 
-    const body = await response.text();
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        response = await fetch(`${baseUrl}/api/v2/events/ingest`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Api-Token ${DT_TOKEN}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(eventPayload),
+        });
 
-    if (response.ok) {
-      log.info('Dynatrace event sent successfully', {
-        status: response.status,
-        title: options.title,
-      });
-    } else {
-      log.error('Dynatrace event failed', {
-        status: response.status,
-        body: body.substring(0, 200),
-      });
+        body = await response.text();
+        if (response.ok) {
+          log.info('Dynatrace event sent successfully', {
+            status: response.status,
+            title: options.title,
+            attempt,
+          });
+          return {
+            success: true,
+            status: response.status,
+            body,
+          };
+        }
+
+        const shouldRetry = (response.status === 429 || response.status >= 500) && attempt < 3;
+        if (!shouldRetry) {
+          log.error('Dynatrace event failed', {
+            status: response.status,
+            body: body.substring(0, 200),
+          });
+          return {
+            success: false,
+            status: response.status,
+            body,
+          };
+        }
+
+        await sleep(400 * attempt);
+      } catch (err) {
+        lastError = err instanceof Error ? err.message : String(err);
+        if (attempt === 3) break;
+        await sleep(400 * attempt);
+      }
     }
 
     return {
-      success: response.ok,
-      status: response.status,
+      success: false,
+      status: response?.status,
       body,
+      error: lastError || 'events_ingest_failed',
     };
 
   } catch (err) {
@@ -266,7 +310,7 @@ export async function sendChaosRevertEvent(
 export function isDynatraceConfigured(): boolean {
   const creds = loadCredentialsFile();
   const DT_ENVIRONMENT = process.env.DT_ENVIRONMENT || process.env.DYNATRACE_URL || creds.environmentUrl;
-  const DT_TOKEN = process.env.DT_PLATFORM_TOKEN || process.env.DYNATRACE_TOKEN || process.env.DT_API_TOKEN || creds.apiToken;
+  const DT_TOKEN = process.env.DT_API_TOKEN || creds.apiToken || process.env.DYNATRACE_TOKEN || process.env.DT_PLATFORM_TOKEN;
   return !!(DT_ENVIRONMENT && DT_TOKEN);
 }
 

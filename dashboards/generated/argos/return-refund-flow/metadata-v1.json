@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "company": "Argos",
+  "journeyType": "Return Refund Flow",
+  "dashboardId": "bizobs-argos-return-refund-flow",
+  "dashboardUrl": "/ui/apps/dynatrace.dashboards/dashboard/bizobs-argos-return-refund-flow",
+  "dashboardName": "Argos - Return Refund Flow",
+  "generationMethod": "direct-dtctl",
+  "generatedAt": "2026-05-13T12:02:43.770Z",
+  "tileCount": 52,
+  "artifactFiles": {
+    "dashboard": "dashboards/generated/argos/return-refund-flow/dashboard-v1.json",
+    "metadata": "dashboards/generated/argos/return-refund-flow/metadata-v1.json"
+  }
+}

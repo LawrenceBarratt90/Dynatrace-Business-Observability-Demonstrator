@@ -12,6 +12,8 @@ const __dirname = path.dirname(__filename);
 // Track running child services and their context
 const childServices = {};
 const childServiceMeta = {};
+// Guards concurrent starts of the same internal service key.
+const serviceStartupPromises = {};
 
 // Dormant services: stopped services whose metadata is preserved for quick restart
 // Key = internalServiceName, Value = { ...meta, stoppedAt, previousPort }
@@ -25,6 +27,15 @@ function normalizeServiceIdentifier(name) {
   return String(name || '')
     .replace(/[^a-zA-Z0-9]/g, '')
     .toLowerCase();
+}
+
+function normalizeJourneyIdentifier(journeyType) {
+  const normalized = normalizeServiceIdentifier(journeyType);
+  return normalized || 'unknownjourney';
+}
+
+function buildInternalServiceName(baseServiceName, companyName, journeyType) {
+  return `${normalizeServiceIdentifier(baseServiceName)}-${normalizeServiceIdentifier(companyName)}-${normalizeJourneyIdentifier(journeyType)}`;
 }
 
 /**
@@ -178,10 +189,31 @@ export async function isServiceReady(port, timeout = 5000) {
 // Convert step name to service format with enhanced dynamic generation
 export function getServiceNameFromStep(stepName, context = {}) {
   if (!stepName) return null;
+
+  const normalizedInput = normalizeServiceIdentifier(stepName);
+  const canonicalServiceMap = {
+    addtowishlist: 'AddToWishlistService',
+    addtowishlistservice: 'AddToWishlistService',
+    searchinteraction: 'SearchInteractionService',
+    searchinteractionservice: 'SearchInteractionService',
+    homepageload: 'HomepageLoadService',
+    homepageloadservice: 'HomepageLoadService',
+    categoryselection: 'CategorySelectionService',
+    categoryselectionservice: 'CategorySelectionService',
+    productlistingview: 'ProductListingViewService',
+    productlistingviewservice: 'ProductListingViewService',
+    productdetailview: 'ProductDetailViewService',
+    productdetailviewservice: 'ProductDetailViewService'
+  };
+  if (canonicalServiceMap[normalizedInput]) {
+    return canonicalServiceMap[normalizedInput];
+  }
   
   // If already a proper service name, keep it
   if (/Service$|API$|Processor$|Manager$|Gateway$/i.test(String(stepName))) {
-    return normalizeServiceIdentifier(stepName);
+    // Strip non-alphanumeric and convert to PascalCase (preserve casing, don't lowercase)
+    const clean = String(stepName).replace(/[^a-zA-Z0-9\-_\s]/g, '').replace(/[\-_\s]+/g, ' ').trim();
+    return clean.split(' ').filter(Boolean).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join('');
   }
   
   // Extract context information for more intelligent naming
@@ -234,38 +266,36 @@ export function getServiceNameFromStep(stepName, context = {}) {
   serviceName = serviceName.replace(/StepService$/, 'Service');
   
   const normalizedServiceName = normalizeServiceIdentifier(serviceName);
-  console.log(`[service-manager] Converting step "${stepName}" to clean service "${normalizedServiceName}"`);
-  return normalizedServiceName;
+  console.log(`[service-manager] Converting step "${stepName}" to clean service "${serviceName}"`);
+  return serviceName;
 }
 
 // Get port for service using robust port manager
-export async function getServicePort(stepName, companyName = null) {
+export async function getServicePort(stepName, companyName = null, journeyType = '', explicitServiceName = null) {
   if (!companyName) {
     console.warn('[service-manager] ⚠️ getServicePort called without companyName - this should not happen in production');
     return null;
   }
   
-  const baseServiceName = getServiceNameFromStep(stepName);
+  const baseServiceName = explicitServiceName || getServiceNameFromStep(stepName);
   if (!baseServiceName) return null;
   
-  // Create compound service name for internal tracking and port allocation
-  const internalServiceName = `${baseServiceName}-${normalizeServiceIdentifier(companyName)}`;
-  // Use clean service name for Dynatrace service identification (per user request)
-  const dynatraceServiceName = baseServiceName;
+  // Create compound service name for internal tracking and port allocation.
+  // Format: service-company-journey for collision-proof multi-journey environments.
+  const internalServiceName = buildInternalServiceName(baseServiceName, companyName, journeyType);
   
   try {
     // Check if service already has a port allocated using the compound name
-    // Use 'default' for company since internalServiceName already includes company
+    // Use 'default' for company since internalServiceName already includes company/journey
     const existingPort = portManager.getServicePort(internalServiceName, 'default');
     if (existingPort) {
-      console.log(`[service-manager] Service "${baseServiceName}" for ${companyName} already allocated to port ${existingPort}`);
+      console.log(`[service-manager] Service "${baseServiceName}" for ${companyName}/${journeyType || 'unknown'} already allocated to port ${existingPort}`);
       return existingPort;
     }
     
     // Allocate new port using robust port manager with compound name
-    // Use 'default' for company since internalServiceName already includes company
     const port = await portManager.allocatePort(internalServiceName, 'default');
-    console.log(`[service-manager] Service "${baseServiceName}" for ${companyName} allocated port ${port}`);
+    console.log(`[service-manager] Service "${baseServiceName}" for ${companyName}/${journeyType || 'unknown'} allocated port ${port}`);
     return port;
     
   } catch (error) {
@@ -313,9 +343,11 @@ export async function startChildService(internalServiceName, scriptPath, portPar
   const domain = env.DOMAIN || 'default.com';
   const industryType = env.INDUSTRY_TYPE || 'general';
   const journeyType = env.JOURNEY_TYPE || '';
+  const createdByUserEmail = String(env.CREATED_BY_USER_EMAIL || '').trim().toLowerCase();
+  const createdByUserName = String(env.CREATED_BY_USER_NAME || '').trim();
   
-  // Get Dynatrace service name (clean name without company suffix)
-  const dynatraceServiceName = env.DYNATRACE_SERVICE_NAME || env.BASE_SERVICE_NAME || internalServiceName.replace(/-[^-]*$/, '');
+  // dynatraceServiceName: clean base name for Dynatrace service entity (DT_TAGS carry company/journey context)
+  const dynatraceServiceName = env.DYNATRACE_SERVICE_NAME || env.BASE_SERVICE_NAME || (env.STEP_NAME ? getServiceNameFromStep(env.STEP_NAME) : null) || String(internalServiceName).split('-')[0] || internalServiceName;
   
   let port; // Declare port outside try block for error handling
   try {
@@ -324,7 +356,7 @@ export async function startChildService(internalServiceName, scriptPath, portPar
       port = portParam;
       console.log(`[service-manager] Using pre-allocated port ${port} for ${dynatraceServiceName}`);
     } else {
-      port = await getServicePort(stepName, companyName);
+      port = await getServicePort(stepName, companyName, journeyType);
       console.log(`[service-manager] Allocated new port ${port} for ${dynatraceServiceName}`);
     }
     console.log(`🚀 Starting child service: ${dynatraceServiceName} (${internalServiceName}) on port ${port} for company: ${companyName} (domain: ${domain}, industry: ${industryType}, journeyType: ${journeyType})`);
@@ -332,14 +364,36 @@ export async function startChildService(internalServiceName, scriptPath, portPar
     // cwd: If a service-specific directory is provided (with its own package.json),
     // spawn the process there so OneAgent reads THAT package.json name instead of the parent's
     const spawnCwd = env._SERVICE_CWD || undefined;
-    // Child step services should be OneAgent-only to avoid OTEL POST/* service noise.
-    const spawnArgs = [`--title=${dynatraceServiceName}`, scriptPath, dynatraceServiceName];
+    
+    // Resolve otel.cjs path relative to project root for OTel initialization in child processes
+    const otelBootstrap = path.resolve(__dirname, '..', 'otel.cjs');
+    // Child step services should be OneAgent-only to avoid duplicate service entities
+    // (Web request + Unified service) with the same name.
+    const disableChildOtel = true;
+    const spawnArgs = (!disableChildOtel && fs.existsSync(otelBootstrap))
+      ? [`--require`, otelBootstrap, `--title=${dynatraceServiceName}`, scriptPath, dynatraceServiceName]
+      : [`--title=${dynatraceServiceName}`, scriptPath, dynatraceServiceName];
+    const inheritedEnv = { ...process.env };
+    for (const key of Object.keys(inheritedEnv)) {
+      if (key.startsWith('OTEL_')) {
+        delete inheritedEnv[key];
+      }
+    }
+    if (typeof inheritedEnv.NODE_OPTIONS === 'string' && inheritedEnv.NODE_OPTIONS.includes('otel.cjs')) {
+      inheritedEnv.NODE_OPTIONS = inheritedEnv.NODE_OPTIONS
+        .replace(/--require\s+[^\s]*otel\.cjs\s*/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      if (!inheritedEnv.NODE_OPTIONS) {
+        delete inheritedEnv.NODE_OPTIONS;
+      }
+    }
+
     const child = spawn('node', spawnArgs, {
       cwd: spawnCwd,
-      env: {
-        ...process.env,
-        ...env,
-        SERVICE_NAME: dynatraceServiceName,
+      env: { 
+        ...inheritedEnv,
+        SERVICE_NAME: dynatraceServiceName, 
         FULL_SERVICE_NAME: internalServiceName,
         PORT: port,
         MAIN_SERVER_PORT: process.env.PORT || '8080',
@@ -386,16 +440,20 @@ export async function startChildService(internalServiceName, scriptPath, portPar
         DT_LOGICAL_SERVICE_NAME: dynatraceServiceName,
         DT_APPLICATION_NAME: dynatraceServiceName,
         DT_PROCESS_GROUP_NAME: dynatraceServiceName,
-        // Hard-disable OpenTelemetry export for child step services
+        // Prevent OTLP service-only entities for child step services.
         OTEL_SDK_DISABLED: 'true',
         OTEL_TRACES_EXPORTER: 'none',
         OTEL_METRICS_EXPORTER: 'none',
         OTEL_LOGS_EXPORTER: 'none',
-        OTEL_SERVICE_NAME: '',
         OTEL_EXPORTER_OTLP_ENDPOINT: '',
         OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: '',
         OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: '',
-        OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: ''
+        OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: '',
+        OTEL_RESOURCE_ATTRIBUTES: '',
+        OTEL_NODE_RESOURCE_DETECTORS: 'none',
+        OTEL_PROPAGATORS: 'tracecontext,baggage',
+        OTEL_TRACES_SAMPLER: 'always_off',
+        ...env 
       },
       stdio: ['ignore', 'pipe', 'pipe']
     });
@@ -422,10 +480,16 @@ export async function startChildService(internalServiceName, scriptPath, portPar
       domain, 
       industryType,
       journeyType: journeyType || '',
+      journeyDetail: env.JOURNEY_DETAIL || journeyType || '',
+      createdByUserEmail,
+      createdByUserName,
       startTime: startTimeMs,
       port,
       stepName: stepName,  // Include step name for UI display
-      baseServiceName: dynatraceServiceName
+      baseServiceName: dynatraceServiceName,
+      // Keep key identity tied to the base service token, not the composed journey name.
+      // Using the composed name here causes false context mismatches and restart churn.
+      serviceKeyName: normalizeServiceIdentifier(env.BASE_SERVICE_NAME || dynatraceServiceName)
     };
     return child;
     
@@ -469,29 +533,42 @@ export async function ensureServiceRunning(stepName, companyContext = {}) {
   const domain = companyContext.domain || 'default.com';
   const industryType = companyContext.industryType || 'general';
   const journeyType = companyContext.journeyType || '';
+  const journeyDetail = companyContext.journeyDetail || journeyType || '';
+  const createdByUserEmail = String(companyContext.createdByUserEmail || companyContext.userEmail || '').trim().toLowerCase();
+  const createdByUserName = String(companyContext.createdByUserName || companyContext.userName || '').trim();
   const stepEnvName = companyContext.stepName || stepName;
   const category = stepContext.category || 'general';
   
-  // Create a unique service key per company to allow service reuse within same company
-  const internalServiceName = `${baseServiceName}-${normalizeServiceIdentifier(companyName)}`;
-  // Use clean service name for Dynatrace service identification (per user request)
-  const dynatraceServiceName = baseServiceName;
-  console.log(`[service-manager] Company-specific service name: ${internalServiceName} (base: ${baseServiceName}, company: ${companyName})`);
+  // Create a unique service key per company and journey to prevent collisions at scale.
+  // Format: service-company-journey
+  const internalServiceName = buildInternalServiceName(baseServiceName, companyName, journeyType);
+  // dynatraceServiceName: enforce collision-proof lowercase identity in Dynatrace.
+  // Format: stepname-companyname-journeytype
+  const dynatraceServiceName = internalServiceName;
+  console.log(`[service-manager] Journey-specific service name: ${internalServiceName} (base: ${baseServiceName}, company: ${companyName}, journey: ${journeyType || 'unknown'})`);
   
   const desiredMeta = {
     companyName,
     domain,
     industryType,
     journeyType,
-    baseServiceName,
+    journeyDetail,
+    createdByUserEmail,
+    createdByUserName,
+    baseServiceName: dynatraceServiceName,
+    serviceKeyName: baseServiceName,
     stepName: stepEnvName  // Include step name for UI display
   };
 
   const existing = childServices[internalServiceName];
   const existingMeta = childServiceMeta[internalServiceName];
 
-  // Check for company context mismatch FIRST - now we only care about domain/industry since company is in service name
+  // Check for context mismatch to avoid collapsing different journeys together.
+  // CRITICAL: Must match identically on companyName, journeyType, AND baseServiceName (serviceName)
   const metaMismatch = existingMeta && (
+    existingMeta.companyName !== desiredMeta.companyName ||
+    String(existingMeta.journeyType || '').trim().toLowerCase() !== String(desiredMeta.journeyType || '').trim().toLowerCase() ||
+    normalizeServiceIdentifier(existingMeta.serviceKeyName || existingMeta.baseServiceName || '') !== normalizeServiceIdentifier(desiredMeta.serviceKeyName || desiredMeta.baseServiceName || '') ||
     existingMeta.domain !== desiredMeta.domain ||
     existingMeta.industryType !== desiredMeta.industryType
   );
@@ -505,80 +582,115 @@ export async function ensureServiceRunning(stepName, companyContext = {}) {
 
   // If service exists and is still running AND context matches, return it immediately
   if (existing && !existing.killed && existing.exitCode === null && !metaMismatch) {
+    if (existingMeta) {
+      if (!existingMeta.createdByUserEmail && createdByUserEmail) existingMeta.createdByUserEmail = createdByUserEmail;
+      if (!existingMeta.createdByUserName && createdByUserName) existingMeta.createdByUserName = createdByUserName;
+      if (!existingMeta.journeyType && journeyType) existingMeta.journeyType = journeyType;
+      if (!existingMeta.journeyDetail && journeyDetail) existingMeta.journeyDetail = journeyDetail;
+    }
     console.log(`[service-manager] Service ${internalServiceName} already running (PID: ${existing.pid}), reusing existing instance for ${companyName}`);
     // Return the port number
     return existingMeta?.port;
   }
 
+  const normalizedCompany = normalizeServiceIdentifier(companyName);
+  const aliasEntry = Object.entries(childServiceMeta).find(([candidateKey, meta]) => {
+    if (candidateKey === internalServiceName || !meta) return false;
+    if (normalizeServiceIdentifier(meta.companyName || '') !== normalizedCompany) return false;
+    if (normalizeServiceIdentifier(meta.baseServiceName || '') !== normalizeServiceIdentifier(dynatraceServiceName)) return false;
+    if (String(meta.journeyType || '').trim().toLowerCase() !== String(journeyType || '').trim().toLowerCase()) return false;
+    if (String(meta.journeyDetail || '').trim().toLowerCase() !== String(journeyDetail || '').trim().toLowerCase()) return false;
+    const candidateChild = childServices[candidateKey];
+    return !!candidateChild && !candidateChild.killed && candidateChild.exitCode === null && !!meta.port;
+  });
+  if (aliasEntry) {
+    const [aliasKey, aliasMeta] = aliasEntry;
+    console.warn(`[service-manager] Duplicate service request for ${internalServiceName}; reusing ${aliasKey} on port ${aliasMeta.port}`);
+    return aliasMeta.port;
+  }
+
+  if (serviceStartupPromises[internalServiceName]) {
+    console.log(`[service-manager] Startup already in progress for ${internalServiceName}, waiting for existing start`);
+    return serviceStartupPromises[internalServiceName];
+  }
+
   if (!existing || metaMismatch) {
-    if (existing && metaMismatch) {
-      console.log(`[service-manager] Context change detected for ${internalServiceName}. Restarting service to apply new tags:`, JSON.stringify({ from: existingMeta, to: desiredMeta }));
-      try { existing.kill('SIGTERM'); } catch {}
-      delete childServices[internalServiceName];
-      delete childServiceMeta[internalServiceName];
-      // Free up the port using port manager
-      const meta = childServiceMeta[internalServiceName];
-      if (meta && meta.port) {
-        portManager.releasePort(meta.port, internalServiceName);
+    const startupPromise = (async () => {
+      if (existing && metaMismatch) {
+        console.log(`[service-manager] Context change detected for ${internalServiceName}. Restarting service to apply new tags:`, JSON.stringify({ from: existingMeta, to: desiredMeta }));
+        const oldMeta = childServiceMeta[internalServiceName];
+        try { existing.kill('SIGTERM'); } catch {}
+        delete childServices[internalServiceName];
+        delete childServiceMeta[internalServiceName];
+        // Free up the port using port manager
+        if (oldMeta && oldMeta.port) {
+          portManager.releasePort(oldMeta.port, internalServiceName);
+        }
       }
-    }
-    console.log(`[service-manager] Service ${internalServiceName} not running, starting it for company: ${companyName}...`);
-    // Try to start with existing service file, fallback to dynamic service
-    const specificServicePath = path.join(__dirname, `${internalServiceName}.cjs`);
-    const dynamicServicePath = path.join(__dirname, 'runtime', 'dynamic-step-service.js');
-    // Create a per-service wrapper so the Node entrypoint filename matches the service name
-    const runnersDir = path.join(__dirname, '.dynamic-runners');
-    try {
-      // Check if specific service exists
-      if (fs.existsSync(specificServicePath)) {
-        console.log(`[service-manager] Starting specific service: ${specificServicePath}`);
-        const child = await startChildService(internalServiceName, specificServicePath, null, { 
-          STEP_NAME: stepEnvName,
-          COMPANY_NAME: companyName,
-          DOMAIN: domain,
-          INDUSTRY_TYPE: industryType,
-          CATEGORY: category,
-          BASE_SERVICE_NAME: baseServiceName,
-          DYNATRACE_SERVICE_NAME: dynatraceServiceName
-        });
-        const meta = childServiceMeta[internalServiceName];
-        const allocatedPort = meta?.port;
-        // Wait for service health endpoint to be ready before returning port
-        if (allocatedPort) {
-          const ready = await isServiceReady(allocatedPort, 5000);
-          if (!ready) {
-            console.error(`[service-manager] Service ${dynatraceServiceName} started but did not become ready on port ${allocatedPort}`);
-            throw new Error(`Service ${dynatraceServiceName} not responding on port ${allocatedPort}`);
+      console.log(`[service-manager] Service ${internalServiceName} not running, starting it for company: ${companyName}...`);
+      // Try to start with existing service file, fallback to dynamic service
+      const specificServicePath = path.join(__dirname, `${internalServiceName}.cjs`);
+      const dynamicServicePath = path.join(__dirname, 'runtime', 'dynamic-step-service.js');
+      // Create a per-service wrapper so the Node entrypoint filename matches the service name
+      const runnersDir = path.join(__dirname, '.dynamic-runners');
+      try {
+        // Check if specific service exists
+        if (fs.existsSync(specificServicePath)) {
+          console.log(`[service-manager] Starting specific service: ${specificServicePath}`);
+          await startChildService(internalServiceName, specificServicePath, null, { 
+            STEP_NAME: stepEnvName,
+            COMPANY_NAME: companyName,
+            DOMAIN: domain,
+            INDUSTRY_TYPE: industryType,
+            CATEGORY: category,
+            CREATED_BY_USER_EMAIL: createdByUserEmail,
+            CREATED_BY_USER_NAME: createdByUserName,
+            BASE_SERVICE_NAME: baseServiceName,
+            DYNATRACE_SERVICE_NAME: dynatraceServiceName,
+            JOURNEY_TYPE: journeyType,
+            JOURNEY_DETAIL: companyContext.journeyDetail || journeyType || 'Unknown_Journey'
+          });
+          const meta = childServiceMeta[internalServiceName];
+          const allocatedPort = meta?.port;
+          // Wait for service health endpoint to be ready before returning port
+          if (allocatedPort) {
+            const ready = await isServiceReady(allocatedPort, 5000);
+            if (!ready) {
+              console.error(`[service-manager] Service ${dynatraceServiceName} started but did not become ready on port ${allocatedPort}`);
+              throw new Error(`Service ${dynatraceServiceName} not responding on port ${allocatedPort}`);
+            }
           }
-        }
-        return allocatedPort;
-      } else {
-        // Ensure runners directory exists
-        if (!fs.existsSync(runnersDir)) {
-          fs.mkdirSync(runnersDir, { recursive: true });
-        }
-        // ALLOCATE PORT BEFORE CREATING WRAPPER so we can include it in the wrapper
-        const allocatedPort = await getServicePort(stepEnvName, companyName);
-        if (!allocatedPort) {
-          throw new Error(`Failed to allocate port for ${dynatraceServiceName}`);
-        }
-        console.log(`[service-manager] Pre-allocated port ${allocatedPort} for ${dynatraceServiceName}`);
-        
-        // Create/overwrite wrapper with service-specific entrypoint
-        // Each service gets its own subdirectory with a package.json so OneAgent
-        // detects a unique "Web application id" instead of using the parent's package.json name
-        const serviceDir = path.join(runnersDir, dynatraceServiceName);
-        if (!fs.existsSync(serviceDir)) {
-          fs.mkdirSync(serviceDir, { recursive: true });
-        }
-        // Write a per-service package.json — OneAgent reads this for Web application id
-        // Also sets "type": "commonjs" so .js wrappers work with require() and Dynatrace LiveDebugger
-        // IMPORTANT: name MUST match DT_APPLICATION_ID (PascalCase) to avoid duplicate services in Dynatrace
-        const wrapperPath = path.join(serviceDir, 'index.js');
-        // Ensure runner directory has commonjs package.json for LiveDebugger .js support
-        const runnerPkgJson = JSON.stringify({ name: dynatraceServiceName, version: '1.0.0', private: true, type: 'commonjs' }, null, 2);
-        fs.writeFileSync(path.join(serviceDir, 'package.json'), runnerPkgJson, 'utf-8');
-        const wrapperSource = `// Auto-generated wrapper for ${dynatraceServiceName}\n` +
+          return allocatedPort;
+        } else {
+          // Ensure runners directory exists
+          if (!fs.existsSync(runnersDir)) {
+            fs.mkdirSync(runnersDir, { recursive: true });
+          }
+          // ALLOCATE PORT BEFORE CREATING WRAPPER so we can include it in the wrapper
+          // Use base service name for allocation; getServicePort composes the internal key.
+          // Passing the already-composed dynatrace/internal name here causes double-compound
+          // keys and breaks release matching (which leads to EADDRINUSE churn).
+          const allocatedPort = await getServicePort(stepEnvName, companyName, journeyType, baseServiceName);
+          if (!allocatedPort) {
+            throw new Error(`Failed to allocate port for ${dynatraceServiceName}`);
+          }
+          console.log(`[service-manager] Pre-allocated port ${allocatedPort} for ${dynatraceServiceName}`);
+          
+          // Create/overwrite wrapper with service-specific entrypoint
+          // Each service gets its own subdirectory with a package.json so OneAgent
+          // detects a unique "Web application id" instead of using the parent's package.json name
+          const serviceDir = path.join(runnersDir, dynatraceServiceName);
+          if (!fs.existsSync(serviceDir)) {
+            fs.mkdirSync(serviceDir, { recursive: true });
+          }
+          // Write a per-service package.json — OneAgent reads this for Web application id
+          // Also sets "type": "commonjs" so .js wrappers work with require() and Dynatrace LiveDebugger
+          // IMPORTANT: name MUST match DT_APPLICATION_ID (PascalCase) to avoid duplicate services in Dynatrace
+          const wrapperPath = path.join(serviceDir, 'index.js');
+          // Ensure runner directory has commonjs package.json for LiveDebugger .js support
+          const runnerPkgJson = JSON.stringify({ name: dynatraceServiceName, version: '1.0.0', private: true, type: 'commonjs' }, null, 2);
+          fs.writeFileSync(path.join(serviceDir, 'package.json'), runnerPkgJson, 'utf-8');
+          const wrapperSource = `// Auto-generated wrapper for ${dynatraceServiceName}\n` +
 `process.env.SERVICE_NAME = ${JSON.stringify(dynatraceServiceName)};\n` +
 `process.env.FULL_SERVICE_NAME = ${JSON.stringify(internalServiceName)};\n` +
 `process.env.BASE_SERVICE_NAME = ${JSON.stringify(baseServiceName)};\n` +
@@ -620,6 +732,7 @@ export async function ensureServiceRunning(stepName, companyContext = {}) {
 `// Internal env vars for app-level code (NOT read by OneAgent)\n` +
 `process.env.DT_SERVICE_NAME = process.env.SERVICE_NAME;\n` +
 `process.env.DYNATRACE_SERVICE_NAME = process.env.SERVICE_NAME;\n` +
+`delete process.env.OTEL_SERVICE_NAME;\n` +
 `\n` +
 `// Override inherited parent values that would confuse OneAgent\n` +
 `process.env.DT_LOGICAL_SERVICE_NAME = process.env.SERVICE_NAME;\n` +
@@ -629,41 +742,54 @@ export async function ensureServiceRunning(stepName, companyContext = {}) {
 `process.env.OTEL_TRACES_EXPORTER = 'none';\n` +
 `process.env.OTEL_METRICS_EXPORTER = 'none';\n` +
 `process.env.OTEL_LOGS_EXPORTER = 'none';\n` +
-`delete process.env.OTEL_SERVICE_NAME;\n` +
 `process.env.OTEL_EXPORTER_OTLP_ENDPOINT = '';\n` +
 `process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT = '';\n` +
 `process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT = '';\n` +
 `process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT = '';\n` +
+`process.env.OTEL_RESOURCE_ATTRIBUTES = '';\n` +
+`process.env.OTEL_NODE_RESOURCE_DETECTORS = 'none';\n` +
+`process.env.OTEL_TRACES_SAMPLER = 'always_off';\n` +
 `\n` +
 `console.log('[wrapper] DT_APPLICATION_ID=' + process.env.DT_APPLICATION_ID);\n` +
 `console.log('[wrapper] DT_CUSTOM_PROP=' + process.env.DT_CUSTOM_PROP);\n` +
 `require(${JSON.stringify(dynamicServicePath)}).createStepService(process.env.SERVICE_NAME, process.env.STEP_NAME);\n`;
-        fs.writeFileSync(wrapperPath, wrapperSource, 'utf-8');
-        console.log(`[service-manager] Starting dynamic service via wrapper: ${wrapperPath}`);
-        const child = await startChildService(internalServiceName, wrapperPath, allocatedPort, { 
-          STEP_NAME: stepEnvName,
-          COMPANY_NAME: companyName,
-          DOMAIN: domain,
-          INDUSTRY_TYPE: industryType,
-          CATEGORY: category,
-          BASE_SERVICE_NAME: baseServiceName,
-          DYNATRACE_SERVICE_NAME: dynatraceServiceName,
-          JOURNEY_TYPE: journeyType,
-          JOURNEY_DETAIL: companyContext.journeyDetail || stepName || 'Unknown_Journey',
-          _SERVICE_CWD: serviceDir
-        });
-        // Wait for service health endpoint to be ready before returning port
-        if (allocatedPort) {
-          const ready = await isServiceReady(allocatedPort, 5000);
-          if (!ready) {
-            console.error(`[service-manager] Service ${dynatraceServiceName} started but did not become ready on port ${allocatedPort}`);
-            throw new Error(`Service ${dynatraceServiceName} not responding on port ${allocatedPort}`);
+          fs.writeFileSync(wrapperPath, wrapperSource, 'utf-8');
+          console.log(`[service-manager] Starting dynamic service via wrapper: ${wrapperPath}`);
+          await startChildService(internalServiceName, wrapperPath, allocatedPort, { 
+            STEP_NAME: stepEnvName,
+            COMPANY_NAME: companyName,
+            DOMAIN: domain,
+            INDUSTRY_TYPE: industryType,
+            CATEGORY: category,
+            CREATED_BY_USER_EMAIL: createdByUserEmail,
+            CREATED_BY_USER_NAME: createdByUserName,
+            BASE_SERVICE_NAME: baseServiceName,
+            DYNATRACE_SERVICE_NAME: dynatraceServiceName,
+            JOURNEY_TYPE: journeyType,
+            JOURNEY_DETAIL: companyContext.journeyDetail || journeyType || stepName || 'Unknown_Journey',
+            _SERVICE_CWD: serviceDir
+          });
+          // Wait for service health endpoint to be ready before returning port
+          if (allocatedPort) {
+            const ready = await isServiceReady(allocatedPort, 5000);
+            if (!ready) {
+              console.error(`[service-manager] Service ${dynatraceServiceName} started but did not become ready on port ${allocatedPort}`);
+              throw new Error(`Service ${dynatraceServiceName} not responding on port ${allocatedPort}`);
+            }
           }
+          return allocatedPort;
         }
-        return allocatedPort;
+      } catch (e) {
+        console.error(`[service-manager] Failed to start service for step ${stepName}:`, e.message);
+        return null;
       }
-    } catch (e) {
-      console.error(`[service-manager] Failed to start service for step ${stepName}:`, e.message);
+    })();
+
+    serviceStartupPromises[internalServiceName] = startupPromise;
+    try {
+      return await startupPromise;
+    } finally {
+      delete serviceStartupPromises[internalServiceName];
     }
   } else {
     console.log(`[service-manager] Service ${internalServiceName} already running`);
@@ -677,11 +803,9 @@ export async function ensureServiceRunning(stepName, companyContext = {}) {
         delete childServices[internalServiceName];
         delete childServiceMeta[internalServiceName];
         // Free the port allocation and return to pool
-        if (portAllocations.has(internalServiceName)) {
-          const port = portAllocations.get(internalServiceName);
-          portAllocations.delete(internalServiceName);
-          portPool.add(port);
-          console.log(`[service-manager] Freed port ${port} for unresponsive service ${internalServiceName}`);
+        if (meta?.port) {
+          portManager.releasePort(meta.port, internalServiceName);
+          console.log(`[service-manager] Freed port ${meta.port} for unresponsive service ${internalServiceName}`);
         }
         // Restart the service
         return ensureServiceRunning(stepName, companyContext);
@@ -1087,9 +1211,15 @@ export function clearDormantServicesForCompany(companyName) {
 
 // Convenience helper: ensure a service is started and ready (health endpoint responding)
 export async function ensureServiceReadyForStep(stepName, companyContext = {}, timeoutMs = 8000) {
-  // Start if not running
-  ensureServiceRunning(stepName, companyContext);
-  const port = getServicePort(stepName);
+  const companyName = companyContext.companyName || 'DefaultCompany';
+  const journeyType = companyContext.journeyType || '';
+
+  // Start if not running and get the resolved port.
+  let port = await ensureServiceRunning(stepName, companyContext);
+  if (!port) {
+    port = await getServicePort(stepName, companyName, journeyType);
+  }
+
   const start = Date.now();
   while (true) {
     const ready = await isServiceReady(port, 1000);
@@ -1098,7 +1228,10 @@ export async function ensureServiceReadyForStep(stepName, companyContext = {}, t
       throw new Error(`Service for step ${stepName} not ready on port ${port} within ${timeoutMs}ms`);
     }
     // Nudge start in case child crashed
-    ensureServiceRunning(stepName, companyContext);
+    const restartedPort = await ensureServiceRunning(stepName, companyContext);
+    if (restartedPort) {
+      port = restartedPort;
+    }
   }
 }
 

@@ -29,13 +29,34 @@ class PortManager extends EventEmitter {
   }
 
   /**
+   * Deterministic hash for stable per-service port affinity.
+   */
+  _hashString(input) {
+    const text = String(input || '');
+    let hash = 0;
+    for (let i = 0; i < text.length; i++) {
+      hash = ((hash << 5) - hash + text.charCodeAt(i)) | 0;
+    }
+    return Math.abs(hash);
+  }
+
+  /**
+   * Calculate a stable preferred port for a service key.
+   */
+  _getDeterministicPort(serviceKey) {
+    const range = this.maxPort - this.minPort + 1;
+    return this.minPort + (this._hashString(serviceKey) % range);
+  }
+
+  /**
    * Check if a port is actually available by attempting to bind to it
    */
   async isPortAvailable(port) {
     return new Promise((resolve) => {
       const server = net.createServer();
       
-      server.listen(port, '127.0.0.1', () => {
+      // Bind without forcing host so we detect conflicts on IPv4/IPv6 wildcard binds.
+      server.listen(port, () => {
         server.close(() => resolve(true));
       });
       
@@ -132,15 +153,36 @@ class PortManager extends EventEmitter {
       }
     }
     
-    // Check if we have a saved preferred port from previous session
+    // First preference: deterministic affinity by service key.
     let port = null;
-    const savedPort = this.savedPortMap.get(serviceKey);
-    if (savedPort && !this.allocatedPorts.has(savedPort) && !this.pendingAllocations.has(savedPort)) {
-      if (await this.isPortAvailable(savedPort)) {
-        port = savedPort;
-        console.log(`📌 [PortManager] Restoring saved port ${port} for ${serviceKey}`);
-      } else {
-        console.log(`⚠️ [PortManager] Saved port ${savedPort} for ${serviceKey} is no longer available, allocating new`);
+    const deterministicPort = this._getDeterministicPort(serviceKey);
+    const range = this.maxPort - this.minPort + 1;
+    for (let offset = 0; offset < range; offset++) {
+      const candidate = this.minPort + ((deterministicPort - this.minPort + offset) % range);
+      if (this.allocatedPorts.has(candidate) || this.pendingAllocations.has(candidate)) {
+        continue;
+      }
+      if (await this.isPortAvailable(candidate)) {
+        port = candidate;
+        if (offset === 0) {
+          console.log(`🎯 [PortManager] Using deterministic port ${port} for ${serviceKey}`);
+        } else {
+          console.log(`↪️ [PortManager] Deterministic port ${deterministicPort} busy, using fallback ${port} for ${serviceKey}`);
+        }
+        break;
+      }
+    }
+
+    // Second preference: restore historical saved port if deterministic scan failed.
+    if (!port) {
+      const savedPort = this.savedPortMap.get(serviceKey);
+      if (savedPort && !this.allocatedPorts.has(savedPort) && !this.pendingAllocations.has(savedPort)) {
+        if (await this.isPortAvailable(savedPort)) {
+          port = savedPort;
+          console.log(`📌 [PortManager] Restoring saved port ${port} for ${serviceKey}`);
+        } else {
+          console.log(`⚠️ [PortManager] Saved port ${savedPort} for ${serviceKey} is no longer available, allocating new`);
+        }
       }
     }
     

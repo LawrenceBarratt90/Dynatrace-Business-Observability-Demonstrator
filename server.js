@@ -17,7 +17,7 @@ import { fileURLToPath } from 'url';
 import { v4 as uuidv4 } from 'uuid';
 import crypto from 'crypto';
 import fs from 'fs/promises';
-import { existsSync, readFileSync, writeFileSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import readline from 'readline';
 import { ensureServiceRunning, getServiceNameFromStep, getServicePort, stopAllServices, stopCustomerJourneyServices, getChildServices, getChildServiceMeta, performHealthCheck, getServiceStatus, cleanupOrphanedServiceProcesses, getDormantServices, clearDormantServices, clearDormantServicesForCompany, blockCompany, unblockCompany } from './services/service-manager.js';
 import portManager from './services/port-manager.js';
@@ -74,6 +74,40 @@ process.env.DT_CUSTOM_PROP = 'service.splitting=enabled';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const BACKEND_VERSION = process.env.npm_package_version || (() => {
+  try {
+    const pkg = JSON.parse(readFileSync(path.join(__dirname, 'package.json'), 'utf-8'));
+    return String(pkg?.version || 'unknown');
+  } catch {
+    return 'unknown';
+  }
+})();
+
+// Ensure Librarian/Nemesis memory storage paths exist for both TS and compiled dist runtimes.
+function ensureAgentMemoryStores() {
+  const candidates = [
+    path.join(__dirname, 'memory', 'history', 'data', 'events.jsonl'),
+    path.join(__dirname, 'memory', 'vector', 'data', 'incidents.json'),
+    path.join(__dirname, 'dist', 'memory', 'history', 'data', 'events.jsonl'),
+    path.join(__dirname, 'dist', 'memory', 'vector', 'data', 'incidents.json'),
+  ];
+
+  for (const filePath of candidates) {
+    try {
+      const dir = path.dirname(filePath);
+      if (!existsSync(dir)) {
+        mkdirSync(dir, { recursive: true });
+      }
+      if (!existsSync(filePath)) {
+        writeFileSync(filePath, filePath.endsWith('.jsonl') ? '' : '[]', { flag: 'wx' });
+      }
+    } catch (err) {
+      console.warn('[Startup] Could not initialize memory store path:', filePath, String(err?.message || err));
+    }
+  }
+}
+
+ensureAgentMemoryStores();
 
 const app = express();
 
@@ -159,9 +193,28 @@ if (process.env.DT_ENVIRONMENT || process.env.DYNATRACE_URL) {
   dtCredentials.environmentUrl = process.env.DT_ENVIRONMENT || process.env.DYNATRACE_URL;
   dtCredentials.configuredBy = 'env';
 }
-if (process.env.DT_PLATFORM_TOKEN || process.env.DYNATRACE_TOKEN) {
-  dtCredentials.apiToken = process.env.DT_PLATFORM_TOKEN || process.env.DYNATRACE_TOKEN;
+if (process.env.DT_API_TOKEN) {
+  // Prefer explicit API token for event/environment ingest endpoints.
+  dtCredentials.apiToken = process.env.DT_API_TOKEN;
   dtCredentials.configuredBy = 'env';
+} else if (!dtCredentials.apiToken && process.env.DT_PLATFORM_TOKEN) {
+  // Fallback only when no API token exists (some environments use OAuth bearer-style tokens).
+  dtCredentials.apiToken = process.env.DT_PLATFORM_TOKEN;
+  dtCredentials.configuredBy = 'env';
+}
+
+// Log credential status at startup
+const credentialStatus = {
+  environmentUrlSet: !!dtCredentials.environmentUrl,
+  apiTokenSet: !!dtCredentials.apiToken,
+  configuredBy: dtCredentials.configuredBy,
+  source: dtCredentials.configuredBy === 'env' ? 'Environment Variables' : 
+          dtCredentials.configuredBy === 'ui' ? 'Saved File (.dt-credentials.json)' : 'Not Configured',
+  ready: !!dtCredentials.environmentUrl && !!dtCredentials.apiToken
+};
+console.log(`[🔑 DT Credentials] Startup Status:`, credentialStatus);
+if (!credentialStatus.ready) {
+  console.warn(`[🔑 DT Credentials] ⚠️  Dynatrace integration NOT READY. Set DT_ENVIRONMENT and DT_PLATFORM_TOKEN env vars, or use UI Settings to configure.`);
 }
 
 // Helper to persist credentials to file
@@ -263,7 +316,7 @@ async function promptForCredentials() {
       console.log('  ⏭️  Skipped — you can configure credentials later via:');
       console.log('     • UI: Settings → Dynatrace Configuration');
       console.log('     • API: POST /api/admin/dt-credentials');
-      console.log('     • Env: DT_ENVIRONMENT + DT_PLATFORM_TOKEN');
+      console.log('     • Env: DT_ENVIRONMENT + DT_PLATFORM_TOKEN (or DT_API_TOKEN)');
       console.log('');
     }
   } finally {
@@ -319,8 +372,24 @@ function buildEntitySelectorsForServices(serviceNames) {
 // Helper function to send Dynatrace Events
 // If properties.entitySelector is an array, sends one event per selector (for multi-service targeting)
 async function sendDynatraceEvent(eventType, properties, dtEnvironmentOverride = null, dtTokenOverride = null) {
+  const normalizeDtEnvironmentUrl = (raw) => {
+    const input = String(raw || '').trim();
+    if (!input) return '';
+    try {
+      const parsed = new URL(/^https?:\/\//i.test(input) ? input : `https://${input}`);
+      parsed.hostname = parsed.hostname.replace('.apps.', '.');
+      // In case an app URL is passed, strip UI path/query and keep tenant base URL only.
+      parsed.pathname = '';
+      parsed.search = '';
+      parsed.hash = '';
+      return `${parsed.protocol}//${parsed.host}`.replace(/\/+$/, '');
+    } catch {
+      return input.replace(/\/+$/, '').replace('.apps.', '.').replace(/\/ui\/apps(?:\/.*)?$/i, '');
+    }
+  };
+
   const DT_ENVIRONMENT = dtEnvironmentOverride || dtCredentials.environmentUrl || process.env.DT_ENVIRONMENT || process.env.DYNATRACE_URL;
-  const DT_TOKEN = dtTokenOverride || dtCredentials.apiToken || process.env.DT_PLATFORM_TOKEN || process.env.DYNATRACE_TOKEN;
+  const DT_TOKEN = dtTokenOverride || process.env.DT_API_TOKEN || dtCredentials.apiToken || process.env.DYNATRACE_TOKEN || process.env.DT_PLATFORM_TOKEN;
   
   if (!DT_ENVIRONMENT || !DT_TOKEN) {
     console.log('[Event API] No Dynatrace credentials configured, skipping event');
@@ -396,19 +465,50 @@ async function sendDynatraceEvent(eventType, properties, dtEnvironmentOverride =
     
     console.log(`[Event API] Sending ${eventPayload.eventType} event to Dynatrace (${eventPayload.title || 'untitled'})`);
     
-    const response = await fetch(`${DT_ENVIRONMENT}/api/v2/events/ingest`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Api-Token ${DT_TOKEN}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(eventPayload)
-    });
-    
-    const result = await response.text();
-    if (!response.ok) console.warn('[Event API] Response:', response.status, result);
-    
-    return { success: response.ok, status: response.status, body: result };
+    const ingestBaseUrl = normalizeDtEnvironmentUrl(DT_ENVIRONMENT);
+    const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+    let response;
+    let result = '';
+    let lastError = null;
+    const maxAttempts = 3;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        response = await fetch(`${ingestBaseUrl}/api/v2/events/ingest`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Api-Token ${DT_TOKEN}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(eventPayload)
+        });
+
+        result = await response.text();
+        if (response.ok) {
+          return { success: true, status: response.status, body: result };
+        }
+
+        console.warn(`[Event API] Attempt ${attempt}/${maxAttempts} failed with HTTP ${response.status}. URL: ${ingestBaseUrl}/api/v2/events/ingest. Response: ${result.substring(0, 300)}`);
+
+        const shouldRetry = (response.status === 429 || response.status >= 500) && attempt < maxAttempts;
+        if (!shouldRetry) {
+          console.error('[Event API] Non-retriable error. Response:', response.status, result);
+          return { success: false, status: response.status, body: result, reason: `HTTP ${response.status}` };
+        }
+
+        await sleep(400 * attempt);
+      } catch (err) {
+        lastError = err;
+        console.warn(`[Event API] Attempt ${attempt}/${maxAttempts} network error: ${String(err?.message)}. URL: ${ingestBaseUrl}/api/v2/events/ingest`);
+        if (attempt === maxAttempts) break;
+        await sleep(400 * attempt);
+      }
+    }
+
+    if (lastError) {
+      return { success: false, error: lastError.message, reason: 'network_error' };
+    }
+    return { success: false, status: response?.status, body: result, reason: response ? `HTTP ${response.status}` : 'unknown' };
   } catch (error) {
     console.error('[Event API] Error sending event:', error);
     return { success: false, error: error.message };
@@ -2293,6 +2393,20 @@ app.post('/api/admin/dt-credentials/test', async (req, res) => {
   try {
     const envUrl = dtCredentials.environmentUrl;
     const token = dtCredentials.apiToken;
+    const normalizeDtEnvironmentUrl = (raw) => {
+      const input = String(raw || '').trim();
+      if (!input) return '';
+      try {
+        const parsed = new URL(/^https?:\/\//i.test(input) ? input : `https://${input}`);
+        parsed.hostname = parsed.hostname.replace('.apps.', '.');
+        parsed.pathname = '';
+        parsed.search = '';
+        parsed.hash = '';
+        return `${parsed.protocol}//${parsed.host}`.replace(/\/+$/, '');
+      } catch {
+        return input.replace(/\/+$/, '').replace('.apps.', '.').replace(/\/ui\/apps(?:\/.*)?$/i, '');
+      }
+    };
     
     if (!envUrl || !token) {
       return res.json({
@@ -2313,7 +2427,8 @@ app.post('/api/admin/dt-credentials/test', async (req, res) => {
       }
     };
     
-    const response = await fetch(`${envUrl}/api/v2/events/ingest`, {
+    const ingestBaseUrl = normalizeDtEnvironmentUrl(envUrl);
+    const response = await fetch(`${ingestBaseUrl}/api/v2/events/ingest`, {
       method: 'POST',
       headers: {
         'Authorization': `Api-Token ${token}`,
@@ -2367,7 +2482,7 @@ app.delete('/api/admin/dt-credentials', async (req, res) => {
 // Helper: make authenticated DT API request using stored credentials
 async function dtProxyFetch(apiPath, params = {}) {
   const envUrl = dtCredentials.environmentUrl || process.env.DT_ENVIRONMENT || process.env.DYNATRACE_URL;
-  const token = dtCredentials.apiToken || process.env.DT_PLATFORM_TOKEN || process.env.DYNATRACE_TOKEN;
+  const token = dtCredentials.apiToken || process.env.DT_PLATFORM_TOKEN || process.env.DYNATRACE_TOKEN || process.env.DT_API_TOKEN;
   
   if (!envUrl || !token) {
     return { error: 'Dynatrace credentials not configured. Use the Settings gear icon to set them.', configured: false };
@@ -2541,6 +2656,7 @@ app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
+    backendVersion: BACKEND_VERSION,
     mainProcess: {
       pid: process.pid,
       uptime: process.uptime(),
@@ -2717,6 +2833,11 @@ app.post('/api/remediation/feature-flag', async (req, res) => {
     console.log(`[Remediation] Reason: ${reason || 'Not specified'}`);
     console.log(`[Remediation] Triggered by: ${triggeredBy}`);
     
+    // Debug: Log credential availability
+    const hasEnv = !!(dtEnvironment || dtCredentials.environmentUrl || process.env.DT_ENVIRONMENT || process.env.DYNATRACE_URL);
+    const hasToken = !!(dtToken || dtCredentials.apiToken || process.env.DT_PLATFORM_TOKEN || process.env.DYNATRACE_TOKEN || process.env.DT_API_TOKEN);
+    console.log(`[Remediation] Credentials available: environment=${hasEnv}, token=${hasToken}`);
+    
     // Send CUSTOM_DEPLOYMENT event to Dynatrace — target specific service if provided, otherwise all
     let entitySelectorForEvent;
     if (targetService && targetService !== 'all') {
@@ -2750,6 +2871,27 @@ app.post('/api/remediation/feature-flag', async (req, res) => {
         'change.impact': value ? 'Service behavior modified' : 'Service configuration restored'
       }
     }, dtEnvironment, dtToken);
+
+    // Nemesis chaos must never run without correlated deployment/configuration event.
+    if ((triggeredBy === 'nemesis-agent' || triggeredBy === 'config-manager') && !eventResult.success) {
+      featureFlags[flag] = previousValue;
+      console.error(`[Remediation] ❌ Event creation failed for Nemesis. Rolling back ${flag} to ${previousValue}. Reason: ${eventResult.reason || eventResult.error || 'unknown'}`);
+      return res.status(503).json({
+        ok: false,
+        error: 'Dynatrace event was not created (Dynatrace event creation failed; remediation change was rolled back to keep chaos correlation consistent.)',
+        reason: eventResult.reason || eventResult.error || `events.ingest returned ${eventResult.status || 'unknown status'}`,
+        flag,
+        rolledBackTo: previousValue,
+        eventDetails: eventResult,
+        diagnostics: {
+          credentialsConfigured: !!(dtCredentials.environmentUrl && dtCredentials.apiToken),
+          environmentUrlSource: dtEnvironment ? 'request' : (dtCredentials.environmentUrl ? '.dt-credentials.json' : (process.env.DT_ENVIRONMENT ? 'env' : 'not configured')),
+          environmentUrl: dtCredentials.environmentUrl ? dtCredentials.environmentUrl.substring(0, 50) + '...' : 'not configured',
+          tokenConfigured: !!dtCredentials.apiToken
+        },
+        timestamp: new Date().toISOString()
+      });
+    }
     
     res.json({
       ok: true,

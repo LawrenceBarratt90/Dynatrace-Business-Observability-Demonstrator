@@ -1,0 +1,765 @@
+{
+  "name": "Smyths Toys - Account Management",
+  "content": {
+    "tiles": {
+      "0": {
+        "type": "markdown",
+        "content": "![](https://logo.clearbit.com/smythstoys.com)"
+      },
+      "1": {
+        "type": "markdown",
+        "content": "# Smyths Toys | Account Management Dashboard\n\nReal-time KPI monitoring..."
+      },
+      "2": {
+        "type": "bubbleMap",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | fields geo.location.latitude, geo.location.longitude, json.location, json.orderTotal",
+        "visualizationSettings": {
+          "bubbleMap": {
+            "bubbleSizeField": "json.orderTotal",
+            "bubbleColorField": "json.location"
+          }
+        }
+      },
+      "3": {
+        "type": "data",
+        "query": "data record(section=\"Executive Summary\")",
+        "visualization": "singleValue",
+        "visualizationSettings": {
+          "singleValue": {
+            "colorThresholdTarget": "background",
+            "colorThresholds": [
+              {
+                "value": 0,
+                "color": "#1a5276"
+              },
+              {
+                "value": 1,
+                "color": "#1a5276"
+              }
+            ]
+          }
+        }
+      },
+      "4": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | summarize totalRevenue = sum(json.transactionValue)",
+        "visualization": "singleValue",
+        "visualizationSettings": {
+          "singleValue": {
+            "colorThresholdTarget": "background",
+            "colorThresholds": [
+              {
+                "value": 100000,
+                "color": "#229954"
+              },
+              {
+                "value": 50000,
+                "color": "#f1c40f"
+              },
+              {
+                "value": 0,
+                "color": "#e74c3c"
+              }
+            ],
+            "unit": "€"
+          }
+        }
+      },
+      "5": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | summarize avgOrderValue = sum(json.orderTotal) / count()",
+        "visualization": "singleValue",
+        "visualizationSettings": {
+          "singleValue": {
+            "colorThresholdTarget": "background",
+            "colorThresholds": [
+              {
+                "value": 100,
+                "color": "#229954"
+              },
+              {
+                "value": 60,
+                "color": "#f1c40f"
+              },
+              {
+                "value": 0,
+                "color": "#e74c3c"
+              }
+            ],
+            "unit": "€"
+          }
+        }
+      },
+      "6": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | summarize conversionRate = sum(json.conversionRate) / count() * 100",
+        "visualization": "singleValue",
+        "visualizationSettings": {
+          "singleValue": {
+            "colorThresholdTarget": "background",
+            "colorThresholds": [
+              {
+                "value": 5,
+                "color": "#229954"
+              },
+              {
+                "value": 2,
+                "color": "#f1c40f"
+              },
+              {
+                "value": 0,
+                "color": "#e74c3c"
+              }
+            ],
+            "unit": "%"
+          }
+        }
+      },
+      "7": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | summarize retentionProbability = sum(json.retentionProbability) / count() * 100",
+        "visualization": "singleValue",
+        "visualizationSettings": {
+          "singleValue": {
+            "colorThresholdTarget": "background",
+            "colorThresholds": [
+              {
+                "value": 80,
+                "color": "#229954"
+              },
+              {
+                "value": 60,
+                "color": "#f1c40f"
+              },
+              {
+                "value": 0,
+                "color": "#e74c3c"
+              }
+            ],
+            "unit": "%"
+          }
+        }
+      },
+      "8": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | summarize netPromoterScore = sum(json.netPromoterScore) / count()",
+        "visualization": "singleValue",
+        "visualizationSettings": {
+          "singleValue": {
+            "colorThresholdTarget": "background",
+            "colorThresholds": [
+              {
+                "value": 50,
+                "color": "#229954"
+              },
+              {
+                "value": 30,
+                "color": "#f1c40f"
+              },
+              {
+                "value": 0,
+                "color": "#e74c3c"
+              }
+            ]
+          }
+        }
+      },
+      "9": {
+        "type": "data",
+        "query": "data record(section=\"Revenue & Sales\")",
+        "visualization": "singleValue",
+        "visualizationSettings": {
+          "singleValue": {
+            "colorThresholdTarget": "background",
+            "colorThresholds": [
+              {
+                "value": 0,
+                "color": "#935116"
+              },
+              {
+                "value": 1,
+                "color": "#935116"
+              }
+            ]
+          }
+        }
+      },
+      "10": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType  | makeTimeseries revenue = sum(json.transactionValue), bins: 20",
+        "visualization": "lineChart",
+        "visualizationSettings": {
+          "lineChart": {
+            "chartSettings": {
+              "lineChartSettings": {
+                "color": "#935116"
+              }
+            }
+          }
+        }
+      },
+      "11": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType  | makeTimeseries avgOrder = avg(json.orderTotal), bins: 20",
+        "visualization": "areaChart",
+        "visualizationSettings": {
+          "areaChart": {
+            "chartSettings": {
+              "areaChartSettings": {
+                "color": "#935116"
+              }
+            }
+          }
+        }
+      },
+      "12": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | summarize by:{json.entryChannel}, revenue = sum(json.transactionValue)",
+        "visualization": "donutChart",
+        "visualizationSettings": {
+          "barChart": {
+            "chartSettings": {
+              "barChartSettings": {
+                "color": "#935116"
+              }
+            }
+          }
+        }
+      },
+      "13": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | summarize by:{json.pricingTier}, count = count()",
+        "visualization": "honeycomb",
+        "visualizationSettings": {
+          "honeycomb": {
+            "dataMappings": {
+              "value": "count"
+            },
+            "color": "#935116"
+          }
+        }
+      },
+      "14": {
+        "type": "data",
+        "query": "data record(section=\"Operations & Efficiency\")",
+        "visualization": "singleValue",
+        "visualizationSettings": {
+          "singleValue": {
+            "colorThresholdTarget": "background",
+            "colorThresholds": [
+              {
+                "value": 0,
+                "color": "#1e8449"
+              },
+              {
+                "value": 1,
+                "color": "#1e8449"
+              }
+            ]
+          }
+        }
+      },
+      "15": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | makeTimeseries operationalCost = avg(json.operationalCost), bins: 20",
+        "visualization": "lineChart",
+        "visualizationSettings": {
+          "lineChart": {
+            "chartSettings": {
+              "lineChartSettings": {
+                "color": "#1e8449"
+              }
+            }
+          }
+        }
+      },
+      "16": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | makeTimeseries efficiencyRating = avg(json.efficiencyRating), bins: 20",
+        "visualization": "areaChart",
+        "visualizationSettings": {
+          "areaChart": {
+            "chartSettings": {
+              "areaChartSettings": {
+                "color": "#1e8449"
+              }
+            }
+          }
+        }
+      },
+      "17": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | summarize by:{json.department}, resourceUtilization = avg(json.resourceUtilization)",
+        "visualization": "donutChart",
+        "visualizationSettings": {
+          "barChart": {
+            "chartSettings": {
+              "barChartSettings": {
+                "color": "#1e8449"
+              }
+            }
+          }
+        }
+      },
+      "18": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | summarize by:{json.deviceType}, processingTime = avg(json.processingTime)",
+        "visualization": "honeycomb",
+        "visualizationSettings": {
+          "honeycomb": {
+            "dataMappings": {
+              "value": "processingTime"
+            },
+            "color": "#1e8449"
+          }
+        }
+      },
+      "19": {
+        "type": "data",
+        "query": "data record(section=\"Customer Journey & Experience\")",
+        "visualization": "singleValue",
+        "visualizationSettings": {
+          "singleValue": {
+            "colorThresholdTarget": "background",
+            "colorThresholds": [
+              {
+                "value": 0,
+                "color": "#6c3483"
+              },
+              {
+                "value": 1,
+                "color": "#6c3483"
+              }
+            ]
+          }
+        }
+      },
+      "20": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | makeTimeseries satisfactionRating = avg(json.satisfactionRating), bins: 20",
+        "visualization": "lineChart",
+        "visualizationSettings": {
+          "lineChart": {
+            "chartSettings": {
+              "lineChartSettings": {
+                "color": "#6c3483"
+              }
+            }
+          }
+        }
+      },
+      "21": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | makeTimeseries engagementScore = avg(json.engagementScore), bins: 20",
+        "visualization": "areaChart",
+        "visualizationSettings": {
+          "areaChart": {
+            "chartSettings": {
+              "areaChartSettings": {
+                "color": "#6c3483"
+              }
+            }
+          }
+        }
+      },
+      "22": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | summarize by:{json.loyaltyStatus}, count = count()",
+        "visualization": "donutChart",
+        "visualizationSettings": {
+          "barChart": {
+            "chartSettings": {
+              "barChartSettings": {
+                "color": "#6c3483"
+              }
+            }
+          }
+        }
+      },
+      "23": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | summarize by:{json.customerSegmentValue}, purchaseFrequency = avg(json.purchaseFrequency)",
+        "visualization": "honeycomb",
+        "visualizationSettings": {
+          "honeycomb": {
+            "dataMappings": {
+              "value": "purchaseFrequency"
+            },
+            "color": "#6c3483"
+          }
+        }
+      },
+      "24": {
+        "type": "data",
+        "query": "data record(section=\"Commercial & Compliance\")",
+        "visualization": "singleValue",
+        "visualizationSettings": {
+          "singleValue": {
+            "colorThresholdTarget": "background",
+            "colorThresholds": [
+              {
+                "value": 0,
+                "color": "#1a252f"
+              },
+              {
+                "value": 1,
+                "color": "#1a252f"
+              }
+            ]
+          }
+        }
+      },
+      "25": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | makeTimeseries complianceScore = avg(json.complianceScore), bins: 20",
+        "visualization": "lineChart",
+        "visualizationSettings": {
+          "lineChart": {
+            "chartSettings": {
+              "lineChartSettings": {
+                "color": "#1a252f"
+              }
+            }
+          }
+        }
+      },
+      "26": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | makeTimeseries fraudRisk = countIf(json.fraudRisk == \"high\"), bins: 20",
+        "visualization": "areaChart",
+        "visualizationSettings": {
+          "areaChart": {
+            "chartSettings": {
+              "areaChartSettings": {
+                "color": "#1a252f"
+              }
+            }
+          }
+        }
+      },
+      "27": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | summarize by:{json.marketTrend}, count = count()",
+        "visualization": "donutChart",
+        "visualizationSettings": {
+          "barChart": {
+            "chartSettings": {
+              "barChartSettings": {
+                "color": "#1a252f"
+              }
+            }
+          }
+        }
+      },
+      "28": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | summarize by:{json.expansionOpportunity}, growthPotential = avg(json.growthPotential)",
+        "visualization": "honeycomb",
+        "visualizationSettings": {
+          "honeycomb": {
+            "dataMappings": {
+              "value": "growthPotential"
+            },
+            "color": "#1a252f"
+          }
+        }
+      },
+      "29": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | summarize by:{json.product}, avgOrderValue = avg(json.orderTotal)",
+        "visualization": "table",
+        "visualizationSettings": {
+          "table": {
+            "limit": 10
+          }
+        }
+      },
+      "30": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | summarize by:{json.location}, totalRevenue = sum(json.transactionValue)",
+        "visualization": "table",
+        "visualizationSettings": {
+          "table": {
+            "limit": 10
+          }
+        }
+      },
+      "31": {
+        "type": "data",
+        "query": "fetch bizevents | filter json.companyName == $EventProvider | filter json.journeyType == $JourneyType | summarize by:{json.customerSegmentValue}, customerLifetimeValue = avg(json.customerLifetimeValue)",
+        "visualization": "table",
+        "visualizationSettings": {
+          "table": {
+            "limit": 10
+          }
+        }
+      }
+    },
+    "layouts": {
+      "0": {
+        "x": 0,
+        "y": 0,
+        "w": 6,
+        "h": 2
+      },
+      "1": {
+        "x": 6,
+        "y": 0,
+        "w": 18,
+        "h": 2
+      },
+      "2": {
+        "x": 0,
+        "y": 2,
+        "w": 24,
+        "h": 8
+      },
+      "3": {
+        "x": 0,
+        "y": 10,
+        "w": 24,
+        "h": 1
+      },
+      "4": {
+        "x": 0,
+        "y": 11,
+        "w": 6,
+        "h": 2
+      },
+      "5": {
+        "x": 6,
+        "y": 11,
+        "w": 6,
+        "h": 2
+      },
+      "6": {
+        "x": 12,
+        "y": 11,
+        "w": 6,
+        "h": 2
+      },
+      "7": {
+        "x": 18,
+        "y": 11,
+        "w": 6,
+        "h": 2
+      },
+      "8": {
+        "x": 0,
+        "y": 13,
+        "w": 6,
+        "h": 2
+      },
+      "9": {
+        "x": 0,
+        "y": 15,
+        "w": 24,
+        "h": 1
+      },
+      "10": {
+        "x": 0,
+        "y": 16,
+        "w": 6,
+        "h": 4
+      },
+      "11": {
+        "x": 6,
+        "y": 16,
+        "w": 6,
+        "h": 4
+      },
+      "12": {
+        "x": 12,
+        "y": 16,
+        "w": 6,
+        "h": 4
+      },
+      "13": {
+        "x": 18,
+        "y": 16,
+        "w": 6,
+        "h": 4
+      },
+      "14": {
+        "x": 0,
+        "y": 20,
+        "w": 24,
+        "h": 1
+      },
+      "15": {
+        "x": 0,
+        "y": 21,
+        "w": 6,
+        "h": 4
+      },
+      "16": {
+        "x": 6,
+        "y": 21,
+        "w": 6,
+        "h": 4
+      },
+      "17": {
+        "x": 12,
+        "y": 21,
+        "w": 6,
+        "h": 4
+      },
+      "18": {
+        "x": 18,
+        "y": 21,
+        "w": 6,
+        "h": 4
+      },
+      "19": {
+        "x": 0,
+        "y": 25,
+        "w": 24,
+        "h": 1
+      },
+      "20": {
+        "x": 0,
+        "y": 26,
+        "w": 6,
+        "h": 4
+      },
+      "21": {
+        "x": 6,
+        "y": 26,
+        "w": 6,
+        "h": 4
+      },
+      "22": {
+        "x": 12,
+        "y": 26,
+        "w": 6,
+        "h": 4
+      },
+      "23": {
+        "x": 18,
+        "y": 26,
+        "w": 6,
+        "h": 4
+      },
+      "24": {
+        "x": 0,
+        "y": 30,
+        "w": 24,
+        "h": 1
+      },
+      "25": {
+        "x": 0,
+        "y": 31,
+        "w": 6,
+        "h": 4
+      },
+      "26": {
+        "x": 6,
+        "y": 31,
+        "w": 6,
+        "h": 4
+      },
+      "27": {
+        "x": 12,
+        "y": 31,
+        "w": 6,
+        "h": 4
+      },
+      "28": {
+        "x": 18,
+        "y": 31,
+        "w": 6,
+        "h": 4
+      },
+      "29": {
+        "x": 0,
+        "y": 35,
+        "w": 8,
+        "h": 5
+      },
+      "30": {
+        "x": 8,
+        "y": 35,
+        "w": 8,
+        "h": 5
+      },
+      "31": {
+        "x": 16,
+        "y": 35,
+        "w": 8,
+        "h": 5
+      }
+    },
+    "variables": [
+      {
+        "name": "Event Provider",
+        "key": "EventProvider",
+        "type": "query",
+        "multiple": false,
+        "input": "data record(value = \"Smyths Toys\")",
+        "defaultValue": "Smyths Toys"
+      },
+      {
+        "key": "MarketSegment",
+        "type": "query",
+        "multiple": true,
+        "query": "fetch bizevents | filter json.companyName == \"Smyths Toys\" | dedup json.marketSegment | fields json.marketSegment",
+        "input": "data record(value = \"All\")"
+      },
+      {
+        "key": "Productname",
+        "type": "query",
+        "multiple": true,
+        "query": "fetch bizevents | filter json.companyName == \"Smyths Toys\" | dedup json.Productname | fields json.Productname",
+        "input": "data record(value = \"All\")"
+      },
+      {
+        "key": "entryChannel",
+        "type": "query",
+        "multiple": true,
+        "query": "fetch bizevents | filter json.companyName == \"Smyths Toys\" | dedup json.entryChannel | fields json.entryChannel",
+        "input": "data record(value = \"All\")"
+      },
+      {
+        "key": "department",
+        "type": "query",
+        "multiple": true,
+        "query": "fetch bizevents | filter json.companyName == \"Smyths Toys\" | dedup json.department | fields json.department",
+        "input": "data record(value = \"All\")"
+      },
+      {
+        "key": "customerSegmentValue",
+        "type": "query",
+        "multiple": true,
+        "query": "fetch bizevents | filter json.companyName == \"Smyths Toys\" | dedup json.customerSegmentValue | fields json.customerSegmentValue",
+        "input": "data record(value = \"All\")"
+      },
+      {
+        "name": "Journey Type",
+        "key": "JourneyType",
+        "type": "query",
+        "multiple": false,
+        "input": "fetch bizevents | filter json.companyName == $EventProvider | fields json.journeyType | filter isNotNull(json.journeyType)| dedup json.journeyType",
+        "defaultValue": "Account Management"
+      }
+    ],
+    "settings": {
+      "defaultTimeframe": {
+        "value": {
+          "from": "now()-2h",
+          "to": "now()"
+        },
+        "enabled": true
+      }
+    },
+    "annotations": [],
+    "version": 21
+  },
+  "type": "dashboard",
+  "version": 1,
+  "metadata": {
+    "company": "Smyths Toys",
+    "journeyType": "Account Management",
+    "createdByEmail": "lawrence.barratt@dynatrace.com",
+    "createdByName": "Lawrence Barratt"
+  }
+}

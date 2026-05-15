@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "company": "International Personnal Finance",
+  "journeyType": "Repayment Management",
+  "dashboardId": "bizobs-international-personnal-finance-repayment-management",
+  "dashboardUrl": "/ui/apps/dynatrace.dashboards/dashboard/bizobs-international-personnal-finance-repayment-management",
+  "dashboardName": "International Personnal Finance - Repayment Management",
+  "generationMethod": "direct-dtctl",
+  "generatedAt": "2026-05-12T12:43:41.247Z",
+  "tileCount": 30,
+  "artifactFiles": {
+    "dashboard": "dashboards/generated/international-personnal-finance/repayment-management/dashboard-v1.json",
+    "metadata": "dashboards/generated/international-personnal-finance/repayment-management/metadata-v1.json"
+  }
+}
