@@ -1,6 +1,6 @@
 {
   "$schema": "./.dt-app/app.config.schema.json",
-  "environmentUrl": "https://oku3826h.sprint.apps.dynatracelabs.com/",
+  "environmentUrl": "https://bko67471.sprint.apps.dynatracelabs.com/",
   "app": {
     "id": "my.bizobs.generator.master",
     "name": "Business Observability Demonstrator",

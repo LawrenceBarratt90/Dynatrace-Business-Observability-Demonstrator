@@ -2753,80 +2753,84 @@ export const HomePage = () => {
       // Common LLM defect: missing comma between array items.
       // Example: [{"a":1} {"b":2}] -> [{"a":1}, {"b":2}]
       const repairMissingCommasBetweenArrayItems = (text: string) => {
-        let out = '';
-        let inString = false;
-        let escape = false;
-        let lastSignificant = '';
-        let sawWhitespaceSinceLastSignificant = false;
-        const stack: string[] = [];
+          // First pass: simple regex to replace }{ with },{ and ][ with ],[
+          let out = text.replace(/\}\s*\{/g, '},{').replace(/\]\s*\[/g, '],[');
+        
+          // Second pass: more sophisticated character-by-character scan for edge cases
+          let result = '';
+          let inString = false;
+          let escape = false;
+          let lastSignificant = '';
+          let sawWhitespaceSinceLastSignificant = false;
+          const stack: string[] = [];
 
-        const canStartArrayValue = (ch: string) => {
-          return ch === '{' || ch === '[' || ch === '"' || ch === '-' || /\d/.test(ch) || ch === 't' || ch === 'f' || ch === 'n';
-        };
+          const canStartArrayValue = (ch: string) => {
+            return ch === '{' || ch === '[' || ch === '"' || ch === '-' || /\d/.test(ch) || ch === 't' || ch === 'f' || ch === 'n';
+          };
 
-        const shouldInsertComma = (ch: string) => {
-          if (stack[stack.length - 1] !== '[') return false;
-          if (!canStartArrayValue(ch)) return false;
-          if (!lastSignificant || lastSignificant === '[' || lastSignificant === ',' || lastSignificant === ':') return false;
+          const shouldInsertComma = (ch: string) => {
+            if (stack[stack.length - 1] !== '[') return false;
+            if (!canStartArrayValue(ch)) return false;
+            if (!lastSignificant || lastSignificant === '[' || lastSignificant === ',' || lastSignificant === ':') return false;
 
-          // Prefer cases where a boundary is obvious, while still covering direct object/array adjacency.
-          return sawWhitespaceSinceLastSignificant || lastSignificant === '}' || lastSignificant === ']' || lastSignificant === '"';
-        };
+            // Prefer cases where a boundary is obvious, while still covering direct object/array adjacency.
+            return sawWhitespaceSinceLastSignificant || lastSignificant === '}' || lastSignificant === ']' || lastSignificant === '"';
+          };
 
-        for (let i = 0; i < text.length; i++) {
-          const ch = text[i];
+          for (let i = 0; i < out.length; i++) {
+            const ch = out[i];
 
-          if (escape) {
-            out += ch;
-            escape = false;
-            continue;
-          }
+            if (escape) {
+              result += ch;
+              escape = false;
+              continue;
+            }
 
-          if (inString) {
-            out += ch;
-            if (ch === '\\') {
-              escape = true;
-            } else if (ch === '"') {
-              inString = false;
-              lastSignificant = '"';
+            if (inString) {
+              result += ch;
+              if (ch === '\\') {
+                escape = true;
+              } else if (ch === '"') {
+                inString = false;
+                lastSignificant = '"';
+                sawWhitespaceSinceLastSignificant = false;
+              }
+              continue;
+            }
+
+            if (/\s/.test(ch)) {
+              result += ch;
+              sawWhitespaceSinceLastSignificant = true;
+              continue;
+            }
+
+            if (shouldInsertComma(ch)) {
+              result += ', ';
+              lastSignificant = ',';
               sawWhitespaceSinceLastSignificant = false;
             }
-            continue;
-          }
 
-          if (/\s/.test(ch)) {
-            out += ch;
-            sawWhitespaceSinceLastSignificant = true;
-            continue;
-          }
+            result += ch;
 
-          if (shouldInsertComma(ch)) {
-            out += ', ';
-            lastSignificant = ',';
+            if (ch === '"') {
+              inString = true;
+              sawWhitespaceSinceLastSignificant = false;
+              continue;
+            }
+
+            if (ch === '{' || ch === '[') {
+              stack.push(ch);
+            } else if (ch === '}' && stack[stack.length - 1] === '{') {
+              stack.pop();
+            } else if (ch === ']' && stack[stack.length - 1] === '[') {
+              stack.pop();
+            }
+
+            lastSignificant = ch;
             sawWhitespaceSinceLastSignificant = false;
           }
 
-          out += ch;
-
-          if (ch === '"') {
-            inString = true;
-            sawWhitespaceSinceLastSignificant = false;
-            continue;
-          }
-
-          if (ch === '{' || ch === '[') {
-            stack.push(ch);
-          } else if (ch === '}' && stack[stack.length - 1] === '{') {
-            stack.pop();
-          } else if (ch === ']' && stack[stack.length - 1] === '[') {
-            stack.pop();
-          }
-
-          lastSignificant = ch;
-          sawWhitespaceSinceLastSignificant = false;
-        }
-
-        return out;
+          return result;
       };
       const repairedArrayItemCommas = repairMissingCommasBetweenArrayItems(repairedCommas);
       attempts.push(repairedArrayItemCommas);
