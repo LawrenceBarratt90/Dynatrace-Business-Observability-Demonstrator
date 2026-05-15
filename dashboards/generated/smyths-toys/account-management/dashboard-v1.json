@@ -759,7 +759,7 @@
   "metadata": {
     "company": "Smyths Toys",
     "journeyType": "Account Management",
-    "createdByEmail": "lawrence.barratt@dynatrace.com",
-    "createdByName": "Lawrence Barratt"
+    "createdByEmail": "owner@example.com",
+    "createdByName": "Generated User"
   }
 }
