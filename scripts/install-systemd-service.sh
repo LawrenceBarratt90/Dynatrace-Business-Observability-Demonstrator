@@ -60,6 +60,7 @@ Environment=PORT=8080
 Environment=NODE_OPTIONS=--max-old-space-size=768
 Environment=CHILD_SERVICE_MAX_OLD_SPACE_MB=128
 Environment=MAX_DORMANT_SERVICES=250
+Environment=CHILD_SERVICE_HEAP_MB=128
 Environment=HOME=/home/$RUN_AS_USER
 Environment=PATH=$(dirname "$NODE_BIN"):/usr/local/bin:/usr/bin:/bin
 EnvironmentFile=-$APP_DIR/.env

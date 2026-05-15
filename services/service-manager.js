@@ -404,21 +404,16 @@ export async function startChildService(internalServiceName, scriptPath, portPar
         delete inheritedEnv[key];
       }
     }
-    if (typeof inheritedEnv.NODE_OPTIONS === 'string' && inheritedEnv.NODE_OPTIONS.includes('otel.cjs')) {
-      inheritedEnv.NODE_OPTIONS = inheritedEnv.NODE_OPTIONS
-        .replace(/--require\s+[^\s]*otel\.cjs\s*/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
-      if (!inheritedEnv.NODE_OPTIONS) {
-        delete inheritedEnv.NODE_OPTIONS;
-          const childMaxOldSpaceMb = Math.max(64, parseInt(process.env.CHILD_SERVICE_MAX_OLD_SPACE_MB || '128', 10));
-          const existingNodeOpts = String(inheritedEnv.NODE_OPTIONS || '')
-            .replace(/--max-old-space-size=\d+/g, '')
-            .replace(/\s+/g, ' ')
-            .trim();
-          inheritedEnv.NODE_OPTIONS = `${existingNodeOpts} --max-old-space-size=${childMaxOldSpaceMb}`.trim();
-      }
+    const childMaxOldSpaceMb = Math.max(64, parseInt(process.env.CHILD_SERVICE_MAX_OLD_SPACE_MB || '128', 10));
+    let existingNodeOpts = String(inheritedEnv.NODE_OPTIONS || '');
+    if (existingNodeOpts.includes('otel.cjs')) {
+      existingNodeOpts = existingNodeOpts.replace(/--require\s+[^\s]*otel\.cjs\s*/g, ' ');
     }
+    existingNodeOpts = existingNodeOpts
+      .replace(/--max-old-space-size=\d+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    inheritedEnv.NODE_OPTIONS = `${existingNodeOpts} --max-old-space-size=${childMaxOldSpaceMb}`.trim();
 
     const child = spawn('node', spawnArgs, {
       cwd: spawnCwd,
