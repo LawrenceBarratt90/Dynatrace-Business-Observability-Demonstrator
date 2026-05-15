@@ -650,6 +650,7 @@ export const HomePage = () => {
 
   // Generate Visuals modal sub-tab state
   const [visualsSubTab, setVisualsSubTab] = useState<'dashboard' | 'saved' | 'pdf'>('pdf');
+  const DASHBOARD_DTCTL_UI_ENABLED = false;
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const [pdfStatus, setPdfStatus] = useState('');
   const [dashboardStatus, setDashboardStatus] = useState('');
@@ -2061,15 +2062,21 @@ export const HomePage = () => {
     setBizEventsCount(0);
     setIsBizEventsChecking(false);
     setPdfStatus('');
-    setVisualsSubTab('dashboard');
+    setVisualsSubTab(DASHBOARD_DTCTL_UI_ENABLED ? 'dashboard' : 'pdf');
     setShowDashboardPreflightDetails(false);
     setSavedDashboardFilterCompany('all');
     setSavedDashboardFilterJourney('all');
     setSavedDashboardFilterSource('all');
-    setDashboardDeployPreflight({ status: 'checking', message: 'Checking dtctl and Dynatrace credentials...' });
+    setDashboardDeployPreflight(
+      DASHBOARD_DTCTL_UI_ENABLED
+        ? { status: 'checking', message: 'Checking dtctl and Dynatrace credentials...' }
+        : { status: 'idle', message: 'Dashboard generation is temporarily hidden in the UI.' }
+    );
     setIsLoadingDashboardData(true);
-    void loadSavedDashboards();
-    void ensureDashboardDeployReady().catch(() => {});
+    if (DASHBOARD_DTCTL_UI_ENABLED) {
+      void loadSavedDashboards();
+      void ensureDashboardDeployReady().catch(() => {});
+    }
 
     try {
       const result = await Promise.race([
@@ -5511,7 +5518,7 @@ export const HomePage = () => {
                       { icon: '📖', label: 'Demo Guide', color: '#00b4dc', route: '/demo-guide' },
                       { icon: '📊', label: 'Dashboards', color: '#3498db', route: '/demonstrator-dashboards' },
                       { icon: '👹', label: 'Nemesis', color: '#b58900', badge: activeFaults.length > 0 ? activeFaults.length : undefined, action: () => { openChaosModal(); setShowNavMenu(false); } },
-                      { icon: '🎨', label: 'Generate Visuals', color: '#00a1c9', action: () => { openGenerateDashboardModal(); setShowNavMenu(false); } },
+                      { icon: '📄', label: 'Executive Summary', color: '#00a1c9', action: () => { openGenerateDashboardModal(); setShowNavMenu(false); } },
                       { icon: '🏢', label: 'Solutions', color: '#27ae60', route: '/solutions' },
                       { icon: '⚙️', label: 'Settings', color: Colors.Theme.Primary['70'] as string, action: () => { openSettingsModal(); setShowNavMenu(false); } },
                       {
@@ -7632,11 +7639,15 @@ export const HomePage = () => {
 
             {/* Sub-tab Selector */}
             <div style={{ display: 'flex', gap: 8, padding: '12px 24px 0 24px', borderBottom: `1px solid ${Colors.Border.Neutral.Default}` }}>
-              {[
-                { key: 'dashboard', label: 'Dashboard' },
-                { key: 'saved', label: 'Saved Versions' },
-                { key: 'pdf', label: 'Executive Summary' },
-              ].map((tab) => (
+              {(
+                DASHBOARD_DTCTL_UI_ENABLED
+                  ? [
+                    { key: 'dashboard', label: 'Dashboard' },
+                    { key: 'saved', label: 'Saved Versions' },
+                    { key: 'pdf', label: 'Executive Summary' },
+                  ]
+                  : [{ key: 'pdf', label: 'Executive Summary' }]
+              ).map((tab) => (
                 <button
                   key={tab.key}
                   onClick={() => setVisualsSubTab(tab.key as 'dashboard' | 'saved' | 'pdf')}
@@ -7713,7 +7724,7 @@ export const HomePage = () => {
               )}
 
               {/* ===== Dashboard Sub-Tab ===== */}
-              {visualsSubTab === 'dashboard' && (
+              {DASHBOARD_DTCTL_UI_ENABLED && visualsSubTab === 'dashboard' && (
                 <>
                   {/* Status Message */}
                   {dashboardGenerationStatus && (
@@ -7870,7 +7881,7 @@ export const HomePage = () => {
               )}
 
               {/* ===== Saved Dashboards Sub-Tab ===== */}
-              {visualsSubTab === 'saved' && (
+              {DASHBOARD_DTCTL_UI_ENABLED && visualsSubTab === 'saved' && (
                 <>
                   {isLoadingSavedDashboards ? (
                     <div style={{ padding: 24, textAlign: 'center', opacity: 0.6 }}>⏳ Loading saved dashboards...</div>
@@ -8792,7 +8803,7 @@ export const HomePage = () => {
                     variant="emphasized"
                     style={{ padding: '9px 20px', background: 'linear-gradient(135deg, #00a1c9, #6c2c9c)', color: 'white', border: 'none' }}
                   >
-                    🎨 Generate Visuals
+                    📄 Executive Summary
                   </Button>
                 </Flex>
               )}
