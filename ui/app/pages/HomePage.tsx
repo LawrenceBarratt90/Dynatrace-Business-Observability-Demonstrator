@@ -27,7 +27,7 @@ const APP_VERSION = appConfig.app.version;
 const TENANT_URL = (() => {
   try { return getEnvironmentUrl().replace(/\/$/, ''); } catch { return 'https://YOUR_TENANT_ID.apps.dynatracelabs.com'; }
 })();
-const AI_PROMPTS_URL = 'https://oku3826h.sprint.apps.dynatracelabs.com/ui/apps/dynatrace.genai.observability/prompts?perspective=Prompts+Stream&sort=start_time%3Adescending';
+const AI_PROMPTS_URL = `${TENANT_URL}/ui/apps/dynatrace.genai.observability/prompts?perspective=Prompts+Stream&sort=start_time%3Adescending`;
 const TENANT_HOST = TENANT_URL.replace(/^https?:\/\//, '');
 const TENANT_ID = TENANT_HOST.split('.')[0];
 const SSO_ENDPOINT = TENANT_HOST.includes('sprint') || TENANT_HOST.includes('dynatracelabs')
