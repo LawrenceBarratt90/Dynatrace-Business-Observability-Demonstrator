@@ -556,16 +556,26 @@ function getServiceChartVizSettings() {
 
 export function getGoldenSignalTiles() {
   const svcViz = getServiceChartVizSettings();
+  const bizEventsScope = `fetch bizevents
+| filter event.kind == "BIZ_EVENT"
+| fieldsAdd companyNameNorm = coalesce(json.companyName, json.company, additionalfields.companyName, additionalfields.company, event.provider),
+            journeyTypeNorm = coalesce(json.journeyType, json.journeyTypeName, json.journey, additionalfields.journeyType, additionalfields.journeyTypeName, additionalfields.journey),
+            stepNorm = coalesce(json.stepName, additionalfields.stepName, json.serviceName, additionalfields.serviceName, "unknown"),
+            endpointNorm = coalesce(additionalfields.endpointName, additionalfields.endpoint, json.endpointName, json.endpoint, json.stepName, stepNorm),
+            durationMs = toDouble(coalesce(additionalfields.processingTime, additionalfields.durationMs, additionalfields.responseTime, additionalfields.latencyMs)),
+            statusCode = toLong(coalesce(additionalfields.httpStatusCode, additionalfields.statusCode, json.httpStatusCode, json.statusCode))
+| filter companyNameNorm == $CompanyName
+| filter in(journeyTypeNorm, $JourneyType)`;
 
   return {
     // ---- TRAFFIC ----
     requests: {
       _tag: 'golden-traffic-requests',
       _widgetType: 'lineChart',
-      _purpose: 'Service request count timeseries filtered by $Service',
+      _purpose: 'Journey request count timeseries filtered by $CompanyName/$JourneyType',
       title: 'Requests',
       type: 'data',
-      query: `timeseries requests = sum(dt.service.request.count),\n           by:{dt.entity.service}\n           | fields  timeframe, \n          interval, \n          service = entityName(dt.entity.service),\n          requests\n| sort arraySum(requests) desc\n| filter in(service, $Service)\n| limit 100`,
+      query: `${bizEventsScope}\n| makeTimeseries requests = count(), by:{stepNorm}, bins:60\n| fields timeframe, interval, step = stepNorm, requests\n| sort arraySum(requests) desc\n| limit 100`,
       visualization: 'lineChart',
       visualizationSettings: svcViz,
       querySettings: QUERY_SETTINGS,
@@ -578,7 +588,7 @@ export function getGoldenSignalTiles() {
       _purpose: 'Stacked bar of successful vs failed requests',
       title: 'Requests - Success vs Failed',
       type: 'data',
-      query: `timeseries total = sum(dt.service.request.count, default:0),\n           failed = sum(dt.service.request.failure_count,default:0),\n           nonempty: true, \n           filter: in(dt.smartscape.service, array($Service)) \n| fieldsAdd success = total[] -failed[]\n| fields timeframe,\n         interval,\n         success,\n         failed`,
+      query: `${bizEventsScope}\n| makeTimeseries total = count(), failed = countIf(additionalfields.hasError == true), bins:60\n| fieldsAdd success = total[] - failed[]\n| fields timeframe, interval, success, failed`,
       visualization: 'barChart',
       visualizationSettings: svcViz,
       querySettings: QUERY_SETTINGS,
@@ -591,7 +601,7 @@ export function getGoldenSignalTiles() {
       _purpose: 'Key request endpoints (excluding NON_KEY_REQUESTS)',
       title: 'Requests - Key Requests',
       type: 'data',
-      query: `timeseries requests = sum(dt.service.request.count),\n           by:{endpoint.name},\n           filter: endpoint.name != "NON_KEY_REQUESTS" and\n           in(dt.entity.service, array($Service))\n| fields  timeframe, \n          interval, \n          endpoint.name,\n          requests\n| sort arraySum(requests) desc         \n| limit 100 `,
+      query: `${bizEventsScope}\n| filter endpointNorm != "NON_KEY_REQUESTS"\n| makeTimeseries requests = count(), by:{endpointNorm}, bins:60\n| fields timeframe, interval, endpoint = endpointNorm, requests\n| sort arraySum(requests) desc\n| limit 100`,
       visualization: 'barChart',
       visualizationSettings: svcViz,
       querySettings: QUERY_SETTINGS,
@@ -605,7 +615,7 @@ export function getGoldenSignalTiles() {
       _purpose: 'Median response time per service',
       title: 'Latency_p50',
       type: 'data',
-      query: `timeseries latency_p50 = median(dt.service.request.response_time),\n           by:{dt.entity.service}\n           | fields  timeframe, \n          interval, \n          service = entityName(dt.entity.service),\n          latency_p50\n| sort arrayAvg(latency_p50) desc\n| filter in(service, $Service)\n| limit 100`,
+      query: `${bizEventsScope}\n| filter isNotNull(durationMs)\n| makeTimeseries latency_p50 = percentile(durationMs, 50), by:{stepNorm}, bins:60\n| fields timeframe, interval, step = stepNorm, latency_p50\n| sort arrayAvg(latency_p50) desc\n| limit 100`,
       visualization: 'lineChart',
       visualizationSettings: svcViz,
       querySettings: QUERY_SETTINGS,
@@ -618,7 +628,7 @@ export function getGoldenSignalTiles() {
       _purpose: 'P90 response time per service',
       title: 'Latency_p90',
       type: 'data',
-      query: `timeseries latency_p90 = percentile(dt.service.request.response_time, 90),\n           by:{dt.entity.service}\n          | fields  timeframe, \n          interval, \n          service = lower(entityName(dt.entity.service)),\n          latency_p90\n| sort arrayAvg(latency_p90) desc\n| filter in(service, $Service)\n| limit 100`,
+      query: `${bizEventsScope}\n| filter isNotNull(durationMs)\n| makeTimeseries latency_p90 = percentile(durationMs, 90), by:{stepNorm}, bins:60\n| fields timeframe, interval, step = stepNorm, latency_p90\n| sort arrayAvg(latency_p90) desc\n| limit 100`,
       visualization: 'barChart',
       visualizationSettings: svcViz,
       querySettings: QUERY_SETTINGS,
@@ -631,7 +641,7 @@ export function getGoldenSignalTiles() {
       _purpose: 'P99 response time per service',
       title: 'Latency_p99',
       type: 'data',
-      query: `timeseries latency_p99 = percentile(dt.service.request.response_time, 99), \n           by:{dt.entity.service}\n| fields  timeframe, \n          interval, \n          service = lower(entityName(dt.entity.service)),\n          latency_p99\n| sort arrayAvg(latency_p99) desc\n| filter in(service, array($Service))\n| limit 100`,
+      query: `${bizEventsScope}\n| filter isNotNull(durationMs)\n| makeTimeseries latency_p99 = percentile(durationMs, 99), by:{stepNorm}, bins:60\n| fields timeframe, interval, step = stepNorm, latency_p99\n| sort arrayAvg(latency_p99) desc\n| limit 100`,
       visualization: 'barChart',
       visualizationSettings: svcViz,
       querySettings: QUERY_SETTINGS,
@@ -645,7 +655,7 @@ export function getGoldenSignalTiles() {
       _purpose: 'Failed request count timeseries per service',
       title: 'Failed Requests',
       type: 'data',
-      query: `timeseries errors = sum(dt.service.request.failure_count,default:0),\n           nonempty: true,\n           by:{dt.entity.service}\n           | fields  timeframe, \n          interval, \n          service = entityName(dt.entity.service),\n          errors\n| sort arraySum(errors) desc\n| filter in(service, $Service)\n| limit 100`,
+      query: `${bizEventsScope}\n| makeTimeseries errors = countIf(additionalfields.hasError == true), by:{stepNorm}, bins:60\n| fields timeframe, interval, step = stepNorm, errors\n| sort arraySum(errors) desc\n| limit 100`,
       visualization: 'lineChart',
       visualizationSettings: svcViz,
       querySettings: QUERY_SETTINGS,
@@ -658,7 +668,7 @@ export function getGoldenSignalTiles() {
       _purpose: '5xx HTTP errors per service',
       title: '5xx Errors',
       type: 'data',
-      query: `timeseries errors = sum(dt.service.request.count,default:0),\n           nonempty: true,\n           by:{dt.entity.service},\n           filter:\n           http.response.status_code >= 500 and http.response.status_code <= 599 \n| fields  timeframe, \n          interval, \n          service = lower(entityName(dt.entity.service)),\n          errors\n| sort arraySum(errors) desc\n| filter in(service, array($Service))\n| limit 100`,
+      query: `${bizEventsScope}\n| makeTimeseries errors = countIf(statusCode >= 500 and statusCode <= 599), by:{stepNorm}, bins:60\n| fields timeframe, interval, step = stepNorm, errors\n| sort arraySum(errors) desc\n| limit 100`,
       visualization: 'barChart',
       visualizationSettings: svcViz,
       querySettings: QUERY_SETTINGS,
@@ -671,7 +681,7 @@ export function getGoldenSignalTiles() {
       _purpose: '4xx HTTP errors per service',
       title: '4xx Errors',
       type: 'data',
-      query: `timeseries errors = sum(dt.service.request.count,default:0),\n           nonempty: true,\n           by:{dt.entity.service},\n           filter:\n           http.response.status_code >= 400 and http.response.status_code <= 499\n| fields  timeframe, \n          interval, \n          service = lower(entityName(dt.entity.service)),\n          errors\n|filter in(service, array($Service))\n| sort arraySum(errors) desc\n| limit 100`,
+      query: `${bizEventsScope}\n| makeTimeseries errors = countIf(statusCode >= 400 and statusCode <= 499), by:{stepNorm}, bins:60\n| fields timeframe, interval, step = stepNorm, errors\n| sort arraySum(errors) desc\n| limit 100`,
       visualization: 'lineChart',
       visualizationSettings: svcViz,
       querySettings: QUERY_SETTINGS,
