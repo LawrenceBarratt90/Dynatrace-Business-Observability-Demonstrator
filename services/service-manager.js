@@ -18,6 +18,31 @@ const serviceStartupPromises = {};
 // Dormant services: stopped services whose metadata is preserved for quick restart
 // Key = internalServiceName, Value = { ...meta, stoppedAt, previousPort }
 const dormantServices = {};
+const MAX_DORMANT_SERVICES = Math.max(20, parseInt(process.env.MAX_DORMANT_SERVICES || '250', 10));
+
+function pruneDormantServices() {
+  const entries = Object.entries(dormantServices);
+  if (entries.length <= MAX_DORMANT_SERVICES) return;
+
+  entries
+    .sort((a, b) => {
+      const aTs = Date.parse(a[1]?.stoppedAt || a[1]?.startTime || 0) || 0;
+      const bTs = Date.parse(b[1]?.stoppedAt || b[1]?.startTime || 0) || 0;
+      return aTs - bTs;
+    })
+    .slice(0, entries.length - MAX_DORMANT_SERVICES)
+    .forEach(([serviceName]) => delete dormantServices[serviceName]);
+}
+
+function moveServiceToDormant(serviceName, meta) {
+  if (!meta) return;
+  dormantServices[serviceName] = {
+    ...meta,
+    previousPort: meta.port,
+    stoppedAt: new Date().toISOString()
+  };
+  pruneDormantServices();
+}
 
 // Per-company stop flag — prevents ensureServiceRunning from recreating services
 // during a company-level stop operation (cleared after 30s)
@@ -386,6 +411,12 @@ export async function startChildService(internalServiceName, scriptPath, portPar
         .trim();
       if (!inheritedEnv.NODE_OPTIONS) {
         delete inheritedEnv.NODE_OPTIONS;
+          const childMaxOldSpaceMb = Math.max(64, parseInt(process.env.CHILD_SERVICE_MAX_OLD_SPACE_MB || '128', 10));
+          const existingNodeOpts = String(inheritedEnv.NODE_OPTIONS || '')
+            .replace(/--max-old-space-size=\d+/g, '')
+            .replace(/\s+/g, ' ')
+            .trim();
+          inheritedEnv.NODE_OPTIONS = `${existingNodeOpts} --max-old-space-size=${childMaxOldSpaceMb}`.trim();
       }
     }
 
@@ -973,11 +1004,7 @@ export async function stopAllServices() {
   Object.keys(childServices).forEach(serviceName => {
     const meta = childServiceMeta[serviceName];
     if (meta) {
-      dormantServices[serviceName] = {
-        ...meta,
-        previousPort: meta.port,
-        stoppedAt: new Date().toISOString()
-      };
+      moveServiceToDormant(serviceName, meta);
       if (meta.port) {
         portManager.releasePort(meta.port, serviceName);
       }
@@ -1076,11 +1103,7 @@ export async function stopServicesForCompany(companyName) {
     }
 
     // Move to dormant before cleanup
-    dormantServices[serviceName] = {
-      ...meta,
-      previousPort: meta.port,
-      stoppedAt: new Date().toISOString()
-    };
+    moveServiceToDormant(serviceName, meta);
 
     // Release port
     if (meta.port) {
@@ -1162,11 +1185,7 @@ export async function stopService(serviceName) {
   // Move to dormant instead of deleting — preserve metadata for quick restart
   const dormantMeta = childServiceMeta[serviceName];
   if (dormantMeta) {
-    dormantServices[serviceName] = {
-      ...dormantMeta,
-      previousPort: dormantMeta.port,
-      stoppedAt: new Date().toISOString()
-    };
+    moveServiceToDormant(serviceName, dormantMeta);
     console.log(`[service-manager] 💤 Service ${serviceName} moved to dormant (port was ${dormantMeta.port})`);
   }
 

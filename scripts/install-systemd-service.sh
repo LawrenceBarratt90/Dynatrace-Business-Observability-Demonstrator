@@ -58,6 +58,8 @@ WorkingDirectory=$APP_DIR
 Environment=NODE_ENV=production
 Environment=PORT=8080
 Environment=NODE_OPTIONS=--max-old-space-size=768
+Environment=CHILD_SERVICE_MAX_OLD_SPACE_MB=128
+Environment=MAX_DORMANT_SERVICES=250
 Environment=HOME=/home/$RUN_AS_USER
 Environment=PATH=$(dirname "$NODE_BIN"):/usr/local/bin:/usr/bin:/bin
 EnvironmentFile=-$APP_DIR/.env
@@ -69,8 +71,8 @@ RestartPreventExitStatus=0
 OOMPolicy=continue
 StartLimitIntervalSec=300
 StartLimitBurst=50
-MemoryHigh=900M
-MemoryMax=1024M
+MemoryHigh=1400M
+MemoryMax=2048M
 SyslogIdentifier=bizobs-server
 StandardOutput=journal
 StandardError=journal
